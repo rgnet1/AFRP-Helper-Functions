@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>QR Code Generator</title>
     <style>
-        /* Existing CSS */
         body {
             font-family: Arial, sans-serif;
             background-color: #eef2f3;
@@ -66,6 +65,19 @@
         input[type="submit"]:hover {
             background-color: #53868B;
         }
+        .back-button {
+            margin-top: 20px;
+            text-decoration: none;
+            background-color: #ccc;
+            color: #333;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background-color 0.3s ease;
+        }
+        .back-button:hover {
+            background-color: #bbb;
+        }
     </style>
     <script>
         function showShapeOptions() {
@@ -109,5 +121,7 @@
 
         <input type="submit" value="Generate QR Code">
     </form>
+
+    <a href="/" class="back-button">Back to Home</a>
 </body>
 </html>
