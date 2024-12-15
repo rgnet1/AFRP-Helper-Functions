@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Home - AFRP CRM Helper</title>
+    <link 
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+        integrity="sha512-d2Liw9JK8gCzwAfaqi4y9dtZqG4pvLSLE2kM3H92YLJPl1c38wZzScZ8YOw3GjMaNI+pHmM0Pil3Q17PiR8yXg=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
+    />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef2f3;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: #5F9EA0;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .tiles-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            padding: 50px;
+        }
+
+        .tile {
+            background-color: #fff;
+            width: 200px;
+            height: 200px;
+            margin: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            color: #333;
+            transition: transform 0.2s ease;
+        }
+
+        .tile:hover {
+            transform: scale(1.05);
+        }
+
+        .tile-icon {
+            width: 60px; 
+            height: 60px; 
+            display: flex;
+            font-size: 40px;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .tile-icon img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .tile-title {
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            padding: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AFRP CRM Helper Functions</h1>
+    </header>
+    <div class="tiles-container">
+        <!-- QR Code Generator Tile -->
+        <a href="/qr" class="tile">
+            <div class="tile-icon">
+                <img src="{{ url_for('static', filename='images/qrcode_my.afrp.org.png') }}" alt="QR Code Icon">
+            </div>
+            <div class="tile-title">QR Code Generator</div>
+        </a>
+
+        <!-- Future Features Tiles (placeholders for now) -->
+        <div class="tile">
+            <div class="tile-icon">🔒</div>
+            <div class="tile-title">Generate Private Event URL (Coming Soon)</div>
+        </div>
+
+        <div class="tile">
+            <div class="tile-icon">🔒</div>
+            <div class="tile-title">Feature 3 (Coming Soon)</div>
+        </div>
+    </div>
+</body>
+</html>
