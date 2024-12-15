@@ -1,3 +1,5 @@
-# QR Code Generator
+# AFRP Helper
 
-A simple website that will generate QR codes with input text and an optional image
+A simple website for AFRP admins that will
+
+-  generate QR codes with input text and an optional image

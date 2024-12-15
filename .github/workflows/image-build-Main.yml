@@ -38,4 +38,4 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: rgnet1/qr-code-generator:latest
+          tags: rgnet1/afrp-helper:latest
