@@ -1,35 +1,24 @@
-# Use an official Python runtime as a parent image
-FROM python:3.10-slim
+# Use Python slim image as base
+FROM python:3.10-slim-bullseye
 
-# Set the working directory in the container
+# Set the working directory
 WORKDIR /app
 
-# Install necessary build dependencies
+# Install only the necessary system dependencies for Pillow and numpy
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    ninja-build \
-    git \
-    libatlas-base-dev \
-    gfortran \
-    libopenblas-dev \
-    liblapack-dev \
+    libopenblas0 \
+    libjpeg62-turbo \
+    zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install CMake via pip
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install cmake
+# Copy requirements and install Python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the requirements file into the container
-COPY requirements.txt ./
-
-# Install the Python dependencies
-RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
-
-# Copy the rest of the application code into the container
+# Copy application code
 COPY . .
 
-# Expose port 5000 for the Gunicorn app
+# Expose port for the application
 EXPOSE 5000
 
 # Run the application using Gunicorn
