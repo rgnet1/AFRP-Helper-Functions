@@ -1,8 +1,14 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, jsonify
 import qrcode
 from io import BytesIO
 from PIL import Image
 import numpy as np  # Ensure numpy is installed
+import urllib.parse
+
+# Constants for URL generation
+ENV_PROD = "https://my.afrp.org/"
+ENV_DEV = "https://afrpdev.powerappsportals.com/"
+CURRENT_ENV = ENV_PROD
 
 app = Flask(__name__)
 
@@ -103,6 +109,35 @@ def qr():
                 download_name='qr.png'
             )
     return render_template('qr.html')
+
+@app.route('/event', methods=['GET', 'POST'])
+def event():
+    if request.method == 'POST':
+        crm_url = request.form.get('crmUrl')
+        try:
+            # Parse the input URL
+            parsed_url = urllib.parse.urlparse(crm_url)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            
+            # Extract the 'id' parameter value
+            event_id = query_params.get('id', [None])[0]
+            
+            if not event_id:
+                return jsonify({'error': 'Invalid URL: event ID not found'})
+            
+            # Generate URLs
+            event_url = f"{CURRENT_ENV}Event_registration/event/?id={event_id}"
+            summary_url = f"{CURRENT_ENV}eventsummary/?id={event_id}"
+            
+            return jsonify({
+                'event_url': event_url,
+                'summary_url': summary_url
+            })
+            
+        except Exception as e:
+            return jsonify({'error': str(e)})
+    
+    return render_template('event.html')
 
 if __name__ == '__main__':
     app.run(debug=True)

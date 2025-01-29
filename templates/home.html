@@ -92,12 +92,15 @@
             <div class="tile-title">QR Code Generator</div>
         </a>
 
-        <!-- Future Features Tiles (placeholders for now) -->
-        <div class="tile">
-            <div class="tile-icon">🔒</div>
-            <div class="tile-title">Generate Private Event URL (Coming Soon)</div>
-        </div>
+        <!-- Event URL Generator Tile -->
+        <a href="/event" class="tile">
+            <div class="tile-icon">
+                <img src="{{ url_for('static', filename='images/internet.png') }}" alt="Internet Icon">
+            </div>
+            <div class="tile-title">Generate Private Event URL</div>
+        </a>
 
+        <!-- Future Feature Tile -->
         <div class="tile">
             <div class="tile-icon">🔒</div>
             <div class="tile-title">Feature 3 (Coming Soon)</div>

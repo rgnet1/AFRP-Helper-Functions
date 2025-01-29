@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event URL Generator - AFRP CRM Helper</title>
+    <link 
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+        integrity="sha512-d2Liw9JK8gCzwAfaqi4y9dtZqG4pvLSLE2kM3H92YLJPl1c38wZzScZ8YOw3GjMaNI+pHmM0Pil3Q17PiR8yXg=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
+    />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef2f3;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #4b904b;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            flex: 1;
+            width: 90%;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                width: 95%;
+                margin: 20px auto;
+                padding: 15px;
+            }
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #4b904b;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #3a703a;
+        }
+
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            display: none;
+        }
+
+        .result.show {
+            display: block;
+        }
+
+        .url-group {
+            position: relative;
+            margin: 20px 0;
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .url-display {
+            margin: 0;
+            padding: 15px;
+            padding-right: 60px; /* Space for copy button */
+            background-color: #fff;
+            border: none;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .copy-btn {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 50px;
+            background-color: #fff;
+            color: #666;
+            border: none;
+            border-left: 1px solid #ddd;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .copy-btn:hover {
+            background-color: #4b904b;
+            color: white;
+        }
+
+        h4 {
+            padding: 0 15px;
+            margin-bottom: 10px;
+        }
+
+        .copy-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+        }
+
+        .copy-btn i {
+            font-size: 16px;
+        }
+
+        .copy-btn span {
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        /* Toast notification for copy feedback */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #333;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        @media (max-width: 480px) {
+            input[type="text"] {
+                font-size: 14px;
+            }
+
+            .url-display {
+                font-size: 12px;
+                padding: 12px;
+                padding-right: 50px;
+            }
+
+            .copy-btn {
+                width: 40px;
+            }
+
+            .copy-btn i {
+                font-size: 16px;
+            }
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #4b904b;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .error {
+            color: #dc3545;
+            margin-top: 5px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Event URL Generator</h1>
+    </header>
+    <div class="container">
+        <form id="urlForm">
+            <div class="form-group">
+                <label for="crmUrl">CRM Event Page URL:</label>
+                <input type="text" id="crmUrl" name="crmUrl" required 
+                       placeholder="Enter the CRM Event Page URL">
+                <div class="error" id="urlError">Please enter a valid CRM URL with an event ID</div>
+            </div>
+            <button type="submit">Generate URLs</button>
+        </form>
+
+        <div class="result" id="resultSection">
+            <h3>Generated URLs:</h3>
+            <div class="url-group">
+                <h4>Event Registration URL:</h4>
+                <div class="url-display" id="eventUrl"></div>
+                <button class="copy-btn" onclick="copyToClipboard('eventUrl')">
+                    <i class="fas fa-copy"></i>
+                    <span>Copy</span>
+                </button>
+            </div>
+            <div class="url-group">
+                <h4>Event Summary URL:</h4>
+                <div class="url-display" id="summaryUrl"></div>
+                <button class="copy-btn" onclick="copyToClipboard('summaryUrl')">
+                    <i class="fas fa-copy"></i>
+                    <span>Copy</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="toast" id="toast">URL copied to clipboard!</div>
+
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <script>
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                const toast = document.getElementById('toast');
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 2000);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+
+        document.getElementById('urlForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const crmUrl = document.getElementById('crmUrl').value;
+            
+            fetch('/event', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'crmUrl=' + encodeURIComponent(crmUrl)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('urlError').style.display = 'block';
+                    document.getElementById('resultSection').style.display = 'none';
+                } else {
+                    document.getElementById('urlError').style.display = 'none';
+                    document.getElementById('eventUrl').textContent = data.event_url;
+                    document.getElementById('summaryUrl').textContent = data.summary_url;
+                    document.getElementById('resultSection').style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('urlError').style.display = 'block';
+                document.getElementById('resultSection').style.display = 'none';
+            });
+        });
+    </script>
+</body>
+</html>
