@@ -1,0 +1,14 @@
+# Config files
+/config/
+.env
+
+# Generated files
+/downloads/
+/logs/
+*.log
+*.pyc
+__pycache__/
+
+# IDE files
+.vscode/
+.idea/

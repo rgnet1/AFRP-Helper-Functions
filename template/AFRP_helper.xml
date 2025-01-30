@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>afrp-helper</Name>
+  <Repository>rgnet1/afrp-helper</Repository>
+  <Registry>https://hub.docker.com/r/rgnet1/afrp-helper</Registry>
+  <Network>bridge</Network>
+  <MyIP></MyIP>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/rgnet1/AFRP-Helper-Functions</Support>
+  <Project>https://github.com/rgnet1/AFRP-Helper-Functions</Project>
+  <Overview>
+    AFRP CRM Helper with QR Code Generator and Magazine Downloader functionality.
+  </Overview>
+  <Category>Tools: Productivity</Category>
+  <WebUI>http://[IP]:[PORT:5000]</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/rgnet1/AFRP-Helper-Functions/master/static/images/qrcode_my.afrp.org.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>1706590548</DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Description>
+    AFRP CRM Helper provides tools for:
+    - QR Code Generation
+    - Magazine Download Management
+    - Event URL Generation
+  </Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>5000</HostPort>
+        <ContainerPort>5000</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/appdata/afrp-helper/config</HostDir>
+      <ContainerDir>/config</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/afrp-helper/downloads</HostDir>
+      <ContainerDir>/app/downloads</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/afrp-helper/logs</HostDir>
+      <ContainerDir>/app/logs</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Environment>
+    <Variable>
+      <Name>PYTHONUNBUFFERED</Name>
+      <Value>1</Value>
+    </Variable>
+  </Environment>
+  <Labels/>
+  <Config Name="WebUI" Target="5000" Default="5000" Mode="tcp" Description="Web Interface Port" Type="Port" Display="always" Required="true" Mask="false">5000</Config>
+  <Config Name="Config Directory" Target="/config" Default="/mnt/user/appdata/afrp-helper/config" Mode="rw" Description="Configuration files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/config</Config>
+  <Config Name="Downloads Directory" Target="/app/downloads" Default="/mnt/user/appdata/afrp-helper/downloads" Mode="rw" Description="Magazine downloads location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/downloads</Config>
+  <Config Name="Logs Directory" Target="/app/logs" Default="/mnt/user/appdata/afrp-helper/logs" Mode="rw" Description="Log files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/logs</Config>
+  <Config Name="Python Unbuffered" Target="PYTHONUNBUFFERED" Default="1" Mode="" Description="Ensure Python output is sent to container logs without buffering" Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
+</Container>
