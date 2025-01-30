@@ -3,12 +3,7 @@ import qrcode
 from io import BytesIO
 from PIL import Image
 import numpy as np  # Ensure numpy is installed
-import urllib.parse
-
-# Constants for URL generation
-ENV_PROD = "https://my.afrp.org/"
-ENV_DEV = "https://afrpdev.powerappsportals.com/"
-CURRENT_ENV = ENV_PROD
+from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
 
 app = Flask(__name__)
 
@@ -115,19 +110,10 @@ def event():
     if request.method == 'POST':
         crm_url = request.form.get('crmUrl')
         try:
-            # Parse the input URL
-            parsed_url = urllib.parse.urlparse(crm_url)
-            query_params = urllib.parse.parse_qs(parsed_url.query)
-            
-            # Extract the 'id' parameter value
-            event_id = query_params.get('id', [None])[0]
-            
-            if not event_id:
-                return jsonify({'error': 'Invalid URL: event ID not found'})
-            
-            # Generate URLs
-            event_url = f"{CURRENT_ENV}Event_registration/event/?id={event_id}"
-            summary_url = f"{CURRENT_ENV}eventsummary/?id={event_id}"
+            # Extract event ID and generate URLs
+            event_id = extract_event_id(crm_url)
+            event_url = generate_event_registration_url(event_id)
+            summary_url = generate_event_summary_url(event_id)
             
             return jsonify({
                 'event_url': event_url,
