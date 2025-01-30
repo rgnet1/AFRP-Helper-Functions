@@ -1,9 +1,14 @@
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file, jsonify, Response
 import qrcode
-from io import BytesIO
+from io import BytesIO, StringIO
 from PIL import Image
-import numpy as np  # Ensure numpy is installed
+import numpy as np
+import sys
+import threading
+import queue
+from contextlib import redirect_stdout
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
+from utils.magazine.download_latest_magazine import main as magazine_main
 
 app = Flask(__name__)
 
@@ -124,6 +129,61 @@ def event():
             return jsonify({'error': str(e)})
     
     return render_template('event.html')
+
+@app.route('/magazine')
+def magazine():
+    return render_template('magazine.html')
+
+@app.route('/run-magazine-download')
+def run_magazine_download():
+    def generate():
+        # Create a queue for capturing stdout
+        output_queue = queue.Queue()
+        
+        # Create a StringIO object to capture print statements
+        output_buffer = StringIO()
+        
+        def run_download():
+            with redirect_stdout(output_buffer):
+                try:
+                    magazine_main()
+                except Exception as e:
+                    print(f"Error: {str(e)}")
+                finally:
+                    output_queue.put(None)  # Signal completion
+        
+        # Start the download process in a separate thread
+        thread = threading.Thread(target=run_download)
+        thread.start()
+        
+        # Stream the output
+        last_position = 0
+        while True:
+            # Check if there's new output
+            output_buffer.seek(last_position)
+            output = output_buffer.read()
+            
+            if output:
+                yield f"data: {output}\n\n"
+                last_position = output_buffer.tell()
+            
+            # Check if process is complete
+            try:
+                done = output_queue.get_nowait()
+                if done is None:
+                    break
+            except queue.Empty:
+                pass
+        
+        # Send any remaining output
+        output_buffer.seek(last_position)
+        output = output_buffer.read()
+        if output:
+            yield f"data: {output}\n\n"
+        
+        yield "data: DONE\n\n"
+    
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Magazine Downloader - AFRP CRM Helper</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef2f3;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #4b904b;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            flex: 1;
+            width: 90%;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+
+        .button-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        #downloadButton {
+            background-color: #4b904b;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+
+        #downloadButton:hover {
+            background-color: #3a703a;
+        }
+
+        #downloadButton:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .terminal {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            padding: 20px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            max-height: 300px;
+            display: none;
+            margin: 20px 0;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #4b904b;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                width: 95%;
+                margin: 20px auto;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Magazine Downloader</h1>
+    </header>
+
+    <div class="container">
+        <div class="button-container">
+            <button id="downloadButton" onclick="startDownload()">Download Latest Magazine</button>
+        </div>
+        <div id="terminal" class="terminal"></div>
+        
+        <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <script>
+        function startDownload() {
+            const terminal = document.getElementById('terminal');
+            const button = document.getElementById('downloadButton');
+            
+            // Clear previous output and show terminal
+            terminal.textContent = '';
+            terminal.style.display = 'block';
+            
+            // Disable button while downloading
+            button.disabled = true;
+            button.textContent = 'Downloading...';
+
+            // Create EventSource for SSE
+            const eventSource = new EventSource('/run-magazine-download');
+
+            eventSource.onmessage = function(event) {
+                if (event.data === 'DONE') {
+                    // Download complete
+                    eventSource.close();
+                    button.disabled = false;
+                    button.textContent = 'Download Latest Magazine';
+                    terminal.textContent += '\nDownload complete!';
+                } else {
+                    // Append new output
+                    terminal.textContent += event.data;
+                    // Auto-scroll to bottom
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            };
+
+            eventSource.onerror = function(error) {
+                console.error('EventSource error:', error);
+                eventSource.close();
+                button.disabled = false;
+                button.textContent = 'Download Latest Magazine';
+                terminal.textContent += '\nError: Connection lost. Please try again.';
+            };
+        }
+    </script>
+</body>
+</html>
