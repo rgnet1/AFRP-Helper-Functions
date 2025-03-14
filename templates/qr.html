@@ -7,15 +7,31 @@
         body {
             font-family: Arial, sans-serif;
             background-color: #eef2f3;
-            display: flex;
-            align-items: center;
-            flex-direction: column;
-            padding-top: 50px;
             margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
         }
-        h1 {
-            color: #333;
+
+        header {
+            background-color: #4b904b;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
         }
+
+        .container {
+            flex: 1;
+            width: 90%;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
         form {
             background-color: #fff;
             padding: 25px;
@@ -95,8 +111,12 @@
     </script>
 </head>
 <body>
-    <h1>QR Code Generator</h1>
-    <form method="post" enctype="multipart/form-data">
+    <header>
+        <h1>QR Code Generator</h1>
+    </header>
+    
+    <div class="container">
+        <form method="post" enctype="multipart/form-data">
         <label for="data">Enter Data:</label>
         <input type="text" id="data" name="data" required>
 
@@ -118,6 +138,7 @@
         <input type="submit" value="Generate QR Code">
     </form>
 
-    <a href="/" class="back-button">← Back to Home</a>
+        <a href="/" class="back-button">← Back to Home</a>
+    </div>
 </body>
 </html>

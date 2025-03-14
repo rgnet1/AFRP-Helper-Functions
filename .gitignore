@@ -8,6 +8,7 @@
 *.log
 *.pyc
 __pycache__/
+/data/magazine_schedules.db
 
 # IDE files
 .vscode/

@@ -6,8 +6,12 @@ class MagazineConfig:
     """Centralized configuration for magazine processing system."""
     
     def __init__(self):
+        # Check if running in Docker
+        self.in_docker = os.environ.get('DOCKER_CONTAINER', False)
+        self.base_path = '/app' if self.in_docker else '.'
+        
         # Load .env from config directory
-        load_dotenv('/config/.env')
+        load_dotenv(f'{self.base_path}/config/.env')
         
         # Dropbox settings
         self.dropbox_client_id = self._get_env("DROPBOX_CLIENT_ID")
@@ -17,20 +21,25 @@ class MagazineConfig:
         # Server settings
         self.server_ip = "192.168.2.11"
         self.server_user = "root"
+        self.server_password = self._get_env("SERVER_PASSWORD", required=False)
         self.server_path = "/mnt/user/Ramzey/AFRP Archive/Magazine-Issues-2022-Present/"
         
         # Email/SMS settings
         self.email = self._get_env("EMAIL")
         self.email_password = self._get_env("EMAIL_APP_PASSWORD")
         self.notification_numbers = {
-            "primary": self._get_env("PHONE_NUMBER"),
-            "secondary": self._get_env("PHONE_NUMBER_TWO", required=False)
+            key: number for key, number in {
+                "primary": self._get_env("PHONE_NUMBER"),
+                "secondary": self._get_env("PHONE_NUMBER_TWO", required=False)
+            }.items() if number
         }
         
         # File paths
-        self.download_path = "/app/downloads"
-        self.metadata_file = "/config/last_downloaded_file.json"
-        self.log_file = "/app/logs/dropbox_folder_download.log"
+        self.download_path = f"{self.base_path}/downloads"
+        self.metadata_file = f"{self.base_path}/config/last_downloaded_file.json"
+        # Ensure logs directory exists
+        os.makedirs(f"{self.base_path}/logs", exist_ok=True)
+        self.log_file = f"{self.base_path}/logs/magazine.log"
 
     def _get_env(self, key: str, required: bool = True) -> Optional[str]:
         """Get environment variable with optional requirement check.

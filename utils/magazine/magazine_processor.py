@@ -44,25 +44,40 @@ class MagazineProcessor:
             return new_filename, year
         else:
             logging.info(f"{filename} did not match format. Skipping")
-            print(f"{filename} did not match format. Skipping")
+            print(f"{filename} did not match format. Skipping", flush=True)
             return filename, None
 
     def process_magazine_files(self) -> None:
         """Process magazine files from Dropbox and upload to server."""
         # First check for new files from Dropbox
         downloaded_file = self.dropbox.process_latest_file()
-        if not downloaded_file:
-            logging.info("No new files to process")
-            return
-
-        # List all PDF files in current directory
-        pdf_files = [f for f in os.listdir() if f.endswith('.pdf') and f.startswith("Vol")]
         
-        # Use context manager for server connection
-        with ServerHandler(self.config) as server:
-            for file in pdf_files:
-                self._process_single_file(file, server)
-
+        message = ""
+        if not downloaded_file:
+            message = "Magazine Check: No new files to process"
+            logging.info("No new files to process")
+            print("No new files to process", flush=True)
+        else:
+            # List all PDF files in current directory
+            pdf_files = [f for f in os.listdir() if f.endswith('.pdf') and f.startswith("Vol")]
+            
+            # Use context manager for server connection
+            with ServerHandler(self.config) as server:
+                for file in pdf_files:
+                    self._process_single_file(file, server)
+            
+            message = "Magazine Check: New files were processed and uploaded"
+        
+        # Send notifications regardless of whether new files were found
+        if self.config.notification_credentials_valid:
+            logging.info(f"notifier: {self.notifier.email}\n")
+            logging.info(f"Sending notification: {message}\n")
+            for number in self.config.notification_numbers.values():
+                logging.info(f"Sending message to {number}")
+                if number:  # Only send if number is provided
+                    self.notifier.send_message(number, self.notifier.VERIZON, message)
+                    logging.info(f"Message finally sent to {number}")
+    
     def _process_single_file(self, filename: str, server: ServerHandler) -> None:
         """Process a single magazine file.
         
@@ -78,8 +93,8 @@ class MagazineProcessor:
             return
 
         logging.info(f"Processing: {filename} -> {new_filename}")
-        print(f"\n-------------------------------------------------")
-        print(f"Re-name: {filename} -> {new_filename}")
+        print(f"\n-------------------------------------------------", flush=True)
+        print(f"Re-name: {filename} -> {new_filename}", flush=True)
 
         # Rename the file locally
         os.rename(filename, new_filename)
@@ -90,13 +105,13 @@ class MagazineProcessor:
         # Verify local file exists after rename
         if not os.path.exists(new_filename):
             logging.error(f"Local file {new_filename} does not exist!")
-            print(f"Local file {new_filename} does not exist!")
+            print(f"Local file {new_filename} does not exist!", flush=True)
             return
 
         # Verify remote directory exists
         if not server.remote_path_exists(remote_path):
             logging.error(f"Remote path {remote_path} does not exist")
-            print(f"Remote path {remote_path} does not exist. Please make sure directory exists!")
+            print(f"Remote path {remote_path} does not exist. Please make sure directory exists!", flush=True)
             return
 
         # Construct full remote path
@@ -105,7 +120,7 @@ class MagazineProcessor:
         # Skip if file already exists on server
         if server.remote_file_exists(remote_file_path):
             logging.info(f"{new_filename} already exists on the server. Skipping!")
-            print(f"{new_filename} already exists on the server. Skipping!")
+            print(f"{new_filename} already exists on the server. Skipping!", flush=True)
             return
 
         # Upload file with progress bar
@@ -115,20 +130,14 @@ class MagazineProcessor:
             progress = transferred / total
             block = int(round(bar_length * progress))
             bar = "|" + "=" * block + "-" * (bar_length - block) + "|"
-            print(f"\r{bar} {progress:.2%}", end='\r')
+            print(f"\r{bar} {progress:.2%}", end='\r', flush=True)
             if transferred == total:
-                print()
+                print(flush=True)
 
         if server.upload_file(new_filename, remote_file_path, progress_callback):
             message = f"New Magazine: Successfully added: {new_filename} to server"
             logging.info(message)
-            print(message)
-            
-            # Send notifications
-            if self.config.notification_credentials_valid:
-                for number in self.config.notification_numbers.values():
-                    if number:  # Only send if number is provided
-                        self.notifier.send_message(number, self.notifier.VERIZON, message)
+            print(message, flush=True)
 
 def main():
     """Main entry point for magazine processing."""
@@ -138,7 +147,7 @@ def main():
         processor.process_magazine_files()
     except Exception as e:
         logging.error(f"Error in magazine processing: {e}")
-        print(f"Error in magazine processing: {e}")
+        print(f"Error in magazine processing: {e}", flush=True)
 
 if __name__ == "__main__":
     main()

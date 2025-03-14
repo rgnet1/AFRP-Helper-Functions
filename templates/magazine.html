@@ -19,6 +19,7 @@
             color: #fff;
             padding: 20px;
             text-align: center;
+            position: relative;
         }
 
         .container {
@@ -35,9 +36,12 @@
         .button-container {
             text-align: center;
             margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
         }
 
-        #downloadButton {
+        .btn {
             background-color: #4b904b;
             color: white;
             border: none;
@@ -48,11 +52,11 @@
             transition: background-color 0.2s;
         }
 
-        #downloadButton:hover {
+        .btn:hover {
             background-color: #3a703a;
         }
 
-        #downloadButton:disabled {
+        .btn:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
@@ -81,6 +85,241 @@
             text-decoration: underline;
         }
 
+        .schedules-section {
+            margin-top: 30px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+
+        .schedules-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .schedule-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .schedule-item {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .schedule-item:hover {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            padding-right: 40px;
+        }
+
+        .schedule-info {
+            flex-grow: 1;
+        }
+
+        .dropdown-icon {
+            position: absolute;
+            right: 10px;
+            width: 20px;
+            height: 20px;
+            transition: transform 0.3s ease;
+        }
+
+        .dropdown-icon::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid #666;
+            border-bottom: 2px solid #666;
+            transform: translate(-50%, -75%) rotate(45deg);
+        }
+
+        .schedule-item.expanded .dropdown-icon {
+            transform: rotate(180deg);
+        }
+
+        .run-history {
+            display: none;
+            margin-top: 15px;
+            border-top: 1px solid #dee2e6;
+            padding-top: 15px;
+        }
+
+        .run-history.show {
+            display: block;
+        }
+
+        .run-item {
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .run-header {
+            padding: 10px;
+            padding-right: 40px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+        }
+
+        .run-header:hover {
+            background-color: #f8f9fa;
+        }
+
+        .run-status {
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .run-logs {
+            display: none;
+            padding: 10px;
+            background-color: #1e1e1e;
+            color: #fff;
+            font-family: monospace;
+            white-space: pre-wrap;
+            border-radius: 0 0 4px 4px;
+            margin-top: -1px;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .run-logs.show {
+            display: block;
+        }
+
+        .run-item.expanded .dropdown-icon {
+            transform: rotate(180deg);
+        }
+
+        .delete-btn {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            z-index: 1;
+        }
+
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 500px;
+        }
+
+        .close {
+            float: right;
+            cursor: pointer;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .form-group select, .form-group input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .form-hint {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 12px;
+        }
+
+        /* New validation styles */
+        .form-group.error input,
+        .form-group.error select {
+            border-color: #dc3545;
+        }
+
+        .form-group .error-message {
+            display: none;
+            color: #dc3545;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        .form-group.error .error-message {
+            display: block;
+        }
+
+        .success-message {
+            display: none;
+            background-color: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .error-message-container {
+            display: none;
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
         @media (max-width: 768px) {
             .container {
                 width: 95%;
@@ -92,16 +331,103 @@
 </head>
 <body>
     <header>
+        <div id="datetime" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); font-size: 14px;"></div>
         <h1>Magazine Downloader</h1>
     </header>
 
     <div class="container">
         <div class="button-container">
-            <button id="downloadButton" onclick="startDownload()">Download Latest Magazine</button>
+            <button id="downloadButton" class="btn" onclick="startDownload()">Run Now</button>
         </div>
         <div id="terminal" class="terminal"></div>
         
+        <div class="schedules-section">
+            <div class="schedules-header">
+                <h2>Schedules</h2>
+                <button class="btn" onclick="openModal()">+ Add Schedule</button>
+            </div>
+            <div id="scheduleList" class="schedule-list">
+                {% for schedule in schedules %}
+                <div class="schedule-item" id="schedule{{ schedule.id }}" onclick="toggleSchedule(event, {{ schedule.id }})">
+                    <div class="schedule-header">
+                        <div class="dropdown-icon"></div>
+                        <div class="schedule-info">
+                            <strong>{{ schedule.frequency.title() }}</strong>
+                            {% if schedule.frequency == 'weekly' %}
+                                on {{ ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][schedule.day_of_week] }}
+                            {% elif schedule.frequency == 'monthly' %}
+                                on day {{ schedule.day_of_month }}
+                            {% endif %}
+                            at {{ schedule.time }}
+                        </div>
+                        <button class="delete-btn" onclick="deleteSchedule(event, {{ schedule.id }})">Delete</button>
+                    </div>
+                    <div class="run-history" id="history{{ schedule.id }}">
+                        <h4>Last 10 Runs</h4>
+                        <div class="run-list" id="runList{{ schedule.id }}">
+                            <!-- Run history will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
         <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <!-- Add Schedule Modal -->
+    <div id="scheduleModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2>Add New Schedule</h2>
+            <div id="formSuccess" class="success-message"></div>
+            <div id="formError" class="error-message-container"></div>
+            <form id="scheduleForm" onsubmit="submitSchedule(event)">
+                <div class="form-group">
+                    <label for="frequency">Frequency</label>
+                    <select id="frequency" onchange="updateFormFields()">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                    <div class="error-message"></div>
+                </div>
+                
+                <div class="form-group" id="dayOfWeekGroup" style="display: none;">
+                    <label for="dayOfWeek">Day of Week</label>
+                    <select id="dayOfWeek">
+                        <option value="0">Monday</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                    <div class="error-message"></div>
+                </div>
+                
+                <div class="form-group" id="dayOfMonthGroup" style="display: none;">
+                    <label for="dayOfMonth">Day of Month</label>
+                    <select id="dayOfMonth">
+                        {% for day in range(1, 32) %}
+                        <option value="{{ day }}">{{ day }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="error-message"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="time">Time (PST)</label>
+                    <input type="time" id="time" required onchange="validateTime()">
+                    <span class="form-hint">Enter time in HH:MM format (e.g., 09:30 for 9:30 AM, 13:30 for 1:30 PM)</span>
+                    <div class="error-message"></div>
+                </div>
+                
+                <button type="submit" class="btn" id="submitBtn">Add Schedule</button>
+            </form>
+        </div>
     </div>
 
     <script>
@@ -109,29 +435,22 @@
             const terminal = document.getElementById('terminal');
             const button = document.getElementById('downloadButton');
             
-            // Clear previous output and show terminal
             terminal.textContent = '';
             terminal.style.display = 'block';
             
-            // Disable button while downloading
             button.disabled = true;
-            button.textContent = 'Downloading...';
+            button.textContent = 'Running...';
 
-            // Create EventSource for SSE
             const eventSource = new EventSource('/run-magazine-download');
 
             eventSource.onmessage = function(event) {
-                if (event.data === 'DONE') {
-                    // Download complete
+                if (event.data.trim() === 'DONE') {
                     eventSource.close();
                     button.disabled = false;
-                    button.textContent = 'Download Latest Magazine';
-                    terminal.textContent += '\nDownload complete!';
+                    button.textContent = 'Run Now';
                 } else {
-                    // Append new output
-                    terminal.textContent += event.data;
-                    // Auto-scroll to bottom
-                    terminal.scrollTop = terminal.scrollHeight;
+            terminal.textContent += event.data + '\n';  // Add newline after each log message
+            terminal.scrollTop = terminal.scrollHeight;
                 }
             };
 
@@ -139,9 +458,272 @@
                 console.error('EventSource error:', error);
                 eventSource.close();
                 button.disabled = false;
-                button.textContent = 'Download Latest Magazine';
+                button.textContent = 'Run Now';
                 terminal.textContent += '\nError: Connection lost. Please try again.';
             };
+        }
+
+        function openModal() {
+            document.getElementById('scheduleModal').style.display = 'block';
+            clearMessages();
+        }
+
+        function closeModal() {
+            document.getElementById('scheduleModal').style.display = 'none';
+            clearMessages();
+        }
+
+        function updateFormFields() {
+            const frequency = document.getElementById('frequency').value;
+            document.getElementById('dayOfWeekGroup').style.display = frequency === 'weekly' ? 'block' : 'none';
+            document.getElementById('dayOfMonthGroup').style.display = frequency === 'monthly' ? 'block' : 'none';
+        }
+
+        function formatTime(timeInput) {
+            if (!timeInput) return null;
+            
+            const [hours, minutes] = timeInput.split(':');
+            if (!hours || !minutes) return null;
+            
+            const hour = parseInt(hours);
+            const mins = parseInt(minutes);
+            
+            // Validate hour and minute values
+            if (isNaN(hour) || isNaN(mins) || hour < 0 || hour > 23 || mins < 0 || mins > 59) {
+                return null;
+            }
+            
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const hour12 = hour % 12 || 12;
+            return `${hour12}:${minutes.padStart(2, '0')} ${ampm}`;
+        }
+
+        function validateTime() {
+            const timeInput = document.getElementById('time');
+            const formGroup = timeInput.closest('.form-group');
+            const errorMessage = formGroup.querySelector('.error-message');
+            
+            if (!timeInput.value) {
+                formGroup.classList.add('error');
+                errorMessage.textContent = 'Time is required';
+                return false;
+            }
+            
+            const formattedTime = formatTime(timeInput.value);
+            if (!formattedTime) {
+                formGroup.classList.add('error');
+                errorMessage.textContent = 'Invalid time format. Please use HH:MM format (e.g., 09:30 or 13:30)';
+                return false;
+            }
+            
+            formGroup.classList.remove('error');
+            errorMessage.textContent = '';
+            return true;
+        }
+
+        function showError(message) {
+            const errorContainer = document.getElementById('formError');
+            errorContainer.style.display = 'block';
+            errorContainer.textContent = message;
+            
+            // Hide success message if it's showing
+            document.getElementById('formSuccess').style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            const successContainer = document.getElementById('formSuccess');
+            successContainer.style.display = 'block';
+            successContainer.textContent = message;
+            
+            // Hide error message if it's showing
+            document.getElementById('formError').style.display = 'none';
+        }
+
+        function clearMessages() {
+            document.getElementById('formError').style.display = 'none';
+            document.getElementById('formSuccess').style.display = 'none';
+            
+            // Clear validation errors
+            document.querySelectorAll('.form-group').forEach(group => {
+                group.classList.remove('error');
+                const errorMessage = group.querySelector('.error-message');
+                if (errorMessage) {
+                    errorMessage.textContent = '';
+                }
+            });
+        }
+
+        async function submitSchedule(event) {
+            event.preventDefault();
+            
+            // Clear previous messages
+            clearMessages();
+            
+            // Validate form
+            if (!validateTime()) {
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Adding...';
+            
+            const frequency = document.getElementById('frequency').value;
+            const time = formatTime(document.getElementById('time').value);
+            
+            let data = {
+                frequency,
+                time
+            };
+
+            if (frequency === 'weekly') {
+                data.day_of_week = parseInt(document.getElementById('dayOfWeek').value);
+            } else if (frequency === 'monthly') {
+                data.day_of_month = parseInt(document.getElementById('dayOfMonth').value);
+            }
+
+            const formattedTime = formatTime(document.getElementById('time').value);
+            if (!formattedTime) {
+                showError('Invalid time format');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Schedule';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/schedules', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ...data,
+                        time: formattedTime
+                    })
+                });
+
+                if (response.ok) {
+                    showSuccess('Schedule created successfully!');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    const errorData = await response.json();
+                    showError(errorData.error || 'Failed to create schedule');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Network error. Please try again.');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Add Schedule';
+            }
+        }
+
+        function toggleSchedule(event, id) {
+            if (event.target.classList.contains('delete-btn')) return;
+            const scheduleElement = document.getElementById(`schedule${id}`);
+            const historyElement = document.getElementById(`history${id}`);
+            scheduleElement.classList.toggle('expanded');
+            historyElement.classList.toggle('show');
+        }
+
+        async function deleteSchedule(event, id) {
+            event.stopPropagation();
+            if (!confirm('Are you sure you want to delete this schedule?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/schedules?id=${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    // Remove the schedule from the UI
+                    const scheduleElement = document.getElementById(`schedule${id}`);
+                    if (scheduleElement) {
+                        scheduleElement.remove();
+                    }
+                } else {
+                    const errorData = await response.json();
+                    alert(errorData.error || 'Failed to delete schedule');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Failed to delete schedule');
+            }
+        }
+
+        // Load run history for schedules
+        async function loadRunHistory() {
+            try {
+                const response = await fetch('/api/schedules');
+                const schedules = await response.json();
+                
+                schedules.forEach(schedule => {
+                    const runList = document.getElementById(`runList${schedule.id}`);
+                    if (!runList) return;
+                    
+                    runList.innerHTML = schedule.runs.map(run => `
+                        <div class="run-item">
+                            <div class="run-header" onclick="toggleLogs(event, ${schedule.id}_${run.id})">
+                                <span>${run.start_time}</span>
+                                <span class="run-status status-${run.status}">${run.status.toUpperCase()}</span>
+                                <div class="dropdown-icon"></div>
+                            </div>
+                            <div class="run-logs" id="logs_${schedule.id}_${run.id}">
+                                ${run.logs || 'No logs available'}
+                            </div>
+                        </div>
+                    `).join('');
+                });
+            } catch (error) {
+                console.error('Error loading run history:', error);
+            }
+        }
+
+        function toggleLogs(event, id) {
+            event.stopPropagation();
+            const runItem = event.target.closest('.run-item');
+            const logsElement = document.getElementById(`logs_${id}`);
+            if (logsElement) {
+                runItem.classList.toggle('expanded');
+                logsElement.classList.toggle('show');
+            }
+        }
+
+        // Update date and time
+        function updateDateTime() {
+            const now = new Date();
+            const options = { 
+                weekday: 'long',
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            };
+            document.getElementById('datetime').textContent = now.toLocaleDateString('en-US', options);
+        }
+
+        // Update immediately and then every second
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
+
+        // Load run history on page load
+        loadRunHistory();
+        // Refresh run history every minute
+        setInterval(loadRunHistory, 60000);
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('scheduleModal');
+            if (event.target === modal) {
+                closeModal();
+            }
         }
     </script>
 </body>

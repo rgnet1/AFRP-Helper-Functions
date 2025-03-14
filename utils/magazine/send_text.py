@@ -1,7 +1,9 @@
 import smtplib
 import sys
 import os
+import logging
 from typing import Optional
+from email.mime.text import MIMEText
 
 class SMSSender:
     # Define carrier email suffixes as class attributes
@@ -26,6 +28,9 @@ class SMSSender:
         """
         self.email = email or os.getenv("EMAIL")
         self.password = password or os.getenv("EMAIL_APP_PASSWORD")
+
+        logging.info(f"Initialized SMSSender with email: {self.email}")
+        logging.info(f"Password: {self.password}" )
         
         if not self.email or not self.password:
             raise ValueError("Email and password must be provided either directly or through environment variables")
@@ -40,16 +45,28 @@ class SMSSender:
         """
         recipient = f"{phone_number}{carrier_email}"
         auth = (self.email, self.password)
-
+        
+        # Properly format the email with headers
+        msg = MIMEText(message)
+        msg['From'] = self.email
+        msg['To'] = recipient
+        msg['Subject'] = ""  # Empty subject for SMS
+        
         try:
-            server = smtplib.SMTP("smtp.gmail.com", 587)
+            logging.info("Connecting to SMTP server...")
+            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=60)
+            logging.info("Starting TLS...")
             server.starttls()
+            logging.info("Logging in to SMTP server...")
             server.login(auth[0], auth[1])
-            server.sendmail(auth[0], recipient, message)
+            logging.info(f"Sending message to {recipient}...")
+            server.sendmail(auth[0], recipient, msg.as_string())  # Send the formatted message
+            logging.info("Message sent successfully.")
             server.quit()
+            logging.info("Disconnected from SMTP server.")
             print(f"Message sent to {phone_number} via {carrier_email}.")
         except Exception as e:
-            print(f"Failed to send message: {e}")
+            logging.error(f"Failed to send message to {phone_number} via {carrier_email}: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:

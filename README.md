@@ -11,9 +11,12 @@ A comprehensive web application designed to assist AFRP administrators with vari
 
 ### 2. Magazine Downloader
 - Automated magazine download functionality
+- Configurable download schedules (daily, weekly, monthly)
 - Real-time progress tracking with console output
 - Secure storage of downloaded magazines
 - Integration with Dropbox for file management
+- Persistent job history and error logging
+- Timezone-aware scheduling (America/Los_Angeles)
 
 ### 3. Event URL Generator
 - Generate registration and summary URLs for events
@@ -68,9 +71,21 @@ volumes:
 - `/config`: Configuration files
 - `/app/downloads`: Magazine download storage
 - `/app/logs`: Application logs
+  - `scheduler.log`: Scheduler events (job additions, removals)
+  - `jobs.log`: Individual job execution logs
+  - Both logs use rotation (1MB size limit, keeps last 5 files)
 
 ### Environment Variables
 - `PYTHONUNBUFFERED=1`: Ensures real-time logging (recommended)
+- `TZ=America/Los_Angeles`: Container timezone (defaults to Los Angeles)
+
+### Database
+The application uses SQLite for storing:
+- Magazine download schedules
+- Job execution history
+- Error logs and status information
+
+The database is automatically initialized on first run and persisted in the `magazine_db` volume.
 
 ## Usage
 

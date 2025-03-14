@@ -6,11 +6,58 @@ import numpy as np
 import sys
 import threading
 import queue
+from datetime import datetime, time
+import re
 from contextlib import redirect_stdout
+import logging
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
 from utils.magazine.download_latest_magazine import main as magazine_main
+from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
+import os
+import logging
 
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Log that the script is starting
+logger.info("Starting app.py...")
+
+# Check if running in Docker
+IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
+BASE_PATH = '/app' if IN_DOCKER else '.'
+
+# Ensure data directory exists with proper permissions
+data_dir = os.path.join(BASE_PATH, 'data')
+os.makedirs(data_dir, exist_ok=True)
+os.chmod(data_dir, 0o777)
+
+# Initialize Flask app
 app = Flask(__name__)
+
+# Set database URI based on environment
+if IN_DOCKER:
+    db_uri = 'sqlite:////app/data/magazine_schedules.db'
+else:
+    # For local development, use absolute path
+    db_path = os.path.join(os.getcwd(), 'data', 'magazine_schedules.db')
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    db_uri = f'sqlite:///{db_path}'
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+logger.info(f"Database URI configured: {db_uri}")
+
+# Initialize extensions
+db.init_app(app)
+
+# Create database tables
+with app.app_context():
+    db.create_all()
+
+# Initialize scheduler after database setup
+schedule_manager.init_app(app)  # This will use replace_existing=True by default
 
 @app.route('/', methods=['GET'])
 def home():
@@ -110,63 +157,176 @@ def qr():
             )
     return render_template('qr.html')
 
-@app.route('/event', methods=['GET', 'POST'])
-def event():
-    if request.method == 'POST':
-        crm_url = request.form.get('crmUrl')
-        try:
-            # Extract event ID and generate URLs
-            event_id = extract_event_id(crm_url)
-            event_url = generate_event_registration_url(event_id)
-            summary_url = generate_event_summary_url(event_id)
-            
-            return jsonify({
-                'event_url': event_url,
-                'summary_url': summary_url
-            })
-            
-        except Exception as e:
-            return jsonify({'error': str(e)})
-    
-    return render_template('event.html')
-
 @app.route('/magazine')
 def magazine():
-    return render_template('magazine.html')
+    schedules = Schedule.query.all()
+    return render_template('magazine.html', schedules=schedules)
+
+@app.route('/event')
+def event_page():
+    return render_template('event.html')
+
+def validate_time_format(time_str):
+    """Validate time string format (HH:MM AM/PM)"""
+    pattern = r'^(1[0-2]|0?[1-9]):([0-5][0-9]) (AM|PM)$'
+    if not re.match(pattern, time_str):
+        return False
+    try:
+        datetime.strptime(time_str, "%I:%M %p")
+        return True
+    except ValueError:
+        return False
+
+@app.route('/api/schedules', methods=['GET', 'POST', 'DELETE'])
+def manage_schedules():
+    if request.method == 'GET':
+        schedules = Schedule.query.all()
+        return jsonify([{
+            'id': s.id,
+            'frequency': s.frequency,
+            'time': s.time,
+            'day_of_week': s.day_of_week,
+            'day_of_month': s.day_of_month,
+            'active': s.active,
+            'runs': [{
+                'id': r.id,
+                'start_time': r.start_time.strftime('%Y-%m-%d %I:%M %p'),
+                'end_time': r.end_time.strftime('%Y-%m-%d %I:%M %p') if r.end_time else None,
+                'status': r.status,
+                'logs': r.logs
+            } for r in s.runs[:10]]  # Get last 10 runs
+        } for s in schedules])
+    
+    elif request.method == 'POST':
+        data = request.json
+        
+        # Check if a schedule with the same configuration already exists
+        existing_schedule = Schedule.query.filter_by(
+            frequency=data['frequency'],
+            time=data['time'],
+            day_of_week=data.get('day_of_week'),
+            day_of_month=data.get('day_of_month'),
+            active=True
+        ).first()
+        
+        if existing_schedule:
+            return jsonify({'error': 'Schedule with these parameters already exists'}), 409
+            
+        # Validate time format
+        if not validate_time_format(data.get('time', '')):
+            return jsonify({'error': 'Invalid time format. Use HH:MM AM/PM format (e.g., 09:30 AM)'}), 400
+
+        # Create new schedule if none exists
+        try:
+            schedule = Schedule(
+                frequency=data['frequency'],
+                time=data['time'],
+                day_of_week=data.get('day_of_week'),
+                day_of_month=data.get('day_of_month'),
+                active=True
+            )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        
+        try:
+            db.session.add(schedule)
+            db.session.commit()
+            
+            # Add job to scheduler
+            schedule_manager.add_job(schedule, magazine_main, replace_existing=True)
+            
+            return jsonify({
+                'id': schedule.id,
+                'message': 'Schedule created successfully'
+            })
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Failed to create schedule: {str(e)}'}), 500
+    
+    elif request.method == 'DELETE':
+        schedule_id = request.args.get('id')
+        if not schedule_id:
+            return jsonify({'error': 'Schedule ID is required'}), 400
+        
+        try:
+            schedule = Schedule.query.get(schedule_id)
+            if not schedule:
+                return jsonify({'error': 'Schedule not found'}), 404
+
+            # Remove from scheduler first
+            schedule_manager.remove_job(schedule.id)
+            
+            # Delete associated runs
+            for run in schedule.runs:
+                db.session.delete(run)
+            
+            # Delete schedule
+            db.session.delete(schedule)
+            db.session.commit()
+            
+            return jsonify({'message': 'Schedule deleted successfully'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'error': f'Failed to delete schedule: {str(e)}'}), 500
 
 @app.route('/run-magazine-download')
 def run_magazine_download():
     def generate():
-        # Create a queue for capturing stdout
+        logging.info("Starting magazine download process")
         output_queue = queue.Queue()
+        log_queue = queue.Queue()
         
-        # Create a StringIO object to capture print statements
-        output_buffer = StringIO()
+        class QueueHandler(logging.Handler):
+            def emit(self, record):
+                log_entry = self.format(record)
+                log_queue.put(log_entry)
+                # Also print to stdout for terminal visibility with a single newline
+                print(log_entry, flush=True)
         
         def run_download():
-            with redirect_stdout(output_buffer):
+            try:
+                # Create and configure queue handler
+                queue_handler = QueueHandler()
+                queue_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+                queue_handler.setLevel(logging.INFO)
+                
+                # Add handler to root logger
+                root_logger = logging.getLogger()
+                root_logger.addHandler(queue_handler)
+                
                 try:
                     magazine_main()
                 except Exception as e:
-                    print(f"Error: {str(e)}")
+                    logging.error(f"Error in magazine download: {str(e)}")
                 finally:
+                    # Remove queue handler
+                    root_logger.removeHandler(queue_handler)
+                    logging.shutdown() # Ensure all logs are processed
                     output_queue.put(None)  # Signal completion
-        
-        # Start the download process in a separate thread
+            except Exception as e:
+                logging.error(f"Error in download thread: {str(e)}")
+                output_queue.put(None)
+
+        logging.info("Starting download thread")
         thread = threading.Thread(target=run_download)
         thread.start()
-        
-        # Stream the output
-        last_position = 0
+
+        logging.info("Collecting log messages")
+        all_logs = []
+
+        logging.info("Streaming output")
         while True:
-            # Check if there's new output
-            output_buffer.seek(last_position)
-            output = output_buffer.read()
-            
-            if output:
-                yield f"data: {output}\n\n"
-                last_position = output_buffer.tell()
-            
+            # Check for new log messages
+            try:
+                while True:
+                    log_entry = log_queue.get_nowait()
+                    all_logs.append(log_entry)
+                    # Ensure log entry doesn't have trailing newlines that would create empty lines
+                    log_entry = log_entry.rstrip('\n')
+                    yield f"data: {log_entry}\n\n"
+            except queue.Empty:
+                pass
+
             # Check if process is complete
             try:
                 done = output_queue.get_nowait()
@@ -174,16 +334,19 @@ def run_magazine_download():
                     break
             except queue.Empty:
                 pass
-        
-        # Send any remaining output
-        output_buffer.seek(last_position)
-        output = output_buffer.read()
-        if output:
-            yield f"data: {output}\n\n"
-        
-        yield "data: DONE\n\n"
-    
-    return Response(generate(), mimetype='text/event-stream')
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        logging.info("Creating job run record")
+        with app.app_context():
+            job_run = JobRun(
+                schedule_id=None,  # Manual run has no schedule
+                end_time=datetime.utcnow(),
+                logs='\n'.join(all_logs),
+                status='success' if 'ERROR' not in '\n'.join(all_logs) else 'error'
+            )
+            db.session.add(job_run)
+            db.session.commit()
+
+        logging.info("Download process completed")
+        yield "data: DONE\n\n"
+
+    return Response(generate(), mimetype='text/event-stream')

@@ -38,8 +38,8 @@ def load_token():
                 token = json.load(f)
                 
                 # Log the type and content of the token to debug
-                logging.info(f"Loaded token content: {token}")
-                logging.info(f"Type of loaded token: {type(token)}")
+                # logging.debug(f"Loaded token content: {token}")
+                # logging.debug(f"Type of loaded token: {type(token)}")
                 
                 if not isinstance(token, dict):
                     logging.error("Loaded token is not a dictionary. Possible corruption or incorrect format.")
@@ -99,12 +99,12 @@ def refresh_token():
     """Refresh the access token using the refresh token."""
     token = load_token()
     if not token:
-        logging.error("No token found during refresh; generating new token.")
+        logging.error("No token found during refresh; generating new token.\n")
         return generate_token()
 
     refresh_token = token.get('refresh_token')
     if not refresh_token:
-        logging.error("No refresh token found; generating new token.")
+        logging.error("No refresh token found; generating new token.\n")
         return generate_token()
 
     payload = {
@@ -116,15 +116,18 @@ def refresh_token():
 
     response = requests.post(TOKEN_URL, data=payload)
     
-    logging.info(f"Refresh token response content: {response.content}")
+    # logging.info(f"Refresh token response content: {response.content}")
+    logging.info(f"Refresh token response content.\n")
+
 
     if response.status_code != 200:
-        logging.error(f"Failed to refresh token: {response.text}")
+        logging.error(f"Failed to refresh token: {response.text}\n")
         return generate_token()
 
     try:
         new_token = response.json()
-        logging.info(f"Parsed new token: {new_token}")
+        # logging.info(f"Parsed new token: {new_token}\n")
+        logging.info(f"DROP BOX: Parsed new token\n")
     except json.JSONDecodeError as json_err:
         logging.error(f"JSON decode error: {json_err}")
         raise ValueError("Failed to decode the token response as JSON.")

@@ -21,25 +21,76 @@ class ServerHandler:
     def connect(self) -> bool:
         """Establish SSH and SFTP connections to the server.
         
+        First tries SSH key authentication, then falls back to password if available.
+        
         Returns:
             True if connection successful, False otherwise
         """
         try:
             self.ssh = paramiko.SSHClient()
             self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh.connect(
-                self.config.server_ip,
-                username=self.config.server_user
-            )
-            self.sftp = self.ssh.open_sftp()
-            return True
+            
+            # Try to load the default SSH key
+            try:
+                key_filename = os.path.expanduser('~/.ssh/id_rsa')
+                print(f"Attempting SSH key authentication with {key_filename}...", flush=True)
+                
+                if os.path.exists(key_filename):
+                    try:
+                        self.ssh.connect(
+                            self.config.server_ip,
+                            username=self.config.server_user,
+                            key_filename=key_filename,
+                            look_for_keys=False,
+                            allow_agent=False
+                        )
+                        print("Successfully connected using SSH key authentication", flush=True)
+                        logging.info("Connected using SSH key authentication")
+                        self.sftp = self.ssh.open_sftp()
+                        return True
+                    except paramiko.ssh_exception.AuthenticationException as e:
+                        print(f"SSH key authentication failed: {str(e)}", flush=True)
+                        logging.info(f"SSH key authentication failed: {str(e)}")
+                else:
+                    print(f"No SSH key found at {key_filename}", flush=True)
+                    logging.info(f"No SSH key found at {key_filename}")
+
+                # If we have a password, try password authentication
+                if self.config.server_password:
+                    print("Attempting password authentication...", flush=True)
+                    try:
+                        self.ssh.connect(
+                            self.config.server_ip,
+                            username=self.config.server_user,
+                            password=self.config.server_password,
+                            look_for_keys=False,
+                            allow_agent=False
+                        )
+                        print("Successfully connected using password authentication", flush=True)
+                        logging.info("Connected using password authentication")
+                        self.sftp = self.ssh.open_sftp()
+                        return True
+                    except paramiko.ssh_exception.AuthenticationException as e:
+                        print(f"Password authentication failed: {str(e)}", flush=True)
+                        logging.error(f"Password authentication failed: {str(e)}")
+                        return False
+                else:
+                    print("No password available for authentication", flush=True)
+                    logging.error("No password available for authentication")
+                    return False
+
+            except paramiko.ssh_exception.AuthenticationException as e:
+                print(f"Authentication failed: {str(e)}", flush=True)
+                logging.error(f"Authentication failed: {str(e)}")
+                return False
+                    
         except paramiko.ssh_exception.NoValidConnectionsError:
             logging.error("Unable to connect to the server. Server might be down")
-            print("Unable to connect to the server. Server might be down")
+            print("Unable to connect to the server. Server might be down", flush=True)
             return False
         except Exception as e:
             logging.error(f"Failed to connect to server: {e}")
-            print(f"Failed to connect to server: {e}")
+            print(f"Failed to connect to server: {e}", flush=True)
             return False
 
     def disconnect(self) -> None:
@@ -107,7 +158,7 @@ class ServerHandler:
             
         if not os.path.exists(local_path):
             logging.error(f"Local file {local_path} does not exist")
-            print(f"Local file {local_path} does not exist")
+            print(f"Local file {local_path} does not exist", flush=True)
             return False
 
         try:
@@ -126,7 +177,7 @@ class ServerHandler:
             
         except Exception as e:
             logging.error(f"Failed to upload {local_path} to {remote_path}: {e}")
-            print(f"Failed to upload {local_path} to {remote_path}: {e}")
+            print(f"Failed to upload {local_path} to {remote_path}: {e}", flush=True)
             return False
 
     def __enter__(self):

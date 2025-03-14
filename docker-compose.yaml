@@ -1,18 +1,23 @@
 services:
   afrp-helper:
-    image: rgnet1/afrp-helper:latest
+    image: afrp-helper:latest
     ports:
-      - "5000:5000"
+      - "5002:5000"
     volumes:
       # Mount config directory
-      - ./config:/config
-      # Mount persistent volumes for downloads and logs
-      - magazine_downloads:/app/downloads
-      - magazine_logs:/app/logs
+      - ./config:/app/config
+      # Mount persistent volumes for downloads, logs, and database
+      - ./downloads:/app/downloads
+      - ./logs:/app/logs
+      - ./data:/app/data
     environment:
       - PYTHONUNBUFFERED=1  # Ensure Python output is sent to container logs without buffering
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     restart: unless-stopped
 
-volumes:
-  magazine_downloads:  # Persistent volume for downloaded magazines
-  magazine_logs:      # Persistent volume for log files
+# volumes:
+#   magazine_downloads:  # Persistent volume for downloaded magazines
+#   magazine_logs:      # Persistent volume for log files
+#   magazine_db:        # Persistent volume for SQLite database
