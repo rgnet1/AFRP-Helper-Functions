@@ -30,7 +30,6 @@ class SMSSender:
         self.password = password or os.getenv("EMAIL_APP_PASSWORD")
 
         logging.info(f"Initialized SMSSender with email: {self.email}")
-        logging.info(f"Password: {self.password}" )
         
         if not self.email or not self.password:
             raise ValueError("Email and password must be provided either directly or through environment variables")
@@ -59,7 +58,7 @@ class SMSSender:
             server.starttls()
             logging.info("Logging in to SMTP server...")
             server.login(auth[0], auth[1])
-            logging.info(f"Sending message to {recipient}...")
+            logging.info(f"Sending message to {recipient}")
             server.sendmail(auth[0], recipient, msg.as_string())  # Send the formatted message
             logging.info("Message sent successfully.")
             server.quit()
