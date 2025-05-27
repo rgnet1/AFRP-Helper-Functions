@@ -3,8 +3,6 @@ import requests
 from dotenv import load_dotenv
 import logging
 
-# Load environment variables from .env file
-load_dotenv()
 class SharePointHandler:
     def __init__(self):
         self.tenant_id = os.getenv("AZURE_TENANT_ID")
@@ -27,6 +25,7 @@ class SharePointHandler:
         if response.status_code == 200:
             self.access_token = response.json().get('access_token')
             logging.info("SharePoint authentication successful.")
+            print("SharePoint authentication successful.")
         else:
             raise Exception(f"SharePoint authentication failed: {response.status_code}, {response.text}")
 
@@ -70,13 +69,26 @@ class SharePointHandler:
         else:
             raise Exception(f"SharePoint upload failed: {response.status_code}, {response.text}")
 
+
+
+def upload_file_to_sharepoint(local_file_path, destination_dir):
+    """Upload a file to SharePoint."""
+    uploader = SharePointHandler()
+    try:
+        uploader.authenticate()
+        uploader.upload_file(local_file_path, destination_dir)
+    except Exception as e:
+        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
+
 # Example usage
 if __name__ == "__main__":
+    load_dotenv(dotenv_path="./config/.env")
     uploader = SharePointHandler()
     
     try:
         uploader.authenticate()
         print("DONE AUTHENTICATING")
-        uploader.upload_file("./file.txt", "2024")
+        uploader.upload_file("./downloads/Vol74-No2_2025-Mar-Apr_HathiheRamallah_web.pdf", "2025")
     except Exception as e:
         print(f"Error: {e}")

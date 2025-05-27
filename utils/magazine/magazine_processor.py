@@ -6,6 +6,7 @@ from utils.magazine.config import MagazineConfig
 from utils.magazine.dropbox_handler import DropboxHandler
 from utils.magazine.server_handler import ServerHandler
 from utils.magazine.send_text import SMSSender
+from utils.magazine.sharepoint import upload_file_to_sharepoint
 
 class MagazineProcessor:
     """Main class for handling magazine processing workflow."""
@@ -19,6 +20,8 @@ class MagazineProcessor:
         self.config = config
         self.dropbox = DropboxHandler(config)
         self.notifier = SMSSender(config.email, config.email_password)
+        self.file_name = None
+        self.year = None
 
     def convert_filename(self, filename: str) -> Tuple[str, Optional[str]]:
         """Convert magazine filename to standard format.
@@ -65,6 +68,8 @@ class MagazineProcessor:
             with ServerHandler(self.config) as server:
                 for file in pdf_files:
                     self._process_single_file(file, server)
+                    # Upload to SharePoint
+                    upload_file_to_sharepoint(self.new_filename, self.year)
             
             message = "Magazine Check: New files were processed and uploaded"
         
@@ -98,6 +103,8 @@ class MagazineProcessor:
 
         # Rename the file locally
         os.rename(filename, new_filename)
+        self.file_name = new_filename
+        self.year = year
 
         # Construct remote path
         remote_path = f"{self.config.server_path}{year}/"

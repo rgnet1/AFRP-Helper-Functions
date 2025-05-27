@@ -1,6 +1,6 @@
 services:
   afrp-helper:
-    image: afrp-helper:latest
+    image: qrcodegenerator:latest
     ports:
       - "5002:5000"
     volumes:
