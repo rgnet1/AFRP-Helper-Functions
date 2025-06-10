@@ -8,7 +8,7 @@ class MagazineConfig:
     def __init__(self):
         # Check if running in Docker
         self.in_docker = os.environ.get('DOCKER_CONTAINER', False)
-        self.base_path = '/app' if self.in_docker else '.'
+        self.base_path = '' if self.in_docker else '.'
         
         # Load .env from config directory
         load_dotenv(f'{self.base_path}/config/.env')
