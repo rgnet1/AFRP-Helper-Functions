@@ -1,8 +1,8 @@
 FROM python:3.10-slim-bullseye
 
 # Create necessary directories and set permissions
-RUN mkdir -p /config /app/downloads /app/logs /app/data && \
-    chmod -R 777 /app/logs /app/data  # Ensure write permissions for logs and data
+RUN mkdir -p /config /app/downloads /app/logs /app/data /app/temp && \
+    chmod -R 777 /app/logs /app/data /app/temp  # Ensure write permissions for logs, data, and temp
 
 WORKDIR /app
 

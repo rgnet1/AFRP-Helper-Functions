@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, send_file, jsonify, Response
+from werkzeug.utils import secure_filename
 import qrcode
 from io import BytesIO, StringIO
 from PIL import Image
@@ -10,11 +11,19 @@ from datetime import datetime, time
 import re
 from contextlib import redirect_stdout
 import logging
+import atexit
+import shutil
+import tempfile
+import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
 from utils.magazine.download_latest_magazine import main as magazine_main
 from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
+from utils.badges.pre_processing_module import PreprocessingBase
+from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
 import os
-import logging
+import pandas as pd
+from utils.badges.pre_processing_module import PreprocessingConfig
+from typing import Dict, Type
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,10 +36,11 @@ logger.info("Starting app.py...")
 IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
 BASE_PATH = '/app' if IN_DOCKER else '.'
 
-# Ensure data directory exists with proper permissions
-data_dir = os.path.join(BASE_PATH, 'data')
-os.makedirs(data_dir, exist_ok=True)
-os.chmod(data_dir, 0o777)
+# Ensure required directories exist with proper permissions
+for dir_path in ['data', 'temp', 'downloads']:
+    full_path = os.path.join(BASE_PATH, dir_path)
+    os.makedirs(full_path, exist_ok=True)
+    os.chmod(full_path, 0o777)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -58,6 +68,41 @@ with app.app_context():
 
 # Initialize scheduler after database setup
 schedule_manager.init_app(app)  # This will use replace_existing=True by default
+
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+
+def create_persistent_temp_dir():
+    """Create a persistent temporary directory that won't be automatically cleaned up."""
+    # Create a base temporary directory that persists
+    base_dir = os.path.join(tempfile.gettempdir(), 'convention_badges_uploads')
+    os.makedirs(base_dir, mode=0o777, exist_ok=True)
+    
+    # Create a unique subdirectory for this session
+    session_dir = tempfile.mkdtemp(dir=base_dir)
+    os.chmod(session_dir, 0o777)
+    
+    logger.info(f"Created persistent upload directory: {session_dir}")
+    return session_dir
+
+def cleanup_upload_folder(folder_path):
+    """Clean up the upload folder."""
+    try:
+        if os.path.exists(folder_path):
+            logger.debug(f"Cleaning up upload folder: {folder_path}")
+            shutil.rmtree(folder_path, ignore_errors=True)
+    except Exception as e:
+        logger.error(f"Error cleaning up upload folder: {str(e)}")
+
+# Create upload folder with proper permissions
+app.config['UPLOAD_FOLDER'] = create_persistent_temp_dir()
+
+# Register cleanup function to run when the server shuts down
+atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
+
+# Register available preprocessing implementations
+PREPROCESSING_IMPLEMENTATIONS: Dict[str, Type[PreprocessingBase]] = {
+    "Convention 2025": Convention2025Preprocessing
+}
 
 @app.route('/', methods=['GET'])
 def home():
@@ -350,3 +395,242 @@ def run_magazine_download():
         yield "data: DONE\n\n"
 
     return Response(generate(), mimetype='text/event-stream')
+
+# Badge Generator Routes
+@app.route('/badges')
+def badges():
+    return render_template('badges.html', events=list(PREPROCESSING_IMPLEMENTATIONS.keys()))
+                           
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    """Handle file upload."""
+    logger.debug("Starting file upload handler")
+    save_path = None
+    
+    try:
+        # Verify upload folder exists and is writable
+        upload_folder = app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            logger.warning(f"Upload folder does not exist, recreating: {upload_folder}")
+            os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        
+        if not os.access(upload_folder, os.W_OK):
+            logger.warning(f"Upload folder not writable, fixing permissions: {upload_folder}")
+            os.chmod(upload_folder, 0o777)
+        
+        logger.debug(f"Upload folder ready: {upload_folder}")
+        
+        if 'file' not in request.files:
+            logger.error("No file part in request")
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            logger.error("No selected file")
+            return jsonify({'error': 'No selected file'}), 400
+        
+        logger.debug(f"Processing file: {file.filename}")
+        
+        if not FileValidator.is_valid_excel(file.filename):
+            logger.error(f"Invalid file type: {file.filename}")
+            return jsonify({'error': 'Invalid file type - must be .xlsx'}), 400
+        
+        filename = secure_filename(file.filename)
+        logger.debug(f"Secured filename: {filename}")
+        
+        file_type = FileValidator.get_file_type(filename)
+        logger.debug(f"Detected file type: {file_type}")
+        
+        if file_type is None:
+            logger.error(f"Unable to determine file type for: {filename}")
+            logger.error("Expected file name patterns:")
+            logger.error("  - Registration List: '*Registration List*.xlsx'")
+            logger.error("  - Seating Chart: '*Seating Chart*.xlsx'")
+            logger.error("  - QR Codes: '*QR Codes*.xlsx'")
+            logger.error("  - Form Responses: '*(Form|From) Responses*.xlsx'")
+            return jsonify({
+                'error': 'Unable to determine file type. File name must contain one of: "Registration List", "Seating Chart", "QR Codes", or "Form Responses"'
+            }), 400
+        
+        try:
+            # Remove any existing file of the same type
+            existing_files = [f for f in os.listdir(upload_folder) 
+                            if f.startswith(f"{file_type}_")]
+            for existing_file in existing_files:
+                try:
+                    existing_path = os.path.join(upload_folder, existing_file)
+                    if os.path.exists(existing_path):
+                        os.chmod(existing_path, 0o666)  # Make file writable
+                        os.remove(existing_path)
+                        logger.debug(f"Removed existing file: {existing_file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove existing file {existing_file}: {e}")
+            
+            # Save new file with type prefix
+            save_path = os.path.join(upload_folder, f"{file_type}_{filename}")
+            logger.debug(f"Saving file to: {save_path}")
+            
+            # Create a temporary file first
+            temp_fd, temp_path = tempfile.mkstemp(dir=upload_folder)
+            os.close(temp_fd)
+            
+            logger.debug(f"Created temporary file: {temp_path}")
+            
+            # Save to temporary file first
+            file.save(temp_path)
+            os.chmod(temp_path, 0o666)
+            
+            # Move to final location
+            shutil.move(temp_path, save_path)
+            os.chmod(save_path, 0o666)
+            
+            logger.debug(f"File saved successfully: {save_path}")
+            
+            # Verify file was saved and is readable
+            if not os.path.exists(save_path):
+                raise FileNotFoundError(f"File was not saved: {save_path}")
+            
+            # Try to read the file to verify it's accessible
+            with open(save_path, 'rb') as f:
+                f.read(1)
+            
+            return jsonify({
+                'message': 'File uploaded successfully',
+                'type': file_type,
+                'path': save_path
+            })
+            
+        except Exception as e:
+            logger.exception(f"Error saving file to {save_path if save_path else 'unknown path'}")
+            return jsonify({'error': f'Error saving file: {str(e)}'}), 500
+            
+    except Exception as e:
+        logger.exception("Error in upload handler")
+        return jsonify({'error': f'Upload error: {str(e)}'}), 500
+
+@app.route('/api/get_sub_events', methods=['POST'])
+def get_sub_events():
+    """Get available sub-events from registration file."""
+    logger.debug("Starting sub-events retrieval")
+    try:
+        # Ensure upload folder exists
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        
+        # Find registration file
+        reg_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
+                    if f.startswith(f"{FileTypes.REGISTRATION}_")]
+        
+        if not reg_files:
+            logger.error("Registration file not uploaded")
+            return jsonify({'error': 'Registration file not uploaded'}), 400
+            
+        # Read registration data
+        reg_file = os.path.join(app.config['UPLOAD_FOLDER'], reg_files[0])
+        logger.debug(f"Reading registration file: {reg_file}")
+        df = pd.read_excel(reg_file)
+        
+        # Get unique events from paid registrations
+        events = sorted(df[df['Status Reason'] == 'Paid']['Event '].unique().tolist())
+        logger.debug(f"Found sub-events: {events}")
+        
+        return jsonify({'events': events})
+        
+    except Exception as e:
+        logger.exception("Error retrieving sub-events")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/process', methods=['POST'])
+def process_files():
+    """Process uploaded files and generate mail merge."""
+    logger.debug("Starting file processing")
+    try:
+        data = request.get_json()
+        if not data:
+            logger.error("No JSON data received")
+            return jsonify({'error': 'No data received'}), 400
+            
+        event_name = data.get('event')
+        sub_event = data.get('subEvent')
+        
+        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}")
+        
+        if not event_name:
+            logger.error("No event name provided")
+            return jsonify({'error': 'Event name is required'}), 400
+            
+        if event_name not in PREPROCESSING_IMPLEMENTATIONS:
+            logger.error(f"Invalid event selected: {event_name}")
+            return jsonify({'error': 'Invalid event selected'}), 400
+        
+        # Get the preprocessing implementation for the selected event
+        preprocessor_class = PREPROCESSING_IMPLEMENTATIONS[event_name]
+        
+        # Create temporary directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Created temporary directory: {temp_dir}")
+            os.makedirs(temp_dir, mode=0o777, exist_ok=True)
+            
+            # Copy uploaded files to temp directory with correct names
+            files = {}
+            for file_type in FileValidator.get_required_file_types():
+                matching_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
+                                if f.startswith(f"{file_type}_")]
+                if not matching_files:
+                    logger.error(f"Missing required file: {file_type}")
+                    return jsonify({'error': f'Missing required file: {file_type}'}), 400
+                source = os.path.join(app.config['UPLOAD_FOLDER'], matching_files[0])
+                dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
+                logger.debug(f"Copying {file_type} file from {source} to {dest}")
+                shutil.copy2(source, dest)
+                files[file_type] = dest
+            
+            # Change to temp directory
+            original_dir = os.getcwd()
+            os.chdir(temp_dir)
+            logger.debug(f"Changed working directory to: {temp_dir}")
+            
+            try:
+                # Create preprocessing config
+                config = PreprocessingConfig(
+                    main_event=event_name,
+                    sub_event=sub_event if sub_event else None
+                )
+                logger.debug(f"Created preprocessing config: {config.__dict__}")
+                
+                # Initialize processor with correct preprocessing implementation and config
+                processor = EventRegistrationProcessorV3(
+                    config=config,
+                    preprocessor_class=preprocessor_class
+                )
+                
+                # Process files
+                logger.info("Starting file processing...")
+                result_df = processor.transform_and_merge()
+                logger.debug(f"Processing complete. Result shape: {result_df.shape}")
+                
+                # Save output
+                output_file = os.path.join(temp_dir, "MAIL_MERGE_output.xlsx")
+                result_df.to_excel(output_file, index=False)
+                logger.debug(f"Saved output to: {output_file}")
+                
+                # Send file to user
+                return send_file(
+                    output_file,
+                    as_attachment=True,
+                    download_name=f"MAIL_MERGE_{event_name.replace(' ', '_')}_{sub_event or 'all'}.xlsx",
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+            
+            except Exception as e:
+                logger.exception("Error during processing")
+                return jsonify({'error': f'Processing error: {str(e)}\n{traceback.format_exc()}'}), 500
+            
+            finally:
+                os.chdir(original_dir)
+                logger.debug(f"Changed working directory back to: {original_dir}")
+    
+    except Exception as e:
+        logger.exception("Error during file processing")
+        return jsonify({'error': f'Error: {str(e)}\n{traceback.format_exc()}'}), 500

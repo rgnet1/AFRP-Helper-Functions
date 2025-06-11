@@ -1,7 +1,7 @@
 # Config files
 /config/
 .env
-
+.venv/
 # Generated files
 /downloads/
 /logs/
