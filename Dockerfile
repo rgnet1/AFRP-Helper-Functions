@@ -25,7 +25,7 @@ COPY static/ static/
 COPY templates/ templates/
 COPY utils/ utils/
 
-EXPOSE 5000
+EXPOSE 5066
 
 # Use a shell script to handle both the scheduler and web server
 COPY docker-entrypoint.sh /

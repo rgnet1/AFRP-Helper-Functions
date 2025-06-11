@@ -1,82 +1,80 @@
 # AFRP Helper Functions
 
-A comprehensive web application designed to assist AFRP administrators with various automation tasks and tools.
+This repository contains helper functions for AFRP CRM, including:
+- QR Code Generator
+- Magazine Downloader
+- Event URL Generator
+- Badge Generator
 
 ## Features
 
-### 1. QR Code Generator
-- Generate QR codes with custom text/URLs
-- Option to include custom images in QR codes
-- Download generated QR codes for use in marketing materials
+### QR Code Generator
+- Generate QR codes for various purposes
+- Customizable size and format
+- Batch processing capability
 
-### 2. Magazine Downloader
-- Automated magazine download functionality
-- Configurable download schedules (daily, weekly, monthly)
-- Real-time progress tracking with console output
-- Secure storage of downloaded magazines
-- Integration with Dropbox for file management
-- Persistent job history and error logging
-- Timezone-aware scheduling (America/Los_Angeles)
+### Magazine Downloader
+- Automated magazine download scheduling
+- Progress tracking
+- Error handling and logging
 
-### 3. Event URL Generator
-- Generate registration and summary URLs for events
-- Easy copy-to-clipboard functionality
-- Input validation for CRM event URLs
-- Mobile-responsive interface
+### Event URL Generator
+- Generate event registration URLs
+- Generate event summary URLs
+- Input validation and error handling
 
-### 4. Badge Generator
-- Generate event badges from registration data
-- Support for main events and sub-events
-- Automatic QR code integration
-- Customizable badge layouts
-- Handles multiple input files:
-  - Registration List
-  - Seating Chart
-  - QR Codes
-  - Form Responses
-- Smart filtering for sub-event specific badges
-- Exports to mail merge ready format
+### Badge Generator
+- Process registration lists
+- Generate name badges
+- Support for multiple event types
 
 ## Installation
 
-### Docker
+### Using Docker
+
+1. Build the image:
 ```bash
-docker pull rgnet1/afrp-helper:latest
+docker build -t afrp-helper .
+```
+
+2. Run the container:
+```bash
 docker run -p 5066:5000 \
   -v /path/to/config:/config \
   -v /path/to/downloads:/app/downloads \
   -v /path/to/logs:/app/logs \
-  rgnet1/afrp-helper:latest
+  afrp-helper
 ```
 
-### Docker Compose
+### Using Docker Compose
+
+1. Create a `docker-compose.yml`:
 ```yaml
+version: '3'
 services:
   afrp-helper:
-    image: rgnet1/afrp-helper:latest
+    image: afrp-helper:latest
     ports:
       - "5066:5000"
     volumes:
-      - ./config:/config
-      - magazine_downloads:/app/downloads
-      - magazine_logs:/app/logs
-    environment:
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
-
-volumes:
-  magazine_downloads:
-  magazine_logs:
+      - /path/to/config:/config
+      - /path/to/downloads:/app/downloads
+      - /path/to/logs:/app/logs
 ```
 
-### Unraid
-1. Add the following template URL to your Unraid server:
-   ```
-   https://raw.githubusercontent.com/rgnet1/AFRP-Helper-Functions/master/template/AFRP_helper.xml
-   ```
-2. Find "AFRP Helper" in the Apps section
-3. Configure the container paths and port
-4. Click Apply
+2. Start the service:
+```bash
+docker-compose up -d
+```
+
+## Usage
+
+1. Access the web interface at `http://localhost:5066`
+2. Choose the desired tool:
+   - QR Code Generator
+   - Magazine Downloader
+   - Event URL Generator
+   - Badge Generator
 
 ## Configuration
 
@@ -98,67 +96,30 @@ The application uses SQLite for storing:
 - Job execution history
 - Error logs and status information
 
-The database is automatically initialized on first run and persisted in the `magazine_db` volume.
-
-## Usage
-
-1. Access the web interface at `http://localhost:5066` (or your server's IP)
-2. Choose the desired tool from the home page:
-   - QR Code Generator: Create custom QR codes
-   - Magazine Downloader: Download and manage magazines
-   - Event URL Generator: Generate event registration links
-   - Badge Generator: Create event badges and name tags
-
-### Using the Badge Generator
-
-1. **Prepare Your Files**
-   - Registration List (Excel file with registration data)
-   - Seating Chart (Excel file with seating assignments)
-   - QR Codes (Excel file with QR code data)
-   - Form Responses (Excel file with additional form data)
-
-2. **Upload Files**
-   - Drag and drop your files into the upload area
-   - Or click to select files manually
-   - The system will automatically validate and categorize your files
-
-3. **Select Event Options**
-   - Choose the main event from the dropdown
-   - Optionally select a specific sub-event
-   - For sub-events, the system will automatically:
-     - Filter for registered attendees only
-     - Include relevant form fields
-     - Maintain proper column structure
-
-4. **Generate Badges**
-   - Click "Process Files" to generate the mail merge file
-   - The system will combine all data and create a properly formatted Excel file
-   - Download the resulting file for use with your badge printing software
+The database is automatically initialized on first run and persisted in the `/app/data` volume.
 
 ## Development
 
 ### Prerequisites
-- Python 3.10+
-- Required packages listed in requirements.txt
+- Python 3.8+
+- pip
+- virtualenv (recommended)
 
 ### Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/rgnet1/AFRP-Helper-Functions.git
-   cd AFRP-Helper-Functions
-   ```
+1. Clone the repository
+2. Create and activate virtual environment
+3. Install dependencies: `pip install -r requirements.txt`
+4. Run the application: `python app.py`
 
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+### Testing
+Run tests with: `python -m pytest tests/`
 
-3. Run the development server:
-   ```bash
-   python app.py
-   ```
+## Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## Support
-
-For issues, feature requests, or contributions, please visit:
-https://github.com/rgnet1/AFRP-Helper-Functions
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.

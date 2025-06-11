@@ -33,7 +33,7 @@
     <Publish>
       <Port>
         <HostPort>5066</HostPort>
-        <ContainerPort>5000</ContainerPort>
+        <ContainerPort>5066</ContainerPort>
         <Protocol>tcp</Protocol>
       </Port>
     </Publish>
@@ -54,6 +54,11 @@
       <ContainerDir>/app/logs</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
+    <Volume>
+      <HostDir>/mnt/user/appdata/afrp-helper/data</HostDir>
+      <ContainerDir>/app/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
   </Data>
   <Environment>
     <Variable>
@@ -62,9 +67,10 @@
     </Variable>
   </Environment>
   <Labels/>
-  <Config Name="WebUI" Target="5000" Default="5066" Mode="tcp" Description="Web Interface Port" Type="Port" Display="always" Required="true" Mask="false">5066</Config>
+  <Config Name="WebUI" Target="5066" Default="5066" Mode="tcp" Description="Web Interface Port" Type="Port" Display="always" Required="true" Mask="false">5066</Config>
   <Config Name="Config Directory" Target="/config" Default="/mnt/user/appdata/afrp-helper/config" Mode="rw" Description="Configuration files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/config</Config>
   <Config Name="Downloads Directory" Target="/app/downloads" Default="/mnt/user/appdata/afrp-helper/downloads" Mode="rw" Description="Magazine downloads location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/downloads</Config>
   <Config Name="Logs Directory" Target="/app/logs" Default="/mnt/user/appdata/afrp-helper/logs" Mode="rw" Description="Log files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/logs</Config>
+  <Config Name="Data Directory" Target="/app/data" Default="/mnt/user/appdata/afrp-helper/data" Mode="rw" Description="Database and persistent data location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/data</Config>
   <Config Name="Python Unbuffered" Target="PYTHONUNBUFFERED" Default="1" Mode="" Description="Ensure Python output is sent to container logs without buffering" Type="Variable" Display="advanced" Required="true" Mask="false">1</Config>
 </Container>

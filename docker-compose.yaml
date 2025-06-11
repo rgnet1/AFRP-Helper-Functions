@@ -1,8 +1,9 @@
+version: '3'
 services:
   afrp-helper:
     image: afrp-helper:latest
     ports:
-      - "5002:5000"
+      - "5066:5066"
     volumes:
       # Mount config directory
       - ./config:/app/config

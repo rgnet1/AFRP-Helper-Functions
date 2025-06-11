@@ -47,6 +47,9 @@ for dir_path in ['data', 'temp', 'downloads']:
 # Initialize Flask app
 app = Flask(__name__)
 
+# Set port based on environment
+PORT = 5066 if IN_DOCKER else 5000
+
 # Set database URI based on environment
 if IN_DOCKER:
     db_uri = 'sqlite:////app/data/magazine_schedules.db'
