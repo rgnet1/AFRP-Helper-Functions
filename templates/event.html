@@ -259,15 +259,23 @@
     </div>
 
     <script>
-        function copyToClipboard(elementId) {
-            const text = document.getElementById(elementId).textContent;
-            navigator.clipboard.writeText(text).then(() => {
-                const toast = document.getElementById('toast');
-                toast.classList.add('show');
-                setTimeout(() => toast.classList.remove('show'), 2000);
-            }).catch(err => {
-                console.error('Failed to copy text: ', err);
-            });
+        async function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent.trim();
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // Fallback for browsers that don't support clipboard API
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+            }
+            
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
         }
 
         document.getElementById('urlForm').addEventListener('submit', function(e) {
