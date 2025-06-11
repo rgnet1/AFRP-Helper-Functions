@@ -121,7 +121,8 @@ class PreprocessingBase(ABC):
             return df
             
         # Get contacts registered for the sub-event
-        sub_event_contacts = df[df[sub_event].notna()]['Contact ID'].unique()
+        # Keep contacts where the sub-event column contains the sub-event name
+        sub_event_contacts = df[df[sub_event].notna() & (df[sub_event].str.contains(sub_event, na=False))]['Contact ID'].unique()
         filtered_df = df[df['Contact ID'].isin(sub_event_contacts)].copy()
         
         # Get only relevant columns
