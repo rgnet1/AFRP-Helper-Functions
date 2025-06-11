@@ -24,12 +24,25 @@ A comprehensive web application designed to assist AFRP administrators with vari
 - Input validation for CRM event URLs
 - Mobile-responsive interface
 
+### 4. Badge Generator
+- Generate event badges from registration data
+- Support for main events and sub-events
+- Automatic QR code integration
+- Customizable badge layouts
+- Handles multiple input files:
+  - Registration List
+  - Seating Chart
+  - QR Codes
+  - Form Responses
+- Smart filtering for sub-event specific badges
+- Exports to mail merge ready format
+
 ## Installation
 
 ### Docker
 ```bash
 docker pull rgnet1/afrp-helper:latest
-docker run -p 5000:5000 \
+docker run -p 5066:5000 \
   -v /path/to/config:/config \
   -v /path/to/downloads:/app/downloads \
   -v /path/to/logs:/app/logs \
@@ -42,7 +55,7 @@ services:
   afrp-helper:
     image: rgnet1/afrp-helper:latest
     ports:
-      - "5000:5000"
+      - "5066:5000"
     volumes:
       - ./config:/config
       - magazine_downloads:/app/downloads
@@ -89,11 +102,38 @@ The database is automatically initialized on first run and persisted in the `mag
 
 ## Usage
 
-1. Access the web interface at `http://localhost:5000` (or your server's IP)
+1. Access the web interface at `http://localhost:5066` (or your server's IP)
 2. Choose the desired tool from the home page:
    - QR Code Generator: Create custom QR codes
    - Magazine Downloader: Download and manage magazines
    - Event URL Generator: Generate event registration links
+   - Badge Generator: Create event badges and name tags
+
+### Using the Badge Generator
+
+1. **Prepare Your Files**
+   - Registration List (Excel file with registration data)
+   - Seating Chart (Excel file with seating assignments)
+   - QR Codes (Excel file with QR code data)
+   - Form Responses (Excel file with additional form data)
+
+2. **Upload Files**
+   - Drag and drop your files into the upload area
+   - Or click to select files manually
+   - The system will automatically validate and categorize your files
+
+3. **Select Event Options**
+   - Choose the main event from the dropdown
+   - Optionally select a specific sub-event
+   - For sub-events, the system will automatically:
+     - Filter for registered attendees only
+     - Include relevant form fields
+     - Maintain proper column structure
+
+4. **Generate Badges**
+   - Click "Process Files" to generate the mail merge file
+   - The system will combine all data and create a properly formatted Excel file
+   - Download the resulting file for use with your badge printing software
 
 ## Development
 

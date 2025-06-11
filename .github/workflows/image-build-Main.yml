@@ -9,6 +9,7 @@ on:
     paths-ignore:
       - '**/README.md'
       - '**.yml'
+      - 'template/**'
 
 jobs:
   Docker-Build:

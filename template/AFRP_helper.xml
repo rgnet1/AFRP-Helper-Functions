@@ -13,7 +13,7 @@
     AFRP CRM Helper with QR Code Generator and Magazine Downloader functionality.
   </Overview>
   <Category>Tools: Productivity</Category>
-  <WebUI>http://[IP]:[PORT:5000]</WebUI>
+  <WebUI>http://[IP]:[PORT:5066]</WebUI>
   <TemplateURL/>
   <Icon>https://raw.githubusercontent.com/rgnet1/AFRP-Helper-Functions/master/static/images/qrcode_my.afrp.org.png</Icon>
   <ExtraParams/>
@@ -32,7 +32,7 @@
     <Mode>bridge</Mode>
     <Publish>
       <Port>
-        <HostPort>5000</HostPort>
+        <HostPort>5066</HostPort>
         <ContainerPort>5000</ContainerPort>
         <Protocol>tcp</Protocol>
       </Port>
@@ -62,7 +62,7 @@
     </Variable>
   </Environment>
   <Labels/>
-  <Config Name="WebUI" Target="5000" Default="5000" Mode="tcp" Description="Web Interface Port" Type="Port" Display="always" Required="true" Mask="false">5000</Config>
+  <Config Name="WebUI" Target="5000" Default="5066" Mode="tcp" Description="Web Interface Port" Type="Port" Display="always" Required="true" Mask="false">5066</Config>
   <Config Name="Config Directory" Target="/config" Default="/mnt/user/appdata/afrp-helper/config" Mode="rw" Description="Configuration files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/config</Config>
   <Config Name="Downloads Directory" Target="/app/downloads" Default="/mnt/user/appdata/afrp-helper/downloads" Mode="rw" Description="Magazine downloads location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/downloads</Config>
   <Config Name="Logs Directory" Target="/app/logs" Default="/mnt/user/appdata/afrp-helper/logs" Mode="rw" Description="Log files location" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/afrp-helper/logs</Config>

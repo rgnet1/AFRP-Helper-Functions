@@ -209,8 +209,20 @@ def magazine():
     schedules = Schedule.query.all()
     return render_template('magazine.html', schedules=schedules)
 
-@app.route('/event')
+@app.route('/event', methods=['GET', 'POST'])
 def event_page():
+    if request.method == 'POST':
+        crm_url = request.form.get('crmUrl')
+        try:
+            event_id = extract_event_id(crm_url)
+            event_url = generate_event_registration_url(event_id)
+            summary_url = generate_event_summary_url(event_id)
+            return jsonify({
+                'event_url': event_url,
+                'summary_url': summary_url
+            })
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
     return render_template('event.html')
 
 def validate_time_format(time_str):
