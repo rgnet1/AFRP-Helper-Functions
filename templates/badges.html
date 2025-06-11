@@ -3,43 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Badge Generator - AFRP CRM Helper</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <title>Event Badge Generator - AFRP CRM Helper</title>
+    <link 
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+        integrity="sha512-d2Liw9JK8gCzwAfaqi4y9dtZqG4pvLSLE2kM3H92YLJPl1c38wZzScZ8YOw3GjMaNI+pHmM0Pil3Q17PiR8yXg=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
+    />
     <style>
-        .drag-over {
-            border-color: #4b904b !important;
-            background-color: #e8f5e9 !important;
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #eef2f3;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: #4b904b;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            flex: 1;
+            width: 90%;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #4b904b;
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Existing badge generator specific styles */
+        .drop-zone {
+            border: 2px dashed #4b904b;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: border-color 0.3s ease;
+        }
+
+        .drop-zone.drag-over {
+            border-color: #3c723c;
+            background-color: rgba(75, 144, 75, 0.1);
+        }
+
+        .file-list {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #processButton {
+            background-color: #4b904b;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+
+        #processButton:hover {
+            background-color: #3c723c;
+        }
+
+        #processButton:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-8">Convention Badge Mail Merge</h1>
-        
-        <!-- File Upload Section -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Upload Files</h2>
-            
-            <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-green-500 hover:bg-gray-50 transition-colors duration-200">
-                <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
-                <p class="text-gray-600">Drag and drop files here or click to select files</p>
-                <input type="file" id="fileInput" class="hidden" accept=".xlsx" multiple>
-            </div>
-            
-            <div id="fileList" class="mt-4 space-y-2">
-                <!-- File items will be added here -->
-            </div>
+<body>
+    <header>
+        <h1>Event Badge Generator</h1>
+    </header>
+    
+    <div class="container">
+        <div class="drop-zone" id="dropZone">
+            <p>Drag and drop files here or click to select files</p>
+            <input type="file" id="fileInput" multiple style="display: none;">
         </div>
-        
-        <!-- Processing Options -->
+
+        <div id="fileList" class="file-list"></div>
+
         <div class="bg-white rounded-lg shadow-md p-6 mb-8">
             <h2 class="text-xl font-semibold text-gray-800 mb-4">Processing Options</h2>
             
             <div class="space-y-4">
                 <div>
-                    <label for="eventSelect" class="block text-sm font-medium text-gray-700">Event</label>
-                    <select id="eventSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 rounded-md">
+                    <label for="eventSelect">Event</label>
+                    <select id="eventSelect">
                         <option value="">Select an event...</option>
                         {% for event in events %}
                         <option value="{{ event }}">{{ event }}</option>
@@ -48,8 +137,8 @@
                 </div>
                 
                 <div>
-                    <label for="subEventSelect" class="block text-sm font-medium text-gray-700">Sub-Event (Optional)</label>
-                    <select id="subEventSelect" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 rounded-md">
+                    <label for="subEventSelect">Sub-Event (Optional)</label>
+                    <select id="subEventSelect">
                         <option value="">All sub-events</option>
                     </select>
                 </div>
@@ -57,11 +146,11 @@
         </div>
         
         <!-- Process Button -->
-        <div class="flex justify-end">
-            <button id="processButton" class="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed">
-                Process Files
-            </button>
+        <div style="text-align: right;">
+            <button id="processButton" disabled>Process Files</button>
         </div>
+
+        <a href="/" class="back-link">← Back to Home</a>
     </div>
 
     <script>
