@@ -1,19 +1,16 @@
 import os
 import sys
-# Add parent directory to path to allow imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 import pandas as pd
 import warnings
 import re
 from datetime import datetime
 import pytz
 import logging
-from typing import Dict, List, Tuple, Optional
-from event_statistics import EventStatisticsReport
-from event_preprocessing.convention2025 import Convention2025Preprocessing
-from pre_processing_module import PreprocessingConfig
-from file_validator import FileValidator, FileTypes
+from typing import Dict, List, Tuple, Optional, Type
+from utils.badges.event_statistics import EventStatisticsReport
+from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
+from utils.badges.pre_processing_module import PreprocessingConfig, PreprocessingBase
+from utils.badges.file_validator import FileValidator, FileTypes
 
 # Configure logging
 logging.basicConfig(
@@ -86,10 +83,21 @@ class FormResponseColumns:
     }
 
 class EventRegistrationProcessorV3:
-    def __init__(self, config: Optional[PreprocessingConfig] = None):
-        """Initialize the processor with optional configuration."""
+    def __init__(self, config: Optional[PreprocessingConfig] = None, preprocessor_class: Optional[Type[PreprocessingBase]] = None):
+        """
+        Initialize the processor with optional configuration and preprocessor class.
+        
+        Args:
+            config: Optional configuration for preprocessing
+            preprocessor_class: Optional class to use for preprocessing. If not provided, defaults to Convention2025Preprocessing
+        """
         self.config = config
-        self.preprocessor = Convention2025Preprocessing(config)
+        if preprocessor_class is None:
+            logger.debug("No preprocessor class provided, defaulting to Convention2025Preprocessing")
+            preprocessor_class = Convention2025Preprocessing
+        
+        logger.debug(f"Initializing preprocessor with class: {preprocessor_class.__name__}")
+        self.preprocessor = preprocessor_class(config)
         self.stats_reporter = EventStatisticsReport()
         
     def find_latest_files(self) -> Dict[str, str]:

@@ -21,6 +21,7 @@ from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
 from utils.badges.pre_processing_module import PreprocessingBase
 from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
+from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
 import os
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
@@ -600,7 +601,7 @@ def process_files():
                 )
                 logger.debug(f"Created preprocessing config: {config.__dict__}")
                 
-                # Initialize processor with correct preprocessing implementation and config
+                # Initialize processor with config and selected preprocessor class
                 processor = EventRegistrationProcessorV3(
                     config=config,
                     preprocessor_class=preprocessor_class
