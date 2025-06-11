@@ -20,6 +20,7 @@ from utils.magazine.download_latest_magazine import main as magazine_main
 from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
 from utils.badges.pre_processing_module import PreprocessingBase
 from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
+from utils.badges.file_validator import FileValidator, FileTypes
 import os
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
