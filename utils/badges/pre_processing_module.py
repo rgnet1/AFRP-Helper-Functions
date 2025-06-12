@@ -14,9 +14,27 @@ class PreprocessingConfig:
     main_event: str  # The main event name (e.g., "Convention 2025 - San Francisco")
     sub_event: Optional[str] = None  # Optional sub-event to filter by
     timezone: str = "America/Los_Angeles"  # Default timezone for timestamps
+    inclusion_list: Optional[List[str]] = None  # Optional list of Contact IDs to include
     
     def __post_init__(self):
         self.tz = pytz.timezone(self.timezone)
+        self.event_guest_view_id = "c582e1a8-43d5-ef11-8eea-000d3a351566"  # Event Guests
+        self.qr_codes_view_id = "64368653-6f63-49c9-9365-0c69fcd938c1"      # QR Codes
+        self.table_reservations_view_id = "fa417cde-f4d4-ef11-8eea-000d3a351566"  # Table Reservations
+        self.form_responses_view_id = "f8645669-fa43-f011-877a-000d3a35dcd3"  # Form Responses
+        
+        # Entity names for each view
+        self.event_guest_entity = "crca7_eventguest"
+        self.qr_codes_entity = "aha_eventguestqrcodes"
+        self.table_reservations_entity = "aha_tablereservation"
+        self.form_responses_entity = "aha_eventformresponses"
+        
+        # Validate inclusion list if provided
+        if self.inclusion_list is not None:
+            # Ensure all IDs are strings and strip whitespace
+            self.inclusion_list = [str(id).strip() for id in self.inclusion_list if str(id).strip()]
+            # Remove duplicates while preserving order
+            self.inclusion_list = list(dict.fromkeys(self.inclusion_list))
         
     def get_output_filename(self, prefix: str = "MAIL_MERGE") -> str:
         """Generate output filename based on configuration."""
@@ -121,8 +139,20 @@ class PreprocessingBase(ABC):
             return df
             
         # Get contacts registered for the sub-event
-        # Keep contacts where the sub-event column contains the sub-event name
-        sub_event_contacts = df[df[sub_event].notna() & (df[sub_event].str.contains(sub_event, na=False))]['Contact ID'].unique()
+        # First check if the sub-event exists as a column
+        if sub_event not in df.columns:
+            logger.warning(f"Sub-event column '{sub_event}' not found in DataFrame")
+            logger.info("Available columns:")
+            for col in df.columns:
+                logger.info(f"  - {col}")
+            return pd.DataFrame(columns=df.columns)  # Return empty DataFrame with same structure
+            
+        # Keep contacts where the sub-event column is not null
+        sub_event_contacts = df[df[sub_event].notna()]['Contact ID'].unique()
+        if len(sub_event_contacts) == 0:
+            logger.warning(f"No contacts found for sub-event: {sub_event}")
+            return pd.DataFrame(columns=df.columns)  # Return empty DataFrame with same structure
+            
         filtered_df = df[df['Contact ID'].isin(sub_event_contacts)].copy()
         
         # Get only relevant columns

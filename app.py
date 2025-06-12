@@ -22,6 +22,7 @@ from utils.badges.pre_processing_module import PreprocessingBase
 from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
+from utils.dynamics_crm import DynamicsCRMClient
 import os
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
@@ -416,8 +417,37 @@ def run_magazine_download():
 # Badge Generator Routes
 @app.route('/badges')
 def badges():
-    return render_template('badges.html', events=list(PREPROCESSING_IMPLEMENTATIONS.keys()))
-                           
+    return render_template('badges.html')
+
+@app.route('/api/pull-crm-data', methods=['POST'])
+def pull_crm_data():
+    """Pull data directly from Dynamics CRM."""
+    try:
+        data = request.get_json()
+        view_id = data.get('view_id')
+        data_type = data.get('data_type')
+        
+        if not view_id or not data_type:
+            return jsonify({'error': 'View ID and data type are required'}), 400
+            
+        # Initialize the CRM client
+        crm_client = DynamicsCRMClient()
+        
+        # Download the specific data type
+        df = crm_client.download_data_by_type(data_type, view_id)
+        
+        # Save to a temporary Excel file
+        temp_file = os.path.join(app.config['UPLOAD_FOLDER'], f"{data_type}.xlsx")
+        df.to_excel(temp_file, index=False)
+        
+        return jsonify({
+            'message': f'Successfully pulled {data_type} data from CRM',
+            'file': temp_file
+        })
+        
+    except Exception as e:
+        logger.error(f"Error pulling CRM data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -570,8 +600,9 @@ def process_files():
             
         event_name = data.get('event')
         sub_event = data.get('subEvent')
+        inclusion_list = data.get('inclusionList')
         
-        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}")
+        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}, inclusion list: {inclusion_list}")
         
         if not event_name:
             logger.error("No event name provided")
@@ -612,7 +643,8 @@ def process_files():
                 # Create preprocessing config
                 config = PreprocessingConfig(
                     main_event=event_name,
-                    sub_event=sub_event if sub_event else None
+                    sub_event=sub_event if sub_event else None,
+                    inclusion_list=inclusion_list if inclusion_list else None
                 )
                 logger.debug(f"Created preprocessing config: {config.__dict__}")
                 
@@ -647,7 +679,6 @@ def process_files():
             finally:
                 os.chdir(original_dir)
                 logger.debug(f"Changed working directory back to: {original_dir}")
-    
     except Exception as e:
-        logger.exception("Error during file processing")
-        return jsonify({'error': f'Error: {str(e)}\n{traceback.format_exc()}'}), 500
+        logger.exception("Error in process_files handler")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500

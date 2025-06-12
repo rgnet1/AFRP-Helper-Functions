@@ -150,8 +150,9 @@ class EventRegistrationProcessorV3:
         paid_df = reg_df[reg_df['Status'] == 'Paid']
         logger.info(f"\nFound {len(paid_df)} paid registrations out of {len(reg_df)} total")
         
-        # Get unique events
-        unique_events = paid_df['Event'].unique()
+        # Get unique events - handle both 'Event' and 'Event ' column names
+        event_col = 'Event' if 'Event' in paid_df.columns else 'Event '
+        unique_events = paid_df[event_col].unique()
         logger.info(f"\nFound {len(unique_events)} unique events:")
         for event in unique_events:
             logger.info(f"  - {event}")
@@ -169,10 +170,11 @@ class EventRegistrationProcessorV3:
         
         # Add each event as a new column
         for event in unique_events:
+            # Use the same event name as the column name to maintain consistency
             transformed_df[event] = transformed_df.apply(
                 lambda row: event if event in paid_df[
                     paid_df['Contact ID'] == row['Contact ID']
-                ]['Event'].values else None,
+                ][event_col].values else None,
                 axis=1
             )
         
@@ -368,8 +370,24 @@ class EventRegistrationProcessorV3:
             logger.info("Preprocessing data values...")
             result_df = self.preprocessor.preprocess_dataframe(result_df)
             
-            # Filter by sub-event if configured
+            # Filter by inclusion list if configured
             has_config = hasattr(self, 'config') and self.config is not None
+            has_inclusion_list = has_config and hasattr(self.config, 'inclusion_list') and self.config.inclusion_list is not None
+            
+            if has_inclusion_list:
+                logger.info(f"Filtering data for {len(self.config.inclusion_list)} specified contact IDs")
+                result_df = result_df[result_df['Contact ID'].isin(self.config.inclusion_list)]
+                logger.info(f"Found {len(result_df)} matching contacts")
+                
+                # Log any IDs that weren't found
+                found_ids = set(result_df['Contact ID'].unique())
+                missing_ids = set(self.config.inclusion_list) - found_ids
+                if missing_ids:
+                    logger.warning(f"Could not find data for {len(missing_ids)} contact IDs:")
+                    for missing_id in missing_ids:
+                        logger.warning(f"  - {missing_id}")
+            
+            # Filter by sub-event if configured
             has_sub_event = has_config and hasattr(self.config, 'sub_event') and self.config.sub_event is not None
             
             if has_sub_event:

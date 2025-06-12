@@ -51,6 +51,27 @@
             text-decoration: underline;
         }
 
+        .data-source-selector {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .data-source-option {
+            margin-bottom: 10px;
+        }
+
+        .data-source-option input[type="radio"] {
+            margin-right: 10px;
+        }
+
+        .data-source-option label {
+            color: #333;
+            font-weight: 500;
+        }
+
         /* Existing badge generator specific styles */
         .drop-zone {
             border: 2px dashed #4b904b;
@@ -74,7 +95,34 @@
             gap: 10px;
         }
 
-        #processButton {
+        .crm-section {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .crm-section.active {
+            display: block;
+        }
+
+        .crm-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .crm-help {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        button {
             background-color: #4b904b;
             color: white;
             padding: 12px 24px;
@@ -85,13 +133,42 @@
             transition: background-color 0.2s;
         }
 
-        #processButton:hover {
+        button:hover {
             background-color: #3c723c;
         }
 
-        #processButton:disabled {
+        button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            color: #4b904b;
+            margin-bottom: 10px;
         }
 
         select {
@@ -107,6 +184,128 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
+
+        .crm-data-types {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .crm-data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+
+        .crm-data-type {
+            background-color: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .crm-data-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .crm-data-type h4 {
+            color: #4b904b;
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .crm-input {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .pull-button {
+            background-color: #4b904b;
+            color: white;
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: background-color 0.2s;
+            font-size: 12px;
+            height: 28px;
+            margin-left: 8px;
+        }
+
+        .pull-button:hover {
+            background-color: #3c723c;
+        }
+
+        .pull-button i {
+            font-size: 12px;
+            margin: 0;
+            padding: 0;
+        }
+
+        .pull-button span {
+            margin: 0;
+            padding: 0;
+        }
+
+        .pull-all-button {
+            background-color: #4b904b;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background-color 0.2s;
+            font-size: 14px;
+            height: 36px;
+        }
+
+        .pull-all-button:hover {
+            background-color: #3c723c;
+        }
+
+        .pull-all-button i {
+            font-size: 14px;
+            margin: 0;
+            padding: 0;
+        }
+
+        .pull-all-button span {
+            margin: 0;
+            padding: 0;
+        }
+
+        @media (max-width: 768px) {
+            .crm-data-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .crm-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .crm-header h3 {
+            margin: 0;
+            color: #4b904b;
+        }
     </style>
 </head>
 <body>
@@ -115,12 +314,89 @@
     </header>
     
     <div class="container">
-        <div class="drop-zone" id="dropZone">
-            <p>Drag and drop files here or click to select files</p>
-            <input type="file" id="fileInput" multiple style="display: none;">
+        <!-- Data Source Selection -->
+        <div class="data-source-selector">
+            <h2>Select Data Source</h2>
+            <div class="data-source-option">
+                <input type="radio" id="manualUpload" name="dataSource" value="manual" checked>
+                <label for="manualUpload">Manual File Upload</label>
+            </div>
+            <div class="data-source-option">
+                <input type="radio" id="crmPull" name="dataSource" value="crm">
+                <label for="crmPull">Pull from Dynamics CRM</label>
+            </div>
         </div>
 
-        <div id="fileList" class="file-list"></div>
+        <!-- Manual Upload Section -->
+        <div id="manualSection">
+            <div class="drop-zone" id="dropZone">
+                <p>Drag and drop files here or click to select files</p>
+                <input type="file" id="fileInput" multiple style="display: none;">
+            </div>
+            <div id="fileList" class="file-list"></div>
+        </div>
+
+        <!-- CRM Pull Section -->
+        <div id="crmSection" class="crm-section">
+            <div class="crm-data-types">
+                <div class="crm-header">
+                    <h3>Pull Data from Dynamics CRM</h3>
+                    <button id="pullAllButton" class="pull-all-button">
+                        <i class="fas fa-download"></i> Pull All Data
+                    </button>
+                </div>
+                
+                <div class="crm-data-grid">
+                    <!-- Event Guests -->
+                    <div class="crm-data-type">
+                        <div class="crm-data-header">
+                            <h4>Event Guests</h4>
+                            <button class="pull-button" data-type="event_guests">
+                                <i class="fas fa-download"></i> Pull
+                            </button>
+                        </div>
+                        <input type="text" id="eventGuestsViewId" class="crm-input" 
+                               value="c582e1a8-43d5-ef11-8eea-000d3a351566" readonly>
+                    </div>
+
+                    <!-- QR Codes -->
+                    <div class="crm-data-type">
+                        <div class="crm-data-header">
+                            <h4>QR Codes</h4>
+                            <button class="pull-button" data-type="qr_codes">
+                                <i class="fas fa-download"></i> Pull
+                            </button>
+                        </div>
+                        <input type="text" id="qrCodesViewId" class="crm-input" 
+                               value="64368653-6f63-49c9-9365-0c69fcd938c1" readonly>
+                    </div>
+
+                    <!-- Table Reservations -->
+                    <div class="crm-data-type">
+                        <div class="crm-data-header">
+                            <h4>Table Reservations</h4>
+                            <button class="pull-button" data-type="table_reservations">
+                                <i class="fas fa-download"></i> Pull
+                            </button>
+                        </div>
+                        <input type="text" id="tableReservationsViewId" class="crm-input" 
+                               value="fa417cde-f4d4-ef11-8eea-000d3a351566" readonly>
+                    </div>
+
+                    <!-- Form Responses -->
+                    <div class="crm-data-type">
+                        <div class="crm-data-header">
+                            <h4>Form Responses</h4>
+                            <button class="pull-button" data-type="form_responses">
+                                <i class="fas fa-download"></i> Pull
+                            </button>
+                        </div>
+                        <input type="text" id="formResponsesViewId" class="crm-input" 
+                               value="f8645669-fa43-f011-877a-000d3a35dcd3" readonly>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="bg-white rounded-lg shadow-md p-6 mb-8">
             <h2 class="text-xl font-semibold text-gray-800 mb-4">Processing Options</h2>
@@ -142,15 +418,34 @@
                         <option value="">All sub-events</option>
                     </select>
                 </div>
+
+                <div>
+                    <label for="inclusionList">Contact IDs (Optional)</label>
+                    <textarea id="inclusionList" 
+                            class="w-full p-2 border border-gray-300 rounded-md" 
+                            rows="4" 
+                            placeholder="Enter Contact IDs (one per line) to filter specific contacts. Leave empty to include all contacts."></textarea>
+                    <p class="text-sm text-gray-600 mt-1">Enter one Contact ID per line. Only contacts with matching IDs will be included in the output.</p>
+                </div>
             </div>
         </div>
-        
+
         <!-- Process Button -->
         <div style="text-align: right;">
             <button id="processButton" disabled>Process Files</button>
         </div>
 
         <a href="/" class="back-link">← Back to Home</a>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="loading-spinner">
+                <i class="fas fa-spinner fa-spin fa-2x"></i>
+            </div>
+            <p id="loadingMessage">Processing...</p>
+        </div>
     </div>
 
     <script>
@@ -160,8 +455,26 @@
         const processButton = document.getElementById('processButton');
         const eventSelect = document.getElementById('eventSelect');
         const subEventSelect = document.getElementById('subEventSelect');
+        const manualSection = document.getElementById('manualSection');
+        const crmSection = document.getElementById('crmSection');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingMessage = document.getElementById('loadingMessage');
         
         let uploadedFiles = new Set();
+
+        // Data source selection handling
+        document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.value === 'manual') {
+                    manualSection.style.display = 'block';
+                    crmSection.classList.remove('active');
+                } else {
+                    manualSection.style.display = 'none';
+                    crmSection.classList.add('active');
+                }
+                updateProcessButton();
+            });
+        });
         
         // Drag and drop handlers
         dropZone.addEventListener('dragover', (e) => {
@@ -186,6 +499,41 @@
         fileInput.addEventListener('change', (e) => {
             handleFiles(e.target.files);
         });
+
+        // CRM data pulling
+        document.querySelectorAll('.pull-button').forEach(button => {
+            button.addEventListener('click', async () => {
+                const dataType = button.dataset.type;
+                const viewId = document.getElementById(`${dataType.replace('_', '')}ViewId`).value;
+                
+                showLoading(`Pulling ${dataType.replace('_', ' ')} data...`);
+                try {
+                    const response = await fetch('/api/pull-crm-data', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ 
+                            view_id: viewId,
+                            data_type: dataType
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to pull data');
+                    }
+
+                    const result = await response.json();
+                    showSuccess(`${dataType.replace('_', ' ')} data`, dataType);
+                    uploadedFiles.add(dataType);
+                    updateProcessButton();
+                } catch (error) {
+                    showError(dataType, error.message);
+                } finally {
+                    hideLoading();
+                }
+            });
+        });
         
         function handleFiles(files) {
             Array.from(files).forEach(file => {
@@ -198,6 +546,7 @@
                 const formData = new FormData();
                 formData.append('file', file);
                 
+                showLoading('Uploading file...');
                 fetch('/api/upload', {
                     method: 'POST',
                     body: formData
@@ -216,6 +565,9 @@
                 .catch(error => {
                     console.error('Upload error:', error);
                     showError(file.name, 'Upload failed');
+                })
+                .finally(() => {
+                    hideLoading();
                 });
             });
         }
@@ -260,11 +612,21 @@
             processButton.disabled = !(hasAllFiles && hasEvent);
         }
         
+        function showLoading(message) {
+            loadingMessage.textContent = message;
+            loadingOverlay.classList.add('active');
+        }
+
+        function hideLoading() {
+            loadingOverlay.classList.remove('active');
+        }
+        
         // Event selection handlers
         eventSelect.addEventListener('change', () => {
             updateProcessButton();
             if (eventSelect.value) {
                 console.log('Fetching sub-events for:', eventSelect.value);
+                showLoading('Fetching sub-events...');
                 fetch('/api/get_sub_events', {
                     method: 'POST',
                     headers: {
@@ -289,6 +651,9 @@
                 })
                 .catch(error => {
                     console.error('Error fetching sub-events:', error);
+                })
+                .finally(() => {
+                    hideLoading();
                 });
             }
         });
@@ -296,8 +661,15 @@
         // Process button handler
         processButton.addEventListener('click', () => {
             console.log('Processing files...');
+            showLoading('Processing files...');
             processButton.disabled = true;
-            processButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Processing...';
+            
+            // Get contact IDs from textarea
+            const inclusionList = document.getElementById('inclusionList')
+                .value
+                .split('\n')
+                .map(id => id.trim())
+                .filter(id => id); // Filter out empty lines
             
             fetch('/api/process', {
                 method: 'POST',
@@ -306,7 +678,8 @@
                 },
                 body: JSON.stringify({
                     event: eventSelect.value,
-                    subEvent: subEventSelect.value
+                    subEvent: subEventSelect.value,
+                    inclusionList: inclusionList.length > 0 ? inclusionList : null
                 })
             })
             .then(response => {
@@ -335,8 +708,60 @@
             })
             .finally(() => {
                 processButton.disabled = false;
-                processButton.innerHTML = 'Process Files';
+                hideLoading();
             });
+        });
+
+        // Add Pull All functionality
+        document.getElementById('pullAllButton').addEventListener('click', async () => {
+            showLoading('Pulling all data from CRM...');
+            const dataTypes = ['event_guests', 'qr_codes', 'table_reservations', 'form_responses'];
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const dataType of dataTypes) {
+                try {
+                    const viewId = document.getElementById(`${dataType.replace('_', '')}ViewId`).value;
+                    const response = await fetch('/api/pull-crm-data', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ 
+                            view_id: viewId,
+                            data_type: dataType
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to pull ${dataType.replace('_', ' ')} data`);
+                    }
+
+                    const result = await response.json();
+                    showSuccess(`${dataType.replace('_', ' ')} data`, dataType);
+                    uploadedFiles.add(dataType);
+                    successCount++;
+                } catch (error) {
+                    showError(dataType, error.message);
+                    errorCount++;
+                }
+            }
+
+            updateProcessButton();
+            hideLoading();
+
+            // Show summary
+            if (successCount > 0 || errorCount > 0) {
+                const message = `Completed: ${successCount} successful, ${errorCount} failed`;
+                const alertClass = errorCount > 0 ? 'alert-warning' : 'alert-success';
+                const alert = document.createElement('div');
+                alert.className = `alert ${alertClass} mt-3`;
+                alert.textContent = message;
+                document.querySelector('.crm-data-types').appendChild(alert);
+                
+                // Remove alert after 5 seconds
+                setTimeout(() => alert.remove(), 5000);
+            }
         });
     </script>
 </body>
