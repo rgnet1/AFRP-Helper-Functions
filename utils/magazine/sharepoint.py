@@ -12,6 +12,36 @@ class SharePointHandler:
         self.drive_id = os.getenv("SHAREPONT_DRIVE_ID")
         self.access_token = None
 
+    def credentials_valid(self):
+        """Check if all required SharePoint credentials are present."""
+        return bool(self.tenant_id and self.client_id and self.client_secret 
+                   and self.site_id and self.drive_id)
+
+    def process_file_upload(self, local_file_path, destination_dir):
+        """Process file upload to SharePoint with complete error handling."""
+        # Check if credentials are valid
+        if not self.credentials_valid():
+            logging.warning("SharePoint credentials not configured. Skipping SharePoint upload.")
+            print("SharePoint credentials not configured. Skipping SharePoint upload.", flush=True)
+            return
+        
+        # Check if file exists locally
+        if not os.path.exists(local_file_path):
+            logging.error(f"Local file {local_file_path} does not exist. Skipping SharePoint upload.")
+            print(f"Local file {local_file_path} does not exist. Skipping SharePoint upload.", flush=True)
+            return
+        
+        try:
+            logging.info(f"Starting SharePoint upload for: {local_file_path} to folder: {destination_dir}")
+            print(f"Starting SharePoint upload for: {local_file_path} to folder: {destination_dir}", flush=True)
+            
+            self.authenticate()
+            self.upload_file(local_file_path, destination_dir)
+            
+        except Exception as e:
+            logging.error(f"SharePoint upload error: {e}")
+            print(f"SharePoint upload error: {e}", flush=True)
+
     def authenticate(self):
         """Authenticate with Microsoft Graph API."""
         auth_url = f'https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token'
@@ -74,12 +104,7 @@ class SharePointHandler:
 def upload_file_to_sharepoint(local_file_path, destination_dir):
     """Upload a file to SharePoint."""
     uploader = SharePointHandler()
-    try:
-        uploader.authenticate()
-        uploader.upload_file(local_file_path, destination_dir)
-    except Exception as e:
-        print(f"Error: {e}")
-        logging.error(f"Error: {e}")
+    uploader.process_file_upload(local_file_path, destination_dir)
 
 # Example usage
 if __name__ == "__main__":

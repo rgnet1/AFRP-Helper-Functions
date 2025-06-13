@@ -55,23 +55,30 @@ class MagazineProcessor:
         # First check for new files from Dropbox
         downloaded_file = self.dropbox.process_latest_file()
         
+        # Always check for local PDF files that need processing
+        pdf_files = [f for f in os.listdir() if f.endswith('.pdf') and f.startswith("Vol")]
+        
         message = ""
-        if not downloaded_file:
-            message = "Magazine Check: No new files to process"
-            logging.info("No new files to process")
-            print("No new files to process", flush=True)
-        else:
-            # List all PDF files in current directory
-            pdf_files = [f for f in os.listdir() if f.endswith('.pdf') and f.startswith("Vol")]
-            
+        files_processed = False
+        
+        if pdf_files:
             # Use context manager for server connection
             with ServerHandler(self.config) as server:
                 for file in pdf_files:
+                    # Process file for server upload and get the processed info
                     self._process_single_file(file, server)
-                    # Upload to SharePoint
-                    upload_file_to_sharepoint(self.new_filename, self.year)
-            
-            message = "Magazine Check: New files were processed and uploaded"
+                    
+                    # Always try to upload to SharePoint (function will check if file already exists)
+                    if hasattr(self, 'file_name') and hasattr(self, 'year') and self.year and self.file_name:
+                        upload_file_to_sharepoint(self.file_name, self.year)
+                        files_processed = True
+        
+        if not downloaded_file and not files_processed:
+            message = "Magazine Check: No new files to process"
+            logging.info("No new files to process")
+            print("No new files to process", flush=True)
+        elif downloaded_file or files_processed:
+            message = "Magazine Check: Files were processed and uploaded"
         
         # Send notifications regardless of whether new files were found
         if self.config.notification_credentials_valid:
