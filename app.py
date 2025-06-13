@@ -417,7 +417,8 @@ def run_magazine_download():
 # Badge Generator Routes
 @app.route('/badges')
 def badges():
-    return render_template('badges.html')
+    # Pass empty events list initially - will be populated via AJAX after file upload
+    return render_template('badges.html', events=[])
 
 @app.route('/api/pull-crm-data', methods=['POST'])
 def pull_crm_data():
@@ -436,13 +437,36 @@ def pull_crm_data():
         # Download the specific data type
         df = crm_client.download_data_by_type(data_type, view_id)
         
-        # Save to a temporary Excel file
-        temp_file = os.path.join(app.config['UPLOAD_FOLDER'], f"{data_type}.xlsx")
+        # Map CRM data types to file types
+        data_type_mapping = {
+            'event_guests': FileTypes.REGISTRATION,
+            'qr_codes': FileTypes.QR_CODES,
+            'table_reservations': FileTypes.SEATING,
+            'form_responses': FileTypes.FORM_RESPONSES
+        }
+        
+        file_type = data_type_mapping.get(data_type, data_type)
+        
+        # Remove any existing file of the same type
+        existing_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
+                         if f.startswith(f"{file_type}_")]
+        for existing_file in existing_files:
+            try:
+                existing_path = os.path.join(app.config['UPLOAD_FOLDER'], existing_file)
+                if os.path.exists(existing_path):
+                    os.remove(existing_path)
+                    logger.debug(f"Removed existing file: {existing_file}")
+            except Exception as e:
+                logger.warning(f"Could not remove existing file {existing_file}: {e}")
+        
+        # Save to a temporary Excel file with proper file type prefix
+        temp_file = os.path.join(app.config['UPLOAD_FOLDER'], f"{file_type}_crm_data.xlsx")
         df.to_excel(temp_file, index=False)
         
         return jsonify({
             'message': f'Successfully pulled {data_type} data from CRM',
-            'file': temp_file
+            'file': temp_file,
+            'type': file_type
         })
         
     except Exception as e:
@@ -577,8 +601,20 @@ def get_sub_events():
         logger.debug(f"Reading registration file: {reg_file}")
         df = pd.read_excel(reg_file)
         
+        # Clean column names
+        df.columns = df.columns.str.strip()
+        
+        # Handle both 'Event' and 'Event ' column names
+        event_col = 'Event' if 'Event' in df.columns else 'Event '
+        status_col = 'Status Reason' if 'Status Reason' in df.columns else 'Status'
+        
+        logger.debug(f"Using event column: {event_col}")
+        logger.debug(f"Using status column: {status_col}")
+        logger.debug(f"Available columns: {df.columns.tolist()}")
+        
         # Get unique events from paid registrations
-        events = sorted(df[df['Status Reason'] == 'Paid']['Event '].unique().tolist())
+        paid_df = df[df[status_col] == 'Paid']
+        events = sorted(paid_df[event_col].unique().tolist())
         logger.debug(f"Found sub-events: {events}")
         
         return jsonify({'events': events})
