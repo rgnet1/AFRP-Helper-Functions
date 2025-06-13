@@ -49,6 +49,7 @@ class Convention2025Preprocessing(PreprocessingBase):
             "- SF/Brezeit": "",
             "- (children must be supervised by parent. $60 per child)": "",
             "Ramallah Federation in ": "",
+            "- (children must be supervised by parent)": "",
         }
     
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
