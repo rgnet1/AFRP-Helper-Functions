@@ -388,6 +388,46 @@ class EventRegistrationProcessorV3:
                     
                 result_df = result_df[result_df['Contact ID'].isin(sub_event_contacts)].copy()
                 logger.info(f"Found {len(result_df)} contacts registered for {self.config.sub_event}")
+                
+                # Filter columns to only include relevant ones for this sub-event
+                contact_columns = ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age']
+                relevant_columns = [col for col in contact_columns if col in result_df.columns]
+                
+                # Add the sub-event column itself
+                if self.config.sub_event in result_df.columns:
+                    relevant_columns.append(self.config.sub_event)
+                    
+                # Add any related columns (e.g., table assignments, form responses)
+                for col in result_df.columns:
+                    if col.startswith(f"{self.config.sub_event} ~"):
+                        relevant_columns.append(col)
+                        
+                # Filter to only relevant columns
+                result_df = result_df[relevant_columns]
+                
+                logger.info(f"Filtered to {len(relevant_columns)} relevant columns for {self.config.sub_event}:")
+                for col in relevant_columns:
+                    logger.info(f"  - {col}")
+                
+                # Filter columns to only include relevant ones for this sub-event
+                contact_columns = ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age', 'QR Code']
+                relevant_columns = [col for col in contact_columns if col in result_df.columns]
+                
+                # Add the sub-event column itself
+                if self.config.sub_event in result_df.columns:
+                    relevant_columns.append(self.config.sub_event)
+                    
+                # Add any related columns (e.g., table assignments, form responses)
+                for col in result_df.columns:
+                    if col.startswith(f"{self.config.sub_event} ~"):
+                        relevant_columns.append(col)
+                        
+                # Filter to only relevant columns
+                result_df = result_df[relevant_columns]
+                
+                logger.info(f"Filtered to {len(relevant_columns)} relevant columns for {self.config.sub_event}:")
+                for col in relevant_columns:
+                    logger.info(f"  - {col}")
             
             # Apply preprocessing to all data rows (this may rename columns)
             logger.info("Preprocessing data values...")
