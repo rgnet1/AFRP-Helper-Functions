@@ -56,7 +56,7 @@ class MagazineProcessor:
         downloaded_file = self.dropbox.process_latest_file()
         
         # Always check for local PDF files that need processing
-        pdf_files = [f for f in os.listdir() if f.endswith('.pdf') and f.startswith("Vol")]
+        pdf_files = [f for f in os.listdir(self.config.download_path) if f.endswith('.pdf') and f.startswith("Vol")]
         
         message = ""
         files_processed = False
@@ -66,7 +66,8 @@ class MagazineProcessor:
             with ServerHandler(self.config) as server:
                 for file in pdf_files:
                     # Process file for server upload and get the processed info
-                    self._process_single_file(file, server)
+                    file_path = os.path.join(self.config.download_path, file)
+                    self._process_single_file(file_path, server)
                     
                     # Always try to upload to SharePoint (function will check if file already exists)
                     if hasattr(self, 'file_name') and hasattr(self, 'year') and self.year and self.file_name:
