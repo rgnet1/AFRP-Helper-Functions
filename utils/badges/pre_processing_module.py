@@ -186,18 +186,11 @@ class PreprocessingBase(ABC):
             if column not in self.NAME_COLUMNS.values():  # Skip name columns as they're already processed
                 df.loc[0:, column] = df.loc[0:, column].apply(lambda x: self.preprocess_value(x, column))
         
-        # Check if we need to process a sub-event
-        has_config = hasattr(self, 'config') and self.config is not None
-        has_sub_event = has_config and hasattr(self.config, 'sub_event') and self.config.sub_event is not None
-        
-        if has_sub_event:
-            logger.info(f"Processing sub-event {self.config.sub_event} - excluding QR Code")
-            df = self.filter_by_sub_event(df, self.config.sub_event)
-        else:
-            logger.info("Processing entire event with all columns")
-            # For main event, ensure we have all required columns that exist in the dataframe
-            available_columns = [col for col in self.CONTACT_COLUMNS if col in df.columns]
-            other_columns = [col for col in df.columns if col not in self.CONTACT_COLUMNS]
-            df = df[available_columns + other_columns]
+        # Sub-event filtering is now handled at the main level before preprocessing
+        # Just ensure we have all required columns that exist in the dataframe
+        logger.info("Processing with all available columns")
+        available_columns = [col for col in self.CONTACT_COLUMNS if col in df.columns]
+        other_columns = [col for col in df.columns if col not in self.CONTACT_COLUMNS]
+        df = df[available_columns + other_columns]
         
         return df 

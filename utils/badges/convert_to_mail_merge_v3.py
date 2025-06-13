@@ -366,12 +366,34 @@ class EventRegistrationProcessorV3:
                 by=['Last Name', 'First Name']
             ).reset_index(drop=True)
             
-            # Apply preprocessing to all data rows
+            # Filter by sub-event BEFORE preprocessing (so we work with original column names)
+            has_config = hasattr(self, 'config') and self.config is not None
+            has_sub_event = has_config and hasattr(self.config, 'sub_event') and self.config.sub_event is not None
+            
+            if has_sub_event:
+                logger.info(f"Filtering data for sub-event: {self.config.sub_event}")
+                # Check if the sub-event exists as a column
+                if self.config.sub_event not in result_df.columns:
+                    logger.warning(f"Sub-event column '{self.config.sub_event}' not found in DataFrame")
+                    logger.info("Available columns:")
+                    for col in result_df.columns:
+                        logger.info(f"  - {col}")
+                    return pd.DataFrame(columns=result_df.columns)  # Return empty DataFrame with same structure
+                    
+                # Keep contacts where the sub-event column is not null (they are registered for this sub-event)
+                sub_event_contacts = result_df[result_df[self.config.sub_event].notna()]['Contact ID'].unique()
+                if len(sub_event_contacts) == 0:
+                    logger.warning(f"No contacts found for sub-event: {self.config.sub_event}")
+                    return pd.DataFrame(columns=result_df.columns)  # Return empty DataFrame with same structure
+                    
+                result_df = result_df[result_df['Contact ID'].isin(sub_event_contacts)].copy()
+                logger.info(f"Found {len(result_df)} contacts registered for {self.config.sub_event}")
+            
+            # Apply preprocessing to all data rows (this may rename columns)
             logger.info("Preprocessing data values...")
             result_df = self.preprocessor.preprocess_dataframe(result_df)
             
             # Filter by inclusion list if configured
-            has_config = hasattr(self, 'config') and self.config is not None
             has_inclusion_list = has_config and hasattr(self.config, 'inclusion_list') and self.config.inclusion_list is not None
             
             if has_inclusion_list:
@@ -386,16 +408,6 @@ class EventRegistrationProcessorV3:
                     logger.warning(f"Could not find data for {len(missing_ids)} contact IDs:")
                     for missing_id in missing_ids:
                         logger.warning(f"  - {missing_id}")
-            
-            # Filter by sub-event if configured
-            has_sub_event = has_config and hasattr(self.config, 'sub_event') and self.config.sub_event is not None
-            
-            if has_sub_event:
-                logger.info(f"Filtering data for sub-event: {self.config.sub_event}")
-                result_df = self.preprocessor.filter_by_sub_event(result_df, self.config.sub_event)
-                logger.info(f"Found {len(result_df)} contacts for {self.config.sub_event}")
-            else:
-                logger.info("Processing entire event (no sub-event specified)")
             
             # Collect and generate statistics
             self.stats_reporter.collect_statistics(result_df)
