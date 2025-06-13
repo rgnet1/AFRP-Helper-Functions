@@ -91,13 +91,16 @@ class MagazineProcessor:
                     self.notifier.send_message(number, self.notifier.VERIZON, message)
                     logging.info(f"Message finally sent to {number}")
     
-    def _process_single_file(self, filename: str, server: ServerHandler) -> None:
+    def _process_single_file(self, file_path: str, server: ServerHandler) -> None:
         """Process a single magazine file.
         
         Args:
-            filename: Name of file to process
+            file_path: Full path to file to process
             server: Connected ServerHandler instance
         """
+        # Extract just the filename for pattern matching
+        filename = os.path.basename(file_path)
+        
         # Get the converted filename
         new_filename, year = self.convert_filename(filename)
 
@@ -109,18 +112,21 @@ class MagazineProcessor:
         print(f"\n-------------------------------------------------", flush=True)
         print(f"Re-name: {filename} -> {new_filename}", flush=True)
 
+        # Construct the new file path in the same directory
+        new_file_path = os.path.join(os.path.dirname(file_path), new_filename)
+        
         # Rename the file locally
-        os.rename(filename, new_filename)
-        self.file_name = new_filename
+        os.rename(file_path, new_file_path)
+        self.file_name = new_file_path
         self.year = year
 
         # Construct remote path
         remote_path = f"{self.config.server_path}{year}/"
 
         # Verify local file exists after rename
-        if not os.path.exists(new_filename):
-            logging.error(f"Local file {new_filename} does not exist!")
-            print(f"Local file {new_filename} does not exist!", flush=True)
+        if not os.path.exists(new_file_path):
+            logging.error(f"Local file {new_file_path} does not exist!")
+            print(f"Local file {new_file_path} does not exist!", flush=True)
             return
 
         # Verify remote directory exists
@@ -149,7 +155,7 @@ class MagazineProcessor:
             if transferred == total:
                 print(flush=True)
 
-        if server.upload_file(new_filename, remote_file_path, progress_callback):
+        if server.upload_file(new_file_path, remote_file_path, progress_callback):
             message = f"New Magazine: Successfully added: {new_filename} to server"
             logging.info(message)
             print(message, flush=True)
