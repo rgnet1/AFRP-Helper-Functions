@@ -37,7 +37,7 @@ class MagazineConfig:
         
         # File paths
         self.download_path = f"{self.base_path}/downloads"
-        self.metadata_file = f"{self.base_path}/config/last_downloaded_file.json"
+        self.metadata_file = f"{self.config_path}/last_downloaded_file.json"
         # Ensure logs directory exists
         os.makedirs(f"{self.base_path}/logs", exist_ok=True)
         self.log_file = f"{self.base_path}/logs/magazine.log"

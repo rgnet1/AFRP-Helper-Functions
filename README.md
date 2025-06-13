@@ -17,6 +17,7 @@ This repository contains helper functions for AFRP CRM, including:
 - Automated magazine download scheduling
 - Progress tracking
 - Error handling and logging
+- Automatic upload to AFRP CRM
 
 ### Event URL Generator
 - Generate event registration URLs
