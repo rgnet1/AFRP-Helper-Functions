@@ -8,10 +8,11 @@ class MagazineConfig:
     def __init__(self):
         # Check if running in Docker
         self.in_docker = os.environ.get('DOCKER_CONTAINER', False)
-        self.base_path = '' if self.in_docker else '.'
+        self.base_path = '/app' if self.in_docker else '.'
+        self.config_path = '/config' if self.in_docker else f"{self.base_path}/config"
         
         # Load .env from config directory
-        load_dotenv(f'{self.base_path}/config/.env')
+        load_dotenv(self.config_path)
         
         # Dropbox settings
         self.dropbox_client_id = self._get_env("DROPBOX_CLIENT_ID")
