@@ -11,6 +11,9 @@ from utils.badges.event_statistics import EventStatisticsReport
 from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
 from utils.badges.pre_processing_module import PreprocessingConfig, PreprocessingBase
 from utils.badges.file_validator import FileValidator, FileTypes
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+
 
 # Configure logging
 logging.basicConfig(
@@ -408,26 +411,6 @@ class EventRegistrationProcessorV3:
                 logger.info(f"Filtered to {len(relevant_columns)} relevant columns for {self.config.sub_event}:")
                 for col in relevant_columns:
                     logger.info(f"  - {col}")
-                
-                # Filter columns to only include relevant ones for this sub-event
-                contact_columns = ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age', 'QR Code']
-                relevant_columns = [col for col in contact_columns if col in result_df.columns]
-                
-                # Add the sub-event column itself
-                if self.config.sub_event in result_df.columns:
-                    relevant_columns.append(self.config.sub_event)
-                    
-                # Add any related columns (e.g., table assignments, form responses)
-                for col in result_df.columns:
-                    if col.startswith(f"{self.config.sub_event} ~"):
-                        relevant_columns.append(col)
-                        
-                # Filter to only relevant columns
-                result_df = result_df[relevant_columns]
-                
-                logger.info(f"Filtered to {len(relevant_columns)} relevant columns for {self.config.sub_event}:")
-                for col in relevant_columns:
-                    logger.info(f"  - {col}")
             
             # Apply preprocessing to all data rows (this may rename columns)
             logger.info("Preprocessing data values...")
@@ -464,8 +447,37 @@ class EventRegistrationProcessorV3:
         output_filename = (self.config.get_output_filename() if self.config 
                          else f'MAIL_MERGE_v3_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
         
+        # Save the DataFrame to Excel
         df.to_excel(output_filename, index=False)
-        logger.info(f"Merged data saved to: {output_filename}")
+        
+        # Add filters and freeze top row using openpyxl
+        wb = load_workbook(output_filename)
+        ws = wb.active
+
+        # Freeze the top row
+        ws.freeze_panes = 'A2'  # This freezes row 1 (header row)
+        
+        # Add filters to the top row
+        ws.auto_filter.ref = ws.dimensions
+
+        # Set column widths based on the longest header or value in each column
+        lengths = (
+            pd.concat([
+                df.columns.to_series().map(len),                   # header lengths
+                df.astype(str).applymap(len).max(axis=0)           # max per column
+            ], axis=1)
+            .max(axis=1)                                           # take the larger of the two
+        )
+        
+        for idx, (col_name, max_len) in enumerate(lengths.iteritems(), start=1):
+            col_letter = get_column_letter(idx)
+            ws.column_dimensions[col_letter].width = max_len + 2
+
+        
+        # Save the workbook with the new formatting
+        wb.save(output_filename)
+        
+        logger.info(f"Merged data saved to: {output_filename} (with frozen header and filters)")
 
 def main(sub_event: Optional[str] = None):
     try:
