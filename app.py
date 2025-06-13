@@ -107,7 +107,8 @@ atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 
 # Register available preprocessing implementations
 PREPROCESSING_IMPLEMENTATIONS: Dict[str, Type[PreprocessingBase]] = {
-    "Convention 2025": Convention2025Preprocessing
+    "Convention 2025": Convention2025Preprocessing,
+    "Convention 2025 - San Francisco": Convention2025Preprocessing
 }
 
 @app.route('/', methods=['GET'])
