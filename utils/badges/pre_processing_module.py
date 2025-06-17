@@ -15,6 +15,7 @@ class PreprocessingConfig:
     sub_event: Optional[str] = None  # Optional sub-event to filter by
     timezone: str = "America/Los_Angeles"  # Default timezone for timestamps
     inclusion_list: Optional[List[str]] = None  # Optional list of Contact IDs to include
+    created_on_filter: Optional[str] = None  # Optional "on or after" date filter (format: "6/11/2025" or "6/11/2025 2:56:51 PM")
     
     def __post_init__(self):
         self.tz = pytz.timezone(self.timezone)
@@ -35,6 +36,53 @@ class PreprocessingConfig:
             self.inclusion_list = [str(id).strip() for id in self.inclusion_list if str(id).strip()]
             # Remove duplicates while preserving order
             self.inclusion_list = list(dict.fromkeys(self.inclusion_list))
+        
+        # Parse and validate created_on_filter if provided
+        self.created_on_datetime = None
+        if self.created_on_filter is not None:
+            self.created_on_datetime = self._parse_created_on_filter(self.created_on_filter)
+    
+    def _parse_created_on_filter(self, date_str: str) -> Optional[datetime]:
+        """Parse the created_on_filter string into a datetime object.
+        
+        Supports formats like:
+        - "6/11/2025"
+        - "6/11/2025 2:56:51 PM"
+        - "12/31/2025 11:30:00 AM"
+        """
+        if not date_str or not date_str.strip():
+            return None
+            
+        date_str = date_str.strip()
+        
+        # Try different date formats
+        formats_to_try = [
+            "%m/%d/%Y %I:%M:%S %p",  # "6/11/2025 2:56:51 PM"
+            "%m/%d/%Y %I:%M %p",     # "6/11/2025 2:56 PM"
+            "%m/%d/%Y",              # "6/11/2025"
+            "%m-%d-%Y %I:%M:%S %p",  # "6-11-2025 2:56:51 PM"
+            "%m-%d-%Y %I:%M %p",     # "6-11-2025 2:56 PM"
+            "%m-%d-%Y",              # "6-11-2025"
+        ]
+        
+        for date_format in formats_to_try:
+            try:
+                parsed_date = datetime.strptime(date_str, date_format)
+                # If no time specified, set to beginning of day
+                if date_format in ["%m/%d/%Y", "%m-%d-%Y"]:
+                    parsed_date = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Localize to the configured timezone
+                localized_date = self.tz.localize(parsed_date)
+                logger.info(f"Successfully parsed date filter: '{date_str}' -> {localized_date}")
+                return localized_date
+                
+            except ValueError:
+                continue
+        
+        # If none of the formats worked, log a warning and return None
+        logger.warning(f"Could not parse date filter: '{date_str}'. Expected formats: '6/11/2025' or '6/11/2025 2:56:51 PM'")
+        return None
         
     def get_output_filename(self, prefix: str = "MAIL_MERGE") -> str:
         """Generate output filename based on configuration."""

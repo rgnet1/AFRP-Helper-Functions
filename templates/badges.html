@@ -435,6 +435,15 @@
                             placeholder="Enter Contact IDs (one per line) to filter specific contacts. Leave empty to include all contacts."></textarea>
                     <p class="text-sm text-gray-600 mt-1">Enter one Contact ID per line. Only contacts with matching IDs will be included in the output.</p>
                 </div>
+
+                <div>
+                    <label for="createdOnFilter">Registration Date Filter (Optional)</label>
+                    <input id="createdOnFilter" 
+                           type="text" 
+                           class="w-full p-2 border border-gray-300 rounded-md" 
+                           placeholder="Enter date in format: 6/11/2025 or 6/11/2025 2:56:51 PM">
+                    <p class="text-sm text-gray-600 mt-1">Include contacts who registered <strong>on or after</strong> this date. Leave empty to include all dates. Combines with Contact IDs using OR logic.</p>
+                </div>
             </div>
         </div>
 
@@ -737,6 +746,9 @@
                 .map(id => id.trim())
                 .filter(id => id); // Filter out empty lines
             
+            // Get date filter
+            const createdOnFilter = document.getElementById('createdOnFilter').value.trim();
+            
             fetch('/api/process', {
                 method: 'POST',
                 headers: {
@@ -745,7 +757,8 @@
                 body: JSON.stringify({
                     event: eventSelect.value,
                     subEvent: subEventSelect.value,
-                    inclusionList: inclusionList.length > 0 ? inclusionList : null
+                    inclusionList: inclusionList.length > 0 ? inclusionList : null,
+                    createdOnFilter: createdOnFilter || null
                 })
             })
             .then(response => {

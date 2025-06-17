@@ -35,6 +35,7 @@ class RegistrationColumns:
     AGE = "Age (Existing Contact) (Contact)"
     EVENT = "Event"
     STATUS = "Status Reason"
+    CREATED_ON = "Created On"
     
     # Map of standardized names to possible column names in file
     MAPPINGS = {
@@ -46,7 +47,8 @@ class RegistrationColumns:
         'Gender': [GENDER],
         'Age': [AGE],
         'Event': [EVENT, 'Event '],  # Note the space variant
-        'Status': [STATUS]
+        'Status': [STATUS],
+        'Created On': [CREATED_ON, 'Created On', 'CreatedOn', 'Date Created']
     }
 
 class SeatingColumns:
@@ -416,21 +418,88 @@ class EventRegistrationProcessorV3:
             logger.info("Preprocessing data values...")
             result_df = self.preprocessor.preprocess_dataframe(result_df)
             
-            # Filter by inclusion list if configured
+            # Apply date and Contact ID filtering (combined with OR logic)
             has_inclusion_list = has_config and hasattr(self.config, 'inclusion_list') and self.config.inclusion_list is not None
+            has_date_filter = has_config and hasattr(self.config, 'created_on_datetime') and self.config.created_on_datetime is not None
             
-            if has_inclusion_list:
-                logger.info(f"Filtering data for {len(self.config.inclusion_list)} specified contact IDs")
-                result_df = result_df[result_df['Contact ID'].isin(self.config.inclusion_list)]
-                logger.info(f"Found {len(result_df)} matching contacts")
+            if has_inclusion_list or has_date_filter:
+                original_count = len(result_df)
+                filter_conditions = []
                 
-                # Log any IDs that weren't found
-                found_ids = set(result_df['Contact ID'].unique())
-                missing_ids = set(self.config.inclusion_list) - found_ids
-                if missing_ids:
-                    logger.warning(f"Could not find data for {len(missing_ids)} contact IDs:")
-                    for missing_id in missing_ids:
-                        logger.warning(f"  - {missing_id}")
+                # Add Contact ID filter condition
+                if has_inclusion_list:
+                    logger.info(f"Adding Contact ID filter for {len(self.config.inclusion_list)} specified IDs")
+                    contact_id_condition = result_df['Contact ID'].isin(self.config.inclusion_list)
+                    filter_conditions.append(contact_id_condition)
+                
+                # Add date filter condition (need to get this from original registration data)
+                if has_date_filter:
+                    logger.info(f"Adding date filter for registrations on or after: {self.config.created_on_datetime}")
+                    
+                    # Re-load registration data to get Created On column for filtering
+                    files = self.find_latest_files()
+                    reg_df_for_date = pd.read_excel(files[FileTypes.REGISTRATION])
+                    reg_df_for_date.columns = reg_df_for_date.columns.str.strip()
+                    
+                    # Standardize columns to find Created On
+                    reg_df_for_date, _ = self._standardize_columns(reg_df_for_date, RegistrationColumns.MAPPINGS)
+                    
+                    if 'Created On' in reg_df_for_date.columns:
+                        try:
+                            # Parse Created On column
+                            reg_df_for_date['Created On'] = pd.to_datetime(reg_df_for_date['Created On'])
+                            
+                            # Convert to timezone-aware datetime if not already
+                            if reg_df_for_date['Created On'].dt.tz is None:
+                                # Assume the data is in the configured timezone
+                                reg_df_for_date['Created On'] = reg_df_for_date['Created On'].dt.tz_localize(self.config.tz)
+                            else:
+                                # Convert to the configured timezone
+                                reg_df_for_date['Created On'] = reg_df_for_date['Created On'].dt.tz_convert(self.config.tz)
+                            
+                            # Filter registration data by date
+                            date_filtered_registrations = reg_df_for_date[
+                                reg_df_for_date['Created On'] >= self.config.created_on_datetime
+                            ]
+                            date_contact_ids = set(date_filtered_registrations['Contact ID'].unique())
+                            
+                            logger.info(f"Found {len(date_contact_ids)} contacts registered on or after the specified date")
+                            
+                            date_condition = result_df['Contact ID'].isin(date_contact_ids)
+                            filter_conditions.append(date_condition)
+                            
+                        except Exception as e:
+                            logger.warning(f"Could not apply date filter: {str(e)}")
+                            logger.warning("Proceeding without date filtering")
+                    else:
+                        logger.warning("Created On column not found in registration data - skipping date filter")
+                
+                # Combine filters with OR logic
+                if filter_conditions:
+                    if len(filter_conditions) == 1:
+                        combined_filter = filter_conditions[0]
+                    else:
+                        # Use OR logic to combine conditions
+                        combined_filter = filter_conditions[0]
+                        for condition in filter_conditions[1:]:
+                            combined_filter = combined_filter | condition
+                    
+                    result_df = result_df[combined_filter]
+                    logger.info(f"Applied filters: {original_count} -> {len(result_df)} contacts")
+                    
+                    # Log details for Contact ID filtering
+                    if has_inclusion_list:
+                        found_ids = set(result_df['Contact ID'].unique()) & set(self.config.inclusion_list)
+                        missing_ids = set(self.config.inclusion_list) - found_ids
+                        logger.info(f"Contact ID filter matched {len(found_ids)} of {len(self.config.inclusion_list)} requested IDs")
+                        if missing_ids:
+                            logger.warning(f"Could not find data for {len(missing_ids)} contact IDs:")
+                            for missing_id in list(missing_ids)[:10]:  # Show first 10 to avoid spam
+                                logger.warning(f"  - {missing_id}")
+                            if len(missing_ids) > 10:
+                                logger.warning(f"  ... and {len(missing_ids) - 10} more")
+                else:
+                    logger.info("No valid filter conditions to apply")
             
             # Collect and generate statistics
             self.stats_reporter.collect_statistics(result_df)

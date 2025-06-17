@@ -638,8 +638,9 @@ def process_files():
         event_name = data.get('event')
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
+        created_on_filter = data.get('createdOnFilter')
         
-        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}, inclusion list: {inclusion_list}")
+        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}, inclusion list: {inclusion_list}, date filter: {created_on_filter}")
         
         if not event_name:
             logger.error("No event name provided")
@@ -681,7 +682,8 @@ def process_files():
                 config = PreprocessingConfig(
                     main_event=event_name,
                     sub_event=sub_event if sub_event else None,
-                    inclusion_list=inclusion_list if inclusion_list else None
+                    inclusion_list=inclusion_list if inclusion_list else None,
+                    created_on_filter=created_on_filter if created_on_filter else None
                 )
                 logger.debug(f"Created preprocessing config: {config.__dict__}")
                 
