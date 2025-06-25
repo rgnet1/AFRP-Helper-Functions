@@ -26,7 +26,7 @@ class Convention2025Preprocessing(PreprocessingBase):
             "Madarae Night Club (21+)": "Madarae",
             "Young Adults Night at Nola (18+ Only)": "Nola",
             "Pizza Pool Day (Ages 13-17 only)": "Pool Day",
-            "Hamooleh Family Feud": "Family Fued",
+            "Hamooleh Family Feud": "Family Feud",
             "Top Golf (Ages 13 - 17)": "Top Golf",
             "Youth DJ Party  (Ages 13-17)": "DJ Party",
             "Ladies Trip to Santana Row": "Ladies Trip",
