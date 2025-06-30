@@ -48,6 +48,7 @@ class Convention2025Preprocessing(PreprocessingBase):
             "- Brezeit": "",
             "- SF/Brezeit": "",
             "- (children must be supervised by parent. $60 per child)": "",
+            "-  (children must be supervised by parent. $60 per child)": "",
             "Ramallah Federation in ": "",
             "- (children must be supervised by parent)": "",
         }
