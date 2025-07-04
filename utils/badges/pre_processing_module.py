@@ -105,12 +105,14 @@ class PreprocessingBase(ABC):
         'Local Club', 
         'Gender', 
         'Age',
+        'Cell Phone',
         'QR Code'
     ]
     
     NAME_COLUMNS = {
         'First Name (Existing Contact) (Contact)': 'First Name',
-        'Last Name (Existing Contact) (Contact)': 'Last Name'
+        'Last Name (Existing Contact) (Contact)': 'Last Name',
+        'Cell Phone (Existing Contact) (Contact)': 'Cell Phone'
     }
     
     @abstractmethod
