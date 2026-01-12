@@ -153,6 +153,37 @@ class Schedule(db.Model):
         else:
             raise ValueError("Invalid schedule configuration")
 
+class EventViewConfig(db.Model):
+    """
+    Stores Dynamics CRM view configurations for Badge Generator V2.
+    Groups all 4 view IDs under a single event name for easy management.
+    """
+    __tablename__ = 'event_view_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    event_name = db.Column(db.String(200), unique=True, nullable=False)
+    event_guests_view_id = db.Column(db.String(100), nullable=False)
+    qr_codes_view_id = db.Column(db.String(100), nullable=False)
+    table_reservations_view_id = db.Column(db.String(100), nullable=False)
+    form_responses_view_id = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_default = db.Column(db.Boolean, default=False)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'event_name': self.event_name,
+            'event_guests_view_id': self.event_guests_view_id,
+            'qr_codes_view_id': self.qr_codes_view_id,
+            'table_reservations_view_id': self.table_reservations_view_id,
+            'form_responses_view_id': self.form_responses_view_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_default': self.is_default
+        }
+
 class ScheduleManager:
     def __init__(self, app=None):
         self.app = None

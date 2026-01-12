@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Badge Generator V2 - AFRP CRM Helper</title>
+    
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/favicons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicons/favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicons/favicon-16x16.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicons/favicon.ico') }}">
+    
+    <link 
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+        integrity="sha512-d2Liw9JK8gCzwAfaqi4y9dtZqG4pvLSLE2kM3H92YLJPl1c38wZzScZ8YOw3GjMaNI+pHmM0Pil3Q17PiR8yXg=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
+    />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #eef2f3 0%, #d4dfe5 100%);
+            min-height: 100vh;
+            padding: 20px;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        header {
+            background: linear-gradient(135deg, #4b904b 0%, #3c723c 100%);
+            color: #fff;
+            padding: 30px;
+            text-align: center;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+        }
+
+        header h1 {
+            font-size: 2.2rem;
+            font-weight: 600;
+        }
+
+        header .subtitle {
+            font-size: 1rem;
+            opacity: 0.9;
+            margin-top: 8px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
+        }
+
+        .card h2 {
+            color: #4b904b;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card h2 i {
+            font-size: 1.3rem;
+        }
+
+        /* Event Configuration Section */
+        .config-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .config-select-wrapper {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            background: white;
+        }
+
+        select:focus, input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #4b904b;
+            box-shadow: 0 0 0 3px rgba(75, 144, 75, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+            color: white;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4b904b 0%, #3c723c 100%);
+            box-shadow: 0 4px 12px rgba(75, 144, 75, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(75, 144, 75, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-icon {
+            padding: 8px 12px;
+            font-size: 0.9rem;
+        }
+
+        /* Config Actions */
+        .config-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            display: none;
+            z-index: 1000;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: slideInRight 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .modal h3 {
+            color: #4b904b;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-help {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        /* Accordion */
+        .accordion {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .accordion-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.3s ease;
+        }
+
+        .accordion-header:hover {
+            background: #e9ecef;
+        }
+
+        .accordion-header.active {
+            background: #e8f4e8;
+        }
+
+        .accordion-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .accordion-title i {
+            color: #4b904b;
+            width: 20px;
+        }
+
+        .accordion-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .accordion-header.active .accordion-icon {
+            transform: rotate(180deg);
+        }
+
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease;
+            padding: 0 20px;
+        }
+
+        .accordion-content.active {
+            max-height: 300px;
+            padding: 20px;
+        }
+
+        /* Processing Section */
+        .processing-options {
+            display: grid;
+            gap: 20px;
+        }
+
+        .expandable-section {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .expandable-header {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+        }
+
+        .expandable-header:hover {
+            background: #e9ecef;
+        }
+
+        .expandable-content {
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease, padding 0.3s ease;
+        }
+
+        .expandable-content.active {
+            padding: 16px;
+            max-height: 300px;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Process Button */
+        .process-section {
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .btn-process {
+            font-size: 1.2rem;
+            padding: 16px 48px;
+            background: linear-gradient(135deg, #4b904b 0%, #5ca05c 50%, #4b904b 100%);
+            background-size: 200% auto;
+            animation: gradient 3s ease infinite;
+        }
+
+        @keyframes gradient {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .btn-process:hover {
+            transform: scale(1.05);
+        }
+
+        /* Loading Overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-overlay.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .progress-bar-container {
+            background: #e9ecef;
+            height: 12px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #4b904b, #5ca05c, #4b904b);
+            background-size: 200% 100%;
+            transition: width 0.5s ease;
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        .progress-steps {
+            margin: 20px 0;
+        }
+
+        .progress-step {
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8f9fa;
+            transition: all 0.3s ease;
+            opacity: 0.5;
+        }
+
+        .progress-step.active {
+            background: #e8f4e8;
+            opacity: 1;
+            animation: pulse 1.5s infinite;
+        }
+
+        .progress-step.completed {
+            background: #d4edda;
+            opacity: 1;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        .step-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #4b904b;
+            font-size: 1.1rem;
+        }
+
+        .step-icon .fa-spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 3000;
+        }
+
+        .toast {
+            background: white;
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 300px;
+            animation: slideInFromRight 0.3s ease;
+        }
+
+        @keyframes slideInFromRight {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .toast.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        .toast-icon {
+            font-size: 1.5rem;
+        }
+
+        .toast.success .toast-icon {
+            color: #28a745;
+        }
+
+        .toast.error .toast-icon {
+            color: #dc3545;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #4b904b;
+            text-decoration: none;
+            font-weight: 600;
+            margin-top: 20px;
+            transition: transform 0.2s ease;
+        }
+
+        .back-link:hover {
+            transform: translateX(-5px);
+        }
+
+        /* Badge pill */
+        .badge-pill {
+            display: inline-block;
+            background: #4b904b;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.5rem;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .config-header {
+                flex-direction: column;
+            }
+
+            .modal {
+                width: 95%;
+                padding: 20px;
+            }
+
+            .btn-process {
+                font-size: 1rem;
+                padding: 14px 32px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-robot"></i> Badge Generator V2</h1>
+            <div class="subtitle">Automated CRM Integration</div>
+        </header>
+
+        <!-- Campaign Selection -->
+        <div class="card">
+            <h2><i class="fas fa-calendar-check"></i> Select Campaign</h2>
+            <div class="form-group">
+                <label for="campaignSelect">Open Campaigns *</label>
+                <select id="campaignSelect">
+                    <option value="">Loading campaigns...</option>
+                </select>
+                <p class="form-help">Select from currently open campaigns in Dynamics CRM. The system will automatically pull data for the main campaign and all its sub-events.</p>
+            </div>
+        </div>
+
+        <!-- Processing Options -->
+        <div class="card">
+            <h2><i class="fas fa-sliders-h"></i> Processing Options</h2>
+            <div class="processing-options">
+                <div class="form-group">
+                    <label for="eventSelect">Event *</label>
+                    <select id="eventSelect">
+                        <option value="">Loading events...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="subEventSelect">Sub-Event (Optional)</label>
+                    <select id="subEventSelect">
+                        <option value="">Select a campaign first...</option>
+                    </select>
+                    <p class="form-help">Automatically populated with sub-events for the selected campaign.</p>
+                </div>
+
+                <div class="expandable-section">
+                    <div class="expandable-header" data-target="contactIds">
+                        <span><i class="fas fa-filter"></i> Contact IDs Filter</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="expandable-content" id="contactIds">
+                        <textarea id="inclusionList" placeholder="Enter IDs (one per line)&#10;e.g., ID-00094 or GUID"></textarea>
+                        <p class="form-help">Enter one ID per line. Supports both Member ID format (ID-####) and Contact ID (GUID). Only matching contacts will be included.</p>
+                    </div>
+                </div>
+
+                <div class="expandable-section">
+                    <div class="expandable-header" data-target="dateFilter">
+                        <span><i class="fas fa-calendar"></i> Registration Date Filter</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="expandable-content" id="dateFilter">
+                        <input type="text" id="createdOnFilter" placeholder="e.g., 6/11/2025 or 6/11/2025 2:56:51 PM">
+                        <p class="form-help">Include contacts who registered on or after this date. Combines with Contact IDs using OR logic.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="process-section">
+                <button class="btn btn-primary btn-process" id="processBtn" disabled>
+                    <i class="fas fa-magic"></i> Pull All & Process
+                </button>
+            </div>
+        </div>
+
+        <a href="/" class="back-link">
+            <i class="fas fa-arrow-left"></i> Back to Home
+        </a>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <h3 style="text-align: center; color: #4b904b; margin-bottom: 20px;">
+                <i class="fas fa-cog fa-spin"></i> Processing...
+            </h3>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+            </div>
+            <div class="progress-steps" id="progressSteps">
+                <!-- Steps will be added dynamically -->
+            </div>
+            <p id="loadingMessage" style="text-align: center; color: #666; margin-top: 20px;">
+                Initializing...
+            </p>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        console.log('Script loaded - Badge Generator V2');
+
+        // Initialize
+        console.log('Setting up DOMContentLoaded listener');
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOMContentLoaded fired!');
+            console.log('About to call loadCampaigns');
+            loadCampaigns();
+            console.log('About to call loadAvailableEvents');
+            loadAvailableEvents();
+            console.log('About to call initializeEventListeners');
+            initializeEventListeners();
+            console.log('Initialization complete');
+        });
+
+        function initializeEventListeners() {
+            // Expandable sections
+            document.querySelectorAll('.expandable-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const targetId = header.dataset.target;
+                    const content = document.getElementById(targetId);
+                    content.classList.toggle('active');
+                    
+                    const icon = header.querySelector('.fa-chevron-down');
+                    icon.style.transform = content.classList.contains('active') ? 'rotate(180deg)' : '';
+                });
+            });
+
+            // Campaign selection
+            document.getElementById('campaignSelect').addEventListener('change', updateProcessButton);
+
+            // Event selection
+            document.getElementById('eventSelect').addEventListener('change', updateProcessButton);
+
+            // Process button
+            document.getElementById('processBtn').addEventListener('click', processData);
+        }
+
+        async function loadCampaigns() {
+            console.log('loadCampaigns() called');
+            try {
+                console.log('Fetching /api/campaigns/open');
+                const response = await fetch('/api/campaigns/open');
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load campaigns: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Received data:', data);
+                const campaigns = data.campaigns || [];
+                console.log(`Found ${campaigns.length} campaigns`);
+                
+                const select = document.getElementById('campaignSelect');
+                if (!select) {
+                    console.error('campaignSelect element not found!');
+                    return;
+                }
+                
+                select.innerHTML = '<option value="">Select a campaign...</option>';
+                
+                campaigns.forEach(campaign => {
+                    const option = document.createElement('option');
+                    option.value = campaign.id;
+                    option.textContent = campaign.name;
+                    select.appendChild(option);
+                });
+                
+                // Add event listener for campaign change
+                select.addEventListener('change', async function() {
+                    updateProcessButton();
+                    // Load sub-events for the selected campaign
+                    const campaignId = this.value;
+                    if (campaignId) {
+                        await loadSubEvents(campaignId);
+                    } else {
+                        // Reset sub-events dropdown if no campaign selected
+                        const subEventSelect = document.getElementById('subEventSelect');
+                        subEventSelect.innerHTML = '<option value="">All sub-events</option>';
+                    }
+                });
+                
+                console.log(`Successfully loaded ${campaigns.length} open campaigns`);
+            } catch (error) {
+                console.error('Error in loadCampaigns:', error);
+                const select = document.getElementById('campaignSelect');
+                if (select) {
+                    select.innerHTML = '<option value="">Error loading campaigns</option>';
+                }
+                // Only call showToast if it exists
+                if (typeof showToast === 'function') {
+                    showToast('Failed to load campaigns: ' + error.message, 'error');
+                } else {
+                    console.error('showToast not defined, error was:', error.message);
+                }
+            }
+        }
+
+        async function loadAvailableEvents() {
+            try {
+                const response = await fetch('/api/available-events');
+                if (!response.ok) throw new Error('Failed to load events');
+                
+                const data = await response.json();
+                const select = document.getElementById('eventSelect');
+                select.innerHTML = '<option value="">Select an event...</option>';
+                
+                data.events.forEach(event => {
+                    const option = document.createElement('option');
+                    option.value = event;
+                    option.textContent = event;
+                    select.appendChild(option);
+                });
+                
+                // Auto-select "Default" if it exists
+                if (data.events.includes('Default')) {
+                    select.value = 'Default';
+                    updateProcessButton();
+                }
+                
+                console.log(`Loaded ${data.events.length} event(s)`);
+            } catch (error) {
+                console.error('Error loading events:', error);
+                showToast('Failed to load events: ' + error.message, 'error');
+                document.getElementById('eventSelect').innerHTML = '<option value="">Error loading events</option>';
+            }
+        }
+
+        async function loadSubEvents(campaignId) {
+            const select = document.getElementById('subEventSelect');
+            
+            try {
+                // Show loading state
+                select.innerHTML = '<option value="">Loading sub-events...</option>';
+                
+                const response = await fetch(`/api/campaigns/${campaignId}/sub-events`);
+                if (!response.ok) throw new Error('Failed to load sub-events');
+                
+                const data = await response.json();
+                const subEvents = data.sub_events || [];
+                
+                // Always start with "All sub-events" option
+                select.innerHTML = '<option value="">All sub-events</option>';
+                
+                // Add each sub-event
+                subEvents.forEach(subEvent => {
+                    const option = document.createElement('option');
+                    option.value = subEvent.id;
+                    option.textContent = subEvent.name;
+                    select.appendChild(option);
+                });
+                
+                console.log(`Loaded ${subEvents.length} sub-event(s) for campaign ${campaignId}`);
+                
+                if (subEvents.length === 0) {
+                    console.log('No sub-events found for this campaign');
+                }
+            } catch (error) {
+                console.error('Error loading sub-events:', error);
+                select.innerHTML = '<option value="">All sub-events</option>';
+                // Don't show error toast for sub-events as it's optional
+                console.warn('Failed to load sub-events (optional): ' + error.message);
+            }
+        }
+
+        function updateProcessButton() {
+            // Campaign-based approach - requires campaign selection
+            const hasCampaign = document.getElementById('campaignSelect').value !== '';
+            document.getElementById('processBtn').disabled = !hasCampaign;
+        }
+
+        async function processData() {
+            // Get campaign selection
+            const campaignId = document.getElementById('campaignSelect').value;
+            
+            if (!campaignId) {
+                showToast('Please select a campaign', 'error');
+                return;
+            }
+
+            const inclusionListText = document.getElementById('inclusionList').value;
+            const inclusionList = inclusionListText 
+                ? inclusionListText.split('\n').map(id => id.trim()).filter(id => id)
+                : null;
+
+            // Campaign-based approach
+            const campaignSelect = document.getElementById('campaignSelect');
+            const campaignName = campaignSelect.options[campaignSelect.selectedIndex].text;
+            
+            const data = {
+                campaign_id: campaignId,
+                campaign_name: campaignName,
+                event: document.getElementById('eventSelect').value || 'Default',
+                subEvent: document.getElementById('subEventSelect').value || null,
+                inclusionList: inclusionList,
+                createdOnFilter: document.getElementById('createdOnFilter').value || null
+            };
+
+            showLoading();
+            updateProgress(0, 'Loading configuration...', 'loading');
+
+            try {
+                updateProgress(10, 'Pulling Event Guests from CRM...', 'pulling-guests');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(30, 'Pulling QR Codes from CRM...', 'pulling-qr');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(50, 'Pulling Table Reservations from CRM...', 'pulling-tables');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(70, 'Pulling Form Responses from CRM...', 'pulling-forms');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(80, 'Processing and merging data...', 'processing');
+
+                const response = await fetch('/api/badges-v2/pull-and-process', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Processing failed');
+                }
+
+                updateProgress(95, 'Generating Excel file...', 'generating');
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                const blob = await response.blob();
+                updateProgress(100, 'Complete! Downloading file...', 'complete');
+
+                // Download file
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `MAIL_MERGE_${campaignName.replace(/\s+/g, '_')}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                setTimeout(() => {
+                    hideLoading();
+                    showToast('Badge data generated successfully!', 'success');
+                }, 1000);
+            } catch (error) {
+                hideLoading();
+                showToast(error.message, 'error');
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('active');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+
+        function updateProgress(percent, message, step) {
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('loadingMessage').textContent = message;
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+            toast.innerHTML = `
+                <i class="fas ${icon} toast-icon"></i>
+                <div>${message}</div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideInFromRight 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

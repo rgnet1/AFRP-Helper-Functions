@@ -17,9 +17,10 @@ import tempfile
 import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
 from utils.magazine.download_latest_magazine import main as magazine_main
-from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
+from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig
 from utils.badges.pre_processing_module import PreprocessingBase
-from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
+from utils.badges.event_preprocessing import preprocessing_implementations
+from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
 from utils.dynamics_crm import DynamicsCRMClient
@@ -105,11 +106,8 @@ app.config['UPLOAD_FOLDER'] = create_persistent_temp_dir()
 # Register cleanup function to run when the server shuts down
 atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 
-# Register available preprocessing implementations
-PREPROCESSING_IMPLEMENTATIONS: Dict[str, Type[PreprocessingBase]] = {
-    "Convention 2025": Convention2025Preprocessing,
-    "Convention 2025 - San Francisco": Convention2025Preprocessing
-}
+# Log registered preprocessors at startup
+logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
 
 @app.route('/', methods=['GET'])
 def home():
@@ -332,6 +330,17 @@ def manage_schedules():
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': f'Failed to delete schedule: {str(e)}'}), 500
+
+@app.route('/api/available-events', methods=['GET'])
+def get_available_events():
+    """Endpoint to fetch dynamically discovered event preprocessors."""
+    logger.debug("Fetching available events")
+    try:
+        events = list(preprocessing_implementations.keys())
+        return jsonify({'events': events})
+    except Exception as e:
+        logger.exception("Failed to fetch available events")
+        return jsonify({'error': f'Failed to fetch events: {str(e)}'}), 500
 
 @app.route('/run-magazine-download')
 def run_magazine_download():
@@ -645,13 +654,11 @@ def process_files():
         if not event_name:
             logger.error("No event name provided")
             return jsonify({'error': 'Event name is required'}), 400
-            
-        if event_name not in PREPROCESSING_IMPLEMENTATIONS:
-            logger.error(f"Invalid event selected: {event_name}")
-            return jsonify({'error': 'Invalid event selected'}), 400
         
         # Get the preprocessing implementation for the selected event
-        preprocessor_class = PREPROCESSING_IMPLEMENTATIONS[event_name]
+        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
+        if preprocessor_class == DefaultPreprocessing:
+            logger.warning(f"No specific preprocessor found for '{event_name}', using DefaultPreprocessing")
         
         # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -720,4 +727,269 @@ def process_files():
                 logger.debug(f"Changed working directory back to: {original_dir}")
     except Exception as e:
         logger.exception("Error in process_files handler")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+# Badge Generator V2 Routes
+
+@app.route('/badges-v2')
+def badges_v2():
+    """Badge Generator V2 page with automated CRM integration."""
+    return render_template('badges_v2.html')
+
+
+@app.route('/api/campaigns/open', methods=['GET'])
+def get_open_campaigns():
+    """Get list of open campaigns from Dynamics CRM."""
+    try:
+        crm_client = DynamicsCRMClient()
+        campaigns = crm_client.get_open_campaigns()
+        
+        logger.info(f"Retrieved {len(campaigns)} open campaigns")
+        return jsonify({'campaigns': campaigns})
+        
+    except Exception as e:
+        logger.error(f"Error fetching open campaigns: {str(e)}")
+        return jsonify({'error': f'Failed to fetch open campaigns: {str(e)}'}), 500
+
+@app.route('/api/campaigns/<campaign_id>/sub-events', methods=['GET'])
+def get_campaign_sub_events(campaign_id):
+    """Get list of sub-events for a specific campaign from Dynamics CRM."""
+    try:
+        crm_client = DynamicsCRMClient()
+        sub_events = crm_client.get_sub_events(campaign_id)
+        
+        logger.info(f"Retrieved {len(sub_events)} sub-events for campaign {campaign_id}")
+        return jsonify({'sub_events': sub_events})
+        
+    except Exception as e:
+        logger.error(f"Error fetching sub-events for campaign {campaign_id}: {str(e)}")
+        return jsonify({'error': f'Failed to fetch sub-events: {str(e)}'}), 500
+
+@app.route('/api/debug/contact-fields', methods=['GET'])
+def debug_contact_fields():
+    """Debug endpoint to discover contact fields in Dynamics."""
+    try:
+        crm_client = DynamicsCRMClient()
+        
+        # Get multiple contacts to check title and local club fields  
+        endpoint = "contacts?$top=10"
+        response = crm_client._make_request(endpoint)
+        records = response.get('value', [])
+        
+        contacts_data = []
+        for record in records:
+            # Extract only the relevant fields we care about
+            contact_info = {
+                'name': f"{record.get('firstname', '')} {record.get('lastname', '')}",
+                'salutation': record.get('salutation'),
+                'salutation_formatted': record.get('salutation@OData.Community.Display.V1.FormattedValue'),
+                'aha_title': record.get('aha_title'),
+                'aha_title_formatted': record.get('aha_title@OData.Community.Display.V1.FormattedValue'),
+                'jobtitle': record.get('jobtitle'),
+                'aha_localclub': record.get('aha_localclub'),
+                '_aha_localclub2_value': record.get('_aha_localclub2_value'),
+                '_aha_localclub2_formatted': record.get('_aha_localclub2_value@OData.Community.Display.V1.FormattedValue'),
+            }
+            contacts_data.append(contact_info)
+        
+        return jsonify({
+            'total_contacts': len(contacts_data),
+            'contacts': contacts_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching contact fields: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badges-v2/pull-and-process', methods=['POST'])
+def badges_v2_pull_and_process():
+    """One-click endpoint to pull all data from CRM and process it."""
+    logger.debug("Starting Badge Generator V2 pull and process")
+    try:
+        data = request.get_json()
+        if not data:
+            logger.error("No JSON data received")
+            return jsonify({'error': 'No data received'}), 400
+        
+        # Get parameters
+        campaign_id = data.get('campaign_id')
+        campaign_name = data.get('campaign_name')
+        event_name = data.get('event')
+        sub_event = data.get('subEvent')
+        inclusion_list = data.get('inclusionList')
+        created_on_filter = data.get('createdOnFilter')
+        
+        if not campaign_id and not campaign_name:
+            logger.error("No campaign ID or name provided")
+            return jsonify({'error': 'Campaign ID or name is required'}), 400
+        
+        logger.debug(f"Processing request: campaign_id={campaign_id}, campaign_name={campaign_name}, event={event_name}")
+        
+        # Initialize CRM client
+        try:
+            crm_client = DynamicsCRMClient()
+        except Exception as e:
+            logger.error(f"Failed to initialize CRM client: {str(e)}")
+            return jsonify({'error': f'Failed to connect to Dynamics CRM: {str(e)}'}), 500
+        
+        # Campaign-based approach
+        logger.info("Using campaign-based filtering")
+        
+        # Get campaign ID if only name was provided
+        if campaign_name and not campaign_id:
+            campaign_info = crm_client.get_campaign_by_name(campaign_name)
+            if not campaign_info:
+                return jsonify({'error': f'Campaign "{campaign_name}" not found'}), 404
+            campaign_id = campaign_info['id']
+            logger.info(f"Found campaign: {campaign_info['name']} (ID: {campaign_id})")
+        
+        # Verify campaign exists
+        campaign_info = crm_client.get_campaign_by_id(campaign_id)
+        if not campaign_info:
+            return jsonify({'error': 'Campaign not found'}), 404
+        
+        logger.info(f"Using campaign: {campaign_info['name']} (ID: {campaign_id})")
+        
+        # Create temporary directory for processing
+        upload_folder = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        
+        # Map data types to file types
+        data_type_mapping = {
+            'event_guests': {
+                'file_type': FileTypes.REGISTRATION,
+                'display_name': 'Event Guests'
+            },
+            'qr_codes': {
+                'file_type': FileTypes.QR_CODES,
+                'display_name': 'QR Codes'
+            },
+            'table_reservations': {
+                'file_type': FileTypes.SEATING,
+                'display_name': 'Table Reservations'
+            },
+            'form_responses': {
+                'file_type': FileTypes.FORM_RESPONSES,
+                'display_name': 'Form Responses'
+            }
+        }
+        
+        # Pull all 4 data types from CRM
+        for data_type, info in data_type_mapping.items():
+            try:
+                logger.info(f"Pulling {info['display_name']} from CRM...")
+                
+                # Use campaign-based filtering (main + sub-events)
+                df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
+                
+                logger.info(f"Pulled {len(df)} records for {info['display_name']}")
+                
+                # Remove existing file of the same type
+                existing_files = [f for f in os.listdir(upload_folder) 
+                                if f.startswith(f"{info['file_type']}_")]
+                for existing_file in existing_files:
+                    try:
+                        existing_path = os.path.join(upload_folder, existing_file)
+                        if os.path.exists(existing_path):
+                            os.remove(existing_path)
+                            logger.debug(f"Removed existing file: {existing_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove existing file {existing_file}: {e}")
+                
+                # Additional cleanup for seating data to prevent type issues
+                if data_type == 'table_reservations' and 'Event' in df.columns:
+                    import numpy as np
+                    # Ensure Event column is fully string type before saving
+                    df['Event'] = df['Event'].replace({np.nan: '', None: ''})
+                    df['Event'] = df['Event'].astype(str).replace('nan', '').replace('None', '')
+                    logger.debug(f"Cleaned Event column in seating data. Types: {df['Event'].apply(type).unique()}")
+                
+                # Save to Excel file with proper naming
+                temp_file = os.path.join(upload_folder, f"{info['file_type']}_crm_data.xlsx")
+                df.to_excel(temp_file, index=False)
+                logger.debug(f"Saved {info['display_name']} data to: {temp_file}")
+                
+            except Exception as e:
+                logger.error(f"Error pulling {info['display_name']}: {str(e)}")
+                return jsonify({'error': f'Failed to pull {info["display_name"]}: {str(e)}'}), 500
+        
+        # Now process the files using existing logic
+        logger.info("All data pulled successfully, starting processing...")
+        
+        if not event_name:
+            logger.error("No event name provided for processing")
+            return jsonify({'error': 'Event name is required'}), 400
+        
+        # Get the preprocessing implementation
+        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
+        if preprocessor_class == DefaultPreprocessing:
+            logger.warning(f"No specific preprocessor found for '{event_name}', using DefaultPreprocessing")
+        
+        # Create temporary directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logger.debug(f"Created temporary directory: {temp_dir}")
+            os.makedirs(temp_dir, mode=0o777, exist_ok=True)
+            
+            # Copy uploaded files to temp directory
+            files = {}
+            for file_type in FileValidator.get_required_file_types():
+                matching_files = [f for f in os.listdir(upload_folder) 
+                                if f.startswith(f"{file_type}_")]
+                if not matching_files:
+                    logger.error(f"Missing required file: {file_type}")
+                    return jsonify({'error': f'Missing required file: {file_type}'}), 400
+                source = os.path.join(upload_folder, matching_files[0])
+                dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
+                logger.debug(f"Copying {file_type} file from {source} to {dest}")
+                shutil.copy2(source, dest)
+                files[file_type] = dest
+            
+            # Change to temp directory
+            original_dir = os.getcwd()
+            os.chdir(temp_dir)
+            logger.debug(f"Changed working directory to: {temp_dir}")
+            
+            try:
+                # Create preprocessing config
+                config_obj = PreprocessingConfig(
+                    main_event=event_name,
+                    sub_event=sub_event if sub_event else None,
+                    inclusion_list=inclusion_list if inclusion_list else None,
+                    created_on_filter=created_on_filter if created_on_filter else None
+                )
+                logger.debug(f"Created preprocessing config: {config_obj.__dict__}")
+                
+                # Initialize processor
+                processor = EventRegistrationProcessorV3(
+                    config=config_obj,
+                    preprocessor_class=preprocessor_class
+                )
+                
+                # Process files
+                logger.info("Starting file processing...")
+                result_df = processor.transform_and_merge()
+                logger.debug(f"Processing complete. Result shape: {result_df.shape}")
+                
+                # Save output
+                output_file = os.path.join(temp_dir, "MAIL_MERGE_output.xlsx")
+                result_df.to_excel(output_file, index=False)
+                logger.debug(f"Saved output to: {output_file}")
+                
+                # Send file to user
+                return send_file(
+                    output_file,
+                    as_attachment=True,
+                    download_name=f"MAIL_MERGE_{event_name.replace(' ', '_')}_{sub_event or 'all'}.xlsx",
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+            
+            except Exception as e:
+                logger.exception("Error during processing")
+                return jsonify({'error': f'Processing error: {str(e)}\n{traceback.format_exc()}'}), 500
+            
+            finally:
+                os.chdir(original_dir)
+                logger.debug(f"Changed working directory back to: {original_dir}")
+    except Exception as e:
+        logger.exception("Error in badges_v2_pull_and_process handler")
         return jsonify({'error': f'Server error: {str(e)}'}), 500

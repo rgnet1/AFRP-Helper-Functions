@@ -84,6 +84,47 @@
             text-align: center;
             padding: 0 10px;
         }
+
+        .tile-subtitle {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        /* Pulse animation for V2 icon */
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.1);
+                opacity: 0.8;
+            }
+        }
+
+        .tile-v2 {
+            position: relative;
+        }
+
+        .tile-v2::before {
+            content: 'NEW';
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: linear-gradient(135deg, #4b904b, #5ca05c);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .tile-v2 .tile-icon i {
+            animation: pulse 2s ease-in-out infinite;
+            color: #4b904b;
+        }
     </style>
 </head>
 <body>
@@ -113,12 +154,22 @@
             <div class="tile-title">Magazine Downloader</div>
         </a>
 
-         <!-- Badge Generator Tile -->
+         <!-- Badge Generator V1 Tile -->
          <a href="/badges" class="tile">
             <div class="tile-icon">
                 <img src="{{ url_for('static', filename='images/badge-icon.svg') }}" alt="Badge Generator Icon">
             </div>
-            <div class="tile-title">Event Badge Generator</div>
+            <div class="tile-title">Badge Generator V1</div>
+            <div class="tile-subtitle">Manual Upload</div>
+        </a>
+
+         <!-- Badge Generator V2 Tile -->
+         <a href="/badges-v2" class="tile tile-v2">
+            <div class="tile-icon">
+                <i class="fas fa-robot"></i>
+            </div>
+            <div class="tile-title">Badge Generator V2</div>
+            <div class="tile-subtitle">Automated CRM Integration</div>
         </a>
 
     </div>

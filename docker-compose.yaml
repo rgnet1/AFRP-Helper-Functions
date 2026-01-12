@@ -1,6 +1,7 @@
 version: '3'
 services:
   afrp-helper:
+    build: .
     image: afrp-helper:latest
     ports:
       - "5066:5066"

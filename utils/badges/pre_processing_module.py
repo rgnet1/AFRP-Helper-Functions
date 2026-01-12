@@ -14,7 +14,7 @@ class PreprocessingConfig:
     main_event: str  # The main event name (e.g., "Convention 2025 - San Francisco")
     sub_event: Optional[str] = None  # Optional sub-event to filter by
     timezone: str = "America/Los_Angeles"  # Default timezone for timestamps
-    inclusion_list: Optional[List[str]] = None  # Optional list of Contact IDs to include
+    inclusion_list: Optional[List[str]] = None  # Optional list of IDs to include (supports Member ID like "ID-####" or Contact ID GUID)
     created_on_filter: Optional[str] = None  # Optional "on or after" date filter (format: "6/11/2025" or "6/11/2025 2:56:51 PM")
     
     def __post_init__(self):
@@ -98,7 +98,8 @@ class PreprocessingBase(ABC):
     
     # Define core contact columns that should always be included
     CONTACT_COLUMNS = [
-        'Contact ID', 
+        'Contact ID',
+        'Member ID',
         'First Name', 
         'Last Name', 
         'Title', 
