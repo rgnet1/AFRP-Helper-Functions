@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- 
+  Sample Badge Template for Avery 5392 (3" × 3.5")
+  Dimensions: 288px × 336px (at 96 DPI)
+  
+  AVAILABLE PLACEHOLDERS:
+  - {{FIRST_NAME}} - Attendee's first name
+  - {{LAST_NAME}} - Attendee's last name
+  - {{TITLE}} - Mr., Mrs., Dr., etc.
+  - {{MEMBER_ID}} - Format: ID-#### 
+  - {{LOCAL_CLUB}} - Club affiliation
+  - {{GENDER}} - Male/Female
+  - {{AGE}} - Age in years
+  - {{QR_CODE}} - QR code image (auto-generated)
+  - {{AFRP_LOGO}} - Default AFRP logo
+  - {{CLUB_LOGO}} - Uploaded club logo
+  - {{SUBEVENT_1}} - First sub-event name
+  - {{SUBEVENT_2}} - Second sub-event name
+  - {{SUBEVENT_3}} - Third sub-event name
+  
+  CUSTOMIZATION TIPS:
+  1. Change font-family: Arial, Helvetica, "Times New Roman", Courier, Verdana
+  2. Change font-size: Numbers in pixels (e.g., 24, 18, 14, 12)
+  3. Change colors: Use hex codes (#000000) or names (black, red, blue)
+  4. Move elements: Adjust x, y coordinates
+  5. Resize images: Adjust width and height attributes
+  6. Add borders/shapes: Use <rect>, <circle>, <line> elements
+-->
+
+<svg xmlns="http://www.w3.org/2000/svg" 
+     width="288" 
+     height="336" 
+     viewBox="0 0 288 336">
+  
+  <!-- Background (white) -->
+  <rect width="288" height="336" fill="#FFFFFF"/>
+  
+  <!-- Optional: Decorative border -->
+  <rect x="5" y="5" width="278" height="374" 
+        fill="none" 
+        stroke="#4b904b" 
+        stroke-width="2" 
+        rx="8"/>
+  
+  <!-- Top Header Band (optional decorative element) -->
+  <rect x="5" y="5" width="278" height="60" 
+        fill="#4b904b" 
+        opacity="0.1" 
+        rx="8"/>
+  
+  <!-- ====================== -->
+  <!-- LOGOS SECTION (TOP)    -->
+  <!-- ====================== -->
+  
+  <!-- AFRP Logo (Top Left) -->
+  <image x="15" y="12" 
+         width="50" 
+         height="50" 
+         href="{{AFRP_LOGO}}"
+         preserveAspectRatio="xMidYMid meet"/>
+  
+  <!-- Club Logo (Top Right) -->
+  <image x="223" y="12" 
+         width="50" 
+         height="50" 
+         href="{{CLUB_LOGO}}"
+         preserveAspectRatio="xMidYMid meet"/>
+  
+  
+  <!-- ====================== -->
+  <!-- NAME SECTION (CENTER)  -->
+  <!-- ====================== -->
+  
+  <!-- Title (Mr., Mrs., Dr., etc.) - Small, above name -->
+  <text x="144" y="90" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="12" 
+        font-weight="normal"
+        fill="#666666">{{TITLE}}</text>
+  
+  <!-- First and Last Name - Large, Bold, Centered -->
+  <text x="144" y="115" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="22" 
+        font-weight="bold"
+        fill="#000000">{{FIRST_NAME}}</text>
+  
+  <text x="144" y="138" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="22" 
+        font-weight="bold"
+        fill="#000000">{{LAST_NAME}}</text>
+  
+  
+  <!-- ====================== -->
+  <!-- MEMBER INFO SECTION    -->
+  <!-- ====================== -->
+  
+  <!-- Member ID -->
+  <text x="144" y="165" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="14" 
+        font-weight="normal"
+        fill="#333333">{{MEMBER_ID}}</text>
+  
+  <!-- Local Club -->
+  <text x="144" y="185" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="13" 
+        font-weight="normal"
+        fill="#4b904b">{{LOCAL_CLUB}}</text>
+  
+  <!-- Optional: Gender and Age (smaller, less prominent) -->
+  <!-- You can remove this section if not needed -->
+  <text x="144" y="205" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="10" 
+        font-weight="normal"
+        fill="#999999">{{GENDER}} • {{AGE}} years old</text>
+  
+  
+  <!-- ====================== -->
+  <!-- SUB-EVENTS SECTION     -->
+  <!-- ====================== -->
+  
+  <!-- Divider Line -->
+  <line x1="30" y1="220" x2="258" y2="220" 
+        stroke="#cccccc" 
+        stroke-width="1"/>
+  
+  <!-- Sub-Events Header -->
+  <text x="144" y="238" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="10" 
+        font-weight="bold"
+        fill="#666666"
+        letter-spacing="1">REGISTERED EVENTS</text>
+  
+  <!-- Sub-Event 1 -->
+  <text x="144" y="255" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="11" 
+        font-weight="normal"
+        fill="#333333">{{SUBEVENT_1}}</text>
+  
+  <!-- Sub-Event 2 -->
+  <text x="144" y="272" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="11" 
+        font-weight="normal"
+        fill="#333333">{{SUBEVENT_2}}</text>
+  
+  <!-- Sub-Event 3 -->
+  <text x="144" y="289" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="11" 
+        font-weight="normal"
+        fill="#333333">{{SUBEVENT_3}}</text>
+  
+  
+  <!-- ====================== -->
+  <!-- QR CODE SECTION        -->
+  <!-- ====================== -->
+  
+  <!-- QR Code (Bottom Center) -->
+  <image x="114" y="305" 
+         width="60" 
+         height="60" 
+         href="{{QR_CODE}}"
+         preserveAspectRatio="xMidYMid meet"/>
+  
+  <!-- QR Code Label (optional) -->
+  <text x="144" y="375" 
+        text-anchor="middle" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="8" 
+        font-weight="normal"
+        fill="#999999">Scan for Details</text>
+
+</svg>

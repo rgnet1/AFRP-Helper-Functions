@@ -646,6 +646,56 @@
             </div>
         </div>
 
+        <!-- Badge Generation Section -->
+        <div class="card" style="margin-top: 30px;">
+            <h2 class="card-title">
+                <i class="fas fa-id-card"></i> Badge Generation
+            </h2>
+            <p class="form-help" style="margin-bottom: 20px;">
+                Generate print-ready PDF badges from your processed data using Avery label templates.
+            </p>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">
+                        <i class="fas fa-file-pdf"></i> Badge Template
+                    </label>
+                    <select id="badgeTemplateSelect" class="form-select">
+                        <option value="">Loading templates...</option>
+                    </select>
+                    <p class="form-help">Select a pre-configured badge template</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        <i class="fas fa-tags"></i> Avery Template Size
+                    </label>
+                    <select id="averyTemplateSelect" class="form-select">
+                        <option value="">Loading Avery templates...</option>
+                    </select>
+                    <p class="form-help">Select the Avery label sheet size</p>
+                </div>
+            </div>
+
+            <div class="process-section" style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
+                <a href="/badge-mapping" class="btn" style="background: #6c757d; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-cog"></i> Configure Templates
+                </a>
+                
+                <button class="btn" style="background: #17a2b8; color: white;" id="generateBadgesBtn" disabled>
+                    <i class="fas fa-id-card"></i> Generate Badges from Processed Data
+                </button>
+                
+                <button class="btn btn-primary" id="processAndGenerateBtn" disabled>
+                    <i class="fas fa-rocket"></i> Pull, Process & Generate Badges
+                </button>
+            </div>
+
+            <div id="badgeStatus" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;">
+                <p style="margin: 0;"><i class="fas fa-info-circle"></i> <span id="badgeStatusText"></span></p>
+            </div>
+        </div>
+
         <a href="/" class="back-link">
             <i class="fas fa-arrow-left"></i> Back to Home
         </a>
@@ -683,6 +733,10 @@
             loadCampaigns();
             console.log('About to call loadAvailableEvents');
             loadAvailableEvents();
+            console.log('About to call loadBadgeTemplates');
+            loadBadgeTemplates();
+            console.log('About to call loadAveryTemplates');
+            loadAveryTemplates();
             console.log('About to call initializeEventListeners');
             initializeEventListeners();
             console.log('Initialization complete');
@@ -701,14 +755,16 @@
                 });
             });
 
-            // Campaign selection
-            document.getElementById('campaignSelect').addEventListener('change', updateProcessButton);
-
             // Event selection
             document.getElementById('eventSelect').addEventListener('change', updateProcessButton);
 
             // Process button
             document.getElementById('processBtn').addEventListener('click', processData);
+
+            // Badge generation buttons
+            document.getElementById('badgeTemplateSelect').addEventListener('change', updateBadgeButtons);
+            document.getElementById('generateBadgesBtn').addEventListener('click', generateBadges);
+            document.getElementById('processAndGenerateBtn').addEventListener('click', processAndGenerateBadges);
         }
 
         async function loadCampaigns() {
@@ -745,6 +801,7 @@
                 // Add event listener for campaign change
                 select.addEventListener('change', async function() {
                     updateProcessButton();
+                    updateBadgeButtons();  // Also update badge generation buttons
                     // Load sub-events for the selected campaign
                     const campaignId = this.value;
                     if (campaignId) {
@@ -957,6 +1014,227 @@
                 toast.style.animation = 'slideInFromRight 0.3s ease reverse';
                 setTimeout(() => toast.remove(), 300);
             }, 5000);
+        }
+
+        // ============================================================================
+        // Badge Generation Functions
+        // ============================================================================
+
+        let lastProcessedExcelPath = null; // Store path to last processed Excel file
+
+        async function loadBadgeTemplates() {
+            console.log('loadBadgeTemplates() called');
+            try {
+                const response = await fetch('/api/badge-templates');
+                if (!response.ok) throw new Error('Failed to load badge templates');
+
+                const data = await response.json();
+                const select = document.getElementById('badgeTemplateSelect');
+
+                if (data.templates.length === 0) {
+                    select.innerHTML = '<option value="">No templates found - Configure one first</option>';
+                    return;
+                }
+
+                select.innerHTML = '<option value="">Select a badge template...</option>';
+                data.templates.forEach(template => {
+                    const option = document.createElement('option');
+                    option.value = template.id;
+                    option.textContent = `${template.name} (Avery ${template.avery_template})`;
+                    select.appendChild(option);
+                });
+
+                console.log(`Loaded ${data.templates.length} badge template(s)`);
+            } catch (error) {
+                console.error('Error loading badge templates:', error);
+                showToast('Failed to load badge templates: ' + error.message, 'error');
+            }
+        }
+
+        async function loadAveryTemplates() {
+            console.log('loadAveryTemplates() called');
+            try {
+                const response = await fetch('/api/avery-templates');
+                if (!response.ok) throw new Error('Failed to load Avery templates');
+
+                const data = await response.json();
+                const select = document.getElementById('averyTemplateSelect');
+
+                select.innerHTML = '';
+                data.templates.forEach(template => {
+                    const option = document.createElement('option');
+                    option.value = template.code;
+                    option.textContent = `${template.name} (${template.size}) - ${template.layout} per sheet`;
+                    if (template.code === '5392') {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+
+                console.log(`Loaded ${data.templates.length} Avery template(s)`);
+            } catch (error) {
+                console.error('Error loading Avery templates:', error);
+                showToast('Failed to load Avery templates: ' + error.message, 'error');
+            }
+        }
+
+        function updateBadgeButtons() {
+            const templateSelected = document.getElementById('badgeTemplateSelect').value !== '';
+            const campaignSelected = document.getElementById('campaignSelect').value !== '';
+            
+            // Enable "Generate Badges from Processed Data" only if we have a template and data was processed
+            document.getElementById('generateBadgesBtn').disabled = !(templateSelected && lastProcessedExcelPath);
+            
+            // Enable "Process & Generate" if template and campaign are selected
+            document.getElementById('processAndGenerateBtn').disabled = !(templateSelected && campaignSelected);
+        }
+
+        async function generateBadges() {
+            if (!lastProcessedExcelPath) {
+                showToast('Please process data first before generating badges', 'error');
+                return;
+            }
+
+            const templateId = document.getElementById('badgeTemplateSelect').value;
+            if (!templateId) {
+                showToast('Please select a badge template', 'error');
+                return;
+            }
+
+            const averyTemplate = document.getElementById('averyTemplateSelect').value;
+
+            showLoading();
+            updateProgress(0, 'Preparing badge generation...', 'loading');
+
+            try {
+                updateProgress(30, 'Generating QR codes...', 'processing');
+                
+                const response = await fetch('/api/badges/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        excel_file: lastProcessedExcelPath,
+                        template_id: parseInt(templateId),
+                        avery_template: averyTemplate
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Badge generation failed');
+                }
+
+                updateProgress(80, 'Creating PDF...', 'generating');
+
+                const blob = await response.blob();
+                updateProgress(100, 'Complete! Downloading badges...', 'complete');
+
+                // Download PDF
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'badges.pdf';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                setTimeout(() => {
+                    hideLoading();
+                    showToast('Badges generated successfully!', 'success');
+                }, 1000);
+            } catch (error) {
+                hideLoading();
+                showToast('Badge generation failed: ' + error.message, 'error');
+            }
+        }
+
+        async function processAndGenerateBadges() {
+            const campaignId = document.getElementById('campaignSelect').value;
+            const campaignSelect = document.getElementById('campaignSelect');
+            const campaignName = campaignSelect.options[campaignSelect.selectedIndex].text;
+            const templateId = document.getElementById('badgeTemplateSelect').value;
+            const averyTemplate = document.getElementById('averyTemplateSelect').value;
+
+            if (!campaignId) {
+                showToast('Please select a campaign', 'error');
+                return;
+            }
+
+            if (!templateId) {
+                showToast('Please select a badge template', 'error');
+                return;
+            }
+
+            const inclusionListText = document.getElementById('inclusionList').value;
+            const inclusionList = inclusionListText 
+                ? inclusionListText.split('\n').map(id => id.trim()).filter(id => id)
+                : null;
+
+            const data = {
+                campaign_id: campaignId,
+                campaign_name: campaignName,
+                event: document.getElementById('eventSelect').value || 'Default',
+                subEvent: document.getElementById('subEventSelect').value || null,
+                inclusionList: inclusionList,
+                createdOnFilter: document.getElementById('createdOnFilter').value || null,
+                template_id: parseInt(templateId),
+                avery_template: averyTemplate
+            };
+
+            showLoading();
+            updateProgress(0, 'Loading configuration...', 'loading');
+
+            try {
+                updateProgress(10, 'Pulling Event Guests from CRM...', 'pulling-guests');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(30, 'Pulling QR Codes from CRM...', 'pulling-qr');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(50, 'Pulling Table Reservations from CRM...', 'pulling-tables');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(70, 'Pulling Form Responses from CRM...', 'pulling-forms');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                updateProgress(80, 'Processing and generating badges...', 'processing');
+
+                const response = await fetch('/api/badges-v2/pull-process-generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Processing failed');
+                }
+
+                updateProgress(95, 'Creating PDF badges...', 'generating');
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                const blob = await response.blob();
+                updateProgress(100, 'Complete! Downloading badges...', 'complete');
+
+                // Download file
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `badges_${campaignName.replace(/\s+/g, '_')}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                setTimeout(() => {
+                    hideLoading();
+                    showToast('Badges generated successfully!', 'success');
+                }, 1000);
+            } catch (error) {
+                hideLoading();
+                showToast(error.message, 'error');
+            }
         }
     </script>
 </body>

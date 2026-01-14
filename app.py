@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, jsonify, Response
+from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response
 from werkzeug.utils import secure_filename
 import qrcode
 from io import BytesIO, StringIO
@@ -17,14 +17,16 @@ import tempfile
 import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
 from utils.magazine.download_latest_magazine import main as magazine_main
-from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig
+from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate
 from utils.badges.pre_processing_module import PreprocessingBase
 from utils.badges.event_preprocessing import preprocessing_implementations
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
+from utils.badges.badge_generator import BadgeGenerator
 from utils.dynamics_crm import DynamicsCRMClient
 import os
+import json
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
 from typing import Dict, Type
@@ -41,7 +43,7 @@ IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
 BASE_PATH = '/app' if IN_DOCKER else '.'
 
 # Ensure required directories exist with proper permissions
-for dir_path in ['data', 'temp', 'downloads']:
+for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos']:
     full_path = os.path.join(BASE_PATH, dir_path)
     os.makedirs(full_path, exist_ok=True)
     os.chmod(full_path, 0o777)
@@ -105,6 +107,15 @@ app.config['UPLOAD_FOLDER'] = create_persistent_temp_dir()
 
 # Register cleanup function to run when the server shuts down
 atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
+
+# Configure badge generation directories
+app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates')
+app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
+app.config['AFRP_LOGO_PATH'] = os.path.join(BASE_PATH, 'static', 'afrp_logo.svg')
+
+# Ensure badge folders exist
+os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
+os.makedirs(app.config['BADGE_LOGOS_FOLDER'], mode=0o777, exist_ok=True)
 
 # Log registered preprocessors at startup
 logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
@@ -736,6 +747,16 @@ def badges_v2():
     """Badge Generator V2 page with automated CRM integration."""
     return render_template('badges_v2.html')
 
+@app.route('/badge-mapping')
+def badge_mapping():
+    """Badge template mapping configuration page."""
+    return render_template('badge_mapping.html')
+
+@app.route('/badge_templates/<path:filename>')
+def serve_badge_template(filename):
+    """Serve badge template SVG files."""
+    return send_from_directory(app.config['BADGE_TEMPLATES_FOLDER'], filename)
+
 
 @app.route('/api/campaigns/open', methods=['GET'])
 def get_open_campaigns():
@@ -993,3 +1014,403 @@ def badges_v2_pull_and_process():
     except Exception as e:
         logger.exception("Error in badges_v2_pull_and_process handler")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+# ============================================================================
+# Badge Generation API Endpoints
+# ============================================================================
+
+@app.route('/api/badge-templates', methods=['GET'])
+def get_badge_templates():
+    """Get list of saved badge templates."""
+    try:
+        templates = BadgeTemplate.query.all()
+        return jsonify({
+            'templates': [t.to_dict() for t in templates]
+        })
+    except Exception as e:
+        logger.exception("Error fetching badge templates")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates', methods=['POST'])
+def create_badge_template():
+    """Save a new badge template configuration."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name'):
+            return jsonify({'error': 'Template name is required'}), 400
+        if not data.get('svg_filename'):
+            return jsonify({'error': 'SVG filename is required'}), 400
+        if not data.get('column_mappings'):
+            return jsonify({'error': 'Column mappings are required'}), 400
+        
+        # Check if template with this name already exists
+        existing = BadgeTemplate.query.filter_by(name=data['name']).first()
+        if existing:
+            return jsonify({'error': 'Template with this name already exists'}), 400
+        
+        # Create new template
+        template = BadgeTemplate(
+            name=data['name'],
+            svg_filename=data['svg_filename'],
+            club_logo_filename=data.get('club_logo_filename'),
+            column_mappings=json.dumps(data['column_mappings']),
+            avery_template=data.get('avery_template', '5392')
+        )
+        
+        db.session.add(template)
+        db.session.commit()
+        
+        logger.info(f"Created badge template: {template.name}")
+        return jsonify(template.to_dict()), 201
+        
+    except Exception as e:
+        logger.exception("Error creating badge template")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['GET'])
+def get_badge_template(template_id):
+    """Get a specific badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify(template.to_dict())
+    except Exception as e:
+        logger.exception(f"Error fetching badge template {template_id}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['PUT'])
+def update_badge_template(template_id):
+    """Update an existing badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        data = request.get_json()
+        
+        # Update fields if provided
+        if 'name' in data:
+            # Check if new name conflicts with another template
+            existing = BadgeTemplate.query.filter(
+                BadgeTemplate.name == data['name'],
+                BadgeTemplate.id != template_id
+            ).first()
+            if existing:
+                return jsonify({'error': 'Template with this name already exists'}), 400
+            template.name = data['name']
+        
+        if 'svg_filename' in data:
+            template.svg_filename = data['svg_filename']
+        if 'club_logo_filename' in data:
+            template.club_logo_filename = data['club_logo_filename']
+        if 'column_mappings' in data:
+            template.column_mappings = json.dumps(data['column_mappings'])
+        if 'avery_template' in data:
+            template.avery_template = data['avery_template']
+        
+        template.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Updated badge template: {template.name}")
+        return jsonify(template.to_dict())
+        
+    except Exception as e:
+        logger.exception(f"Error updating badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['DELETE'])
+def delete_badge_template(template_id):
+    """Delete a badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        template_name = template.name
+        db.session.delete(template)
+        db.session.commit()
+        
+        logger.info(f"Deleted badge template: {template_name}")
+        return jsonify({'message': 'Template deleted successfully'})
+        
+    except Exception as e:
+        logger.exception(f"Error deleting badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/upload-svg', methods=['POST'])
+def upload_svg_template():
+    """Upload SVG template file."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.svg'):
+            return jsonify({'error': 'File must be an SVG'}), 400
+        
+        # Save file with secure filename
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Extract placeholders from SVG
+        placeholders = BadgeGenerator.extract_placeholders_from_svg(filepath)
+        
+        logger.info(f"Uploaded SVG template: {filename}")
+        return jsonify({
+            'filename': filename,
+            'placeholders': placeholders
+        })
+        
+    except Exception as e:
+        logger.exception("Error uploading SVG template")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-logos/upload', methods=['POST'])
+def upload_club_logo():
+    """Upload club logo for badge generation."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type
+        allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, GIF, SVG'}), 400
+        
+        # Save file
+        filename = secure_filename(file.filename)
+        # Add timestamp to avoid conflicts
+        timestamp = int(datetime.utcnow().timestamp())
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(app.config['BADGE_LOGOS_FOLDER'], filename)
+        file.save(filepath)
+        
+        logger.info(f"Uploaded club logo: {filename}")
+        return jsonify({
+            'filename': filename,
+            'path': filepath
+        })
+        
+    except Exception as e:
+        logger.exception("Error uploading club logo")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/avery-templates', methods=['GET'])
+def get_avery_templates():
+    """Get list of available Avery templates."""
+    try:
+        templates = BadgeGenerator.get_available_templates()
+        return jsonify({'templates': templates})
+    except Exception as e:
+        logger.exception("Error fetching Avery templates")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badges/generate', methods=['POST'])
+def generate_badges():
+    """Generate PDF badges from processed Excel file."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        excel_file = data.get('excel_file')
+        template_id = data.get('template_id')
+        
+        if not excel_file:
+            return jsonify({'error': 'Excel file path is required'}), 400
+        if not template_id:
+            return jsonify({'error': 'Template ID is required'}), 400
+        
+        # Check if Excel file exists
+        if not os.path.exists(excel_file):
+            return jsonify({'error': 'Excel file not found'}), 404
+        
+        # Load template configuration
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Get SVG template path
+        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+        if not os.path.exists(svg_path):
+            return jsonify({'error': 'SVG template file not found'}), 404
+        
+        # Get club logo path (optional)
+        club_logo_filename = data.get('club_logo_filename')
+        club_logo_path = None
+        if club_logo_filename:
+            club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], club_logo_filename)
+            if not os.path.exists(club_logo_path):
+                logger.warning(f"Club logo not found: {club_logo_path}")
+                club_logo_path = None
+        
+        # Get Avery template
+        avery_template = data.get('avery_template', template.avery_template)
+        
+        # Parse column mappings
+        column_mappings = json.loads(template.column_mappings)
+        
+        # Create badge generator
+        generator = BadgeGenerator(
+            excel_file=excel_file,
+            svg_template_path=svg_path,
+            column_mappings=column_mappings,
+            afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+            club_logo_path=club_logo_path,
+            avery_template=avery_template
+        )
+        
+        # Generate PDF
+        output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')
+        generator.generate_pdf(output_pdf)
+        
+        logger.info(f"Generated badges PDF: {output_pdf}")
+        
+        # Send file
+        return send_file(
+            output_pdf,
+            as_attachment=True,
+            download_name='badges.pdf',
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        logger.exception("Error generating badges")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badges-v2/pull-process-generate', methods=['POST'])
+def badges_v2_pull_process_generate():
+    """Combined endpoint: pull data, process, and generate badges."""
+    try:
+        data = request.get_json()
+        
+        # First, pull and process data (reuse existing logic)
+        # This will save the processed Excel file
+        campaign_id = data.get('campaign_id')
+        campaign_name = data.get('campaign_name')
+        event_name = data.get('event')
+        sub_event = data.get('subEvent')
+        inclusion_list = data.get('inclusionList')
+        created_on_filter = data.get('createdOnFilter')
+        
+        if not campaign_id and not campaign_name:
+            return jsonify({'error': 'Campaign ID or name is required'}), 400
+        
+        # Initialize CRM client
+        crm_client = DynamicsCRMClient()
+        
+        # Get campaign ID if only name provided
+        if campaign_name and not campaign_id:
+            campaign_info = crm_client.get_campaign_by_name(campaign_name)
+            if not campaign_info:
+                return jsonify({'error': f'Campaign {campaign_name} not found'}), 404
+            campaign_id = campaign_info['id']
+        
+        # Pull and process data
+        upload_folder = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        
+        # Pull all 4 data types
+        data_type_mapping = {
+            'event_guests': FileTypes.REGISTRATION,
+            'qr_codes': FileTypes.QR_CODES,
+            'table_reservations': FileTypes.SEATING,
+            'form_responses': FileTypes.FORM_RESPONSES
+        }
+        
+        for data_type, file_type in data_type_mapping.items():
+            df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
+            temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
+            df.to_excel(temp_file, index=False)
+        
+        # Process data
+        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
+        config_obj = PreprocessingConfig(
+            main_event=event_name,
+            sub_event=sub_event,
+            inclusion_list=inclusion_list,
+            created_on_filter=created_on_filter
+        )
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Copy files to temp directory
+            for file_type in FileValidator.get_required_file_types():
+                matching_files = [f for f in os.listdir(upload_folder) if f.startswith(f"{file_type}_")]
+                if matching_files:
+                    source = os.path.join(upload_folder, matching_files[0])
+                    dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
+                    shutil.copy2(source, dest)
+            
+            original_dir = os.getcwd()
+            os.chdir(temp_dir)
+            
+            try:
+                processor = EventRegistrationProcessorV3(config=config_obj, preprocessor_class=preprocessor_class)
+                result_df = processor.transform_and_merge()
+                
+                # Save processed Excel file
+                processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
+                result_df.to_excel(processed_excel, index=False)
+                
+                # Now generate badges if template specified
+                template_id = data.get('template_id')
+                if template_id:
+                    template = BadgeTemplate.query.get(template_id)
+                    if not template:
+                        return jsonify({'error': 'Badge template not found'}), 404
+                    
+                    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+                    club_logo_filename = data.get('club_logo_filename')
+                    club_logo_path = None
+                    if club_logo_filename:
+                        club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], club_logo_filename)
+                    
+                    avery_template = data.get('avery_template', template.avery_template)
+                    column_mappings = json.loads(template.column_mappings)
+                    
+                    generator = BadgeGenerator(
+                        excel_file=processed_excel,
+                        svg_template_path=svg_path,
+                        column_mappings=column_mappings,
+                        afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+                        club_logo_path=club_logo_path,
+                        avery_template=avery_template
+                    )
+                    
+                    output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')
+                    generator.generate_pdf(output_pdf)
+                    
+                    return send_file(
+                        output_pdf,
+                        as_attachment=True,
+                        download_name=f'badges_{campaign_name.replace(" ", "_")}.pdf',
+                        mimetype='application/pdf'
+                    )
+                else:
+                    # If no template specified, just return the processed Excel
+                    return send_file(
+                        processed_excel,
+                        as_attachment=True,
+                        download_name=f'MAIL_MERGE_{campaign_name.replace(" ", "_")}.xlsx',
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+                    
+            finally:
+                os.chdir(original_dir)
+                
+    except Exception as e:
+        logger.exception("Error in combined pull-process-generate")
+        return jsonify({'error': str(e)}), 500

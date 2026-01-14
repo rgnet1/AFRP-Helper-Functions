@@ -184,6 +184,33 @@ class EventViewConfig(db.Model):
             'is_default': self.is_default
         }
 
+class BadgeTemplate(db.Model):
+    """Store badge template configurations for badge generation."""
+    __tablename__ = 'badge_template'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    svg_filename = db.Column(db.String(255), nullable=False)
+    club_logo_filename = db.Column(db.String(255), nullable=True)
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON string
+    avery_template = db.Column(db.String(50), default='5392')  # Avery template number
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        import json
+        return {
+            'id': self.id,
+            'name': self.name,
+            'svg_filename': self.svg_filename,
+            'club_logo_filename': self.club_logo_filename,
+            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else {},
+            'avery_template': self.avery_template,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
 class ScheduleManager:
     def __init__(self, app=None):
         self.app = None

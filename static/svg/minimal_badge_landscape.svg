@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- 
+  MINIMAL Badge Template for Avery 5392 LANDSCAPE (4" × 3")
+  Dimensions: 384px × 288px (96 DPI)
+  
+  A simple, clean badge design in landscape orientation:
+  - Name, Member ID, Local Club, QR Code
+  - Horizontal layout optimized for landscape badges
+-->
+
+<svg xmlns="http://www.w3.org/2000/svg" 
+     width="384" 
+     height="288" 
+     viewBox="0 0 384 288">
+  
+  <!-- White Background -->
+  <rect width="384" height="288" fill="#FFFFFF"/>
+  
+  <!-- Simple Border -->
+  <rect x="10" y="10" width="364" height="268" 
+        fill="none" 
+        stroke="#333333" 
+        stroke-width="1" 
+        rx="5"/>
+  
+  <!-- AFRP Logo (Top Left) -->
+  <image x="20" y="20" 
+         width="50" 
+         height="50" 
+         href="{{AFRP_LOGO}}"/>
+  
+  <!-- Club Logo (Top Right) -->
+  <image x="314" y="20" 
+         width="50" 
+         height="50" 
+         href="{{CLUB_LOGO}}"/>
+  
+  <!-- Full Name on One Line (Center) -->
+  <text x="192" y="120" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="28" 
+        font-weight="bold"
+        fill="#000000">{{FIRST_NAME}} {{LAST_NAME}}</text>
+  
+  <!-- Local Club (Center) -->
+  <text x="192" y="150" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="16" 
+        fill="#4b904b">{{LOCAL_CLUB}}</text>
+  
+  <!-- Table Number (Below Club) -->
+  <text x="192" y="175" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="14" 
+        font-weight="bold"
+        fill="#333333">{{TABLE_NUMBER}}</text>
+  
+  <!-- Sub-Events Section (Bottom Left) -->
+  <text x="20" y="215" 
+        text-anchor="start" 
+        font-family="Arial" 
+        font-size="10" 
+        fill="#333333">{{SUBEVENT_1}}</text>
+  
+  <text x="20" y="230" 
+        text-anchor="start" 
+        font-family="Arial" 
+        font-size="10" 
+        fill="#333333">{{SUBEVENT_2}}</text>
+  
+  <text x="20" y="245" 
+        text-anchor="start" 
+        font-family="Arial" 
+        font-size="10" 
+        fill="#333333">{{SUBEVENT_3}}</text>
+  
+  <text x="20" y="260" 
+        text-anchor="start" 
+        font-family="Arial" 
+        font-size="10" 
+        fill="#333333">{{SUBEVENT_4}}</text>
+  
+  <!-- Member ID (Above QR Code, Bottom Right) -->
+  <text x="339" y="195" 
+        text-anchor="end" 
+        font-family="Arial" 
+        font-size="12" 
+        fill="#666666">{{MEMBER_ID}}</text>
+  
+  <!-- QR Code (Bottom Right) -->
+  <image x="284" y="200" 
+         width="60" 
+         height="60" 
+         href="{{QR_CODE}}"/>
+  
+  <!-- Meal Preference (Below QR Code) -->
+  <text x="314" y="270" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="9" 
+        fill="#666666">{{MEAL_PREFERENCE}}</text>
+
+</svg>
