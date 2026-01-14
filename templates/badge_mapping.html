@@ -60,11 +60,144 @@
             transform: translateY(-2px);
         }
 
+        .main-content {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 20px;
+        }
+
         .main-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            margin-bottom: 20px;
+        }
+
+        .sidebar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+
+        .sidebar h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-templates-list {
+            list-style: none;
+            margin-bottom: 0;
+            max-height: calc(100vh - 250px);
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-thumb {
+            background: #4b904b;
+            border-radius: 3px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-thumb:hover {
+            background: #3c723c;
+        }
+
+        .sidebar-template-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .sidebar-template-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .sidebar-template-item.active {
+            background: #4b904b;
+            color: white;
+        }
+
+        .sidebar-template-item .delete-btn {
+            background: transparent;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            padding: 5px;
+            display: none;
+        }
+
+        .sidebar-template-item.active .delete-btn {
+            color: white;
+        }
+
+        .sidebar-template-item:hover .delete-btn {
+            display: block;
+        }
+
+        .new-template-btn {
+            width: 100%;
+            padding: 12px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .new-template-btn:hover {
+            background: #218838;
+        }
+
+        @media (max-width: 1400px) {
+            .main-content {
+                grid-template-columns: 250px 1fr;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                top: 0;
+            }
         }
 
         .card {
@@ -373,9 +506,22 @@
             </a>
         </div>
 
-        <div class="main-grid">
-            <!-- Left Column: Template Configuration -->
-            <div class="card">
+        <div class="main-content">
+            <!-- Left Sidebar: Saved Templates -->
+            <div class="sidebar">
+                <h2><i class="fas fa-list"></i> Saved Templates</h2>
+                <ul class="sidebar-templates-list" id="sidebarTemplatesList">
+                    <li style="color: #999; text-align: center; padding: 20px; font-size: 13px;">No templates yet</li>
+                </ul>
+                <button class="new-template-btn" id="sidebarNewTemplateBtn">
+                    <i class="fas fa-plus"></i> New Template
+                </button>
+            </div>
+
+            <!-- Main Grid: Template Configuration & Column Mapping -->
+            <div class="main-grid">
+                <!-- Template Configuration -->
+                <div class="card">
                 <h2 class="card-title"><i class="fas fa-cog"></i> Template Configuration</h2>
                 
                 <!-- Template Name -->
@@ -452,16 +598,6 @@
                     </button>
                 </div>
             </div>
-        </div>
-
-        <!-- Saved Templates Section -->
-        <div class="card">
-            <h2 class="card-title"><i class="fas fa-database"></i> Saved Templates</h2>
-            <div id="savedTemplates" class="template-list">
-                <div class="empty-state">
-                    <i class="fas fa-folder-open"></i>
-                    <p>No saved templates yet</p>
-                </div>
             </div>
         </div>
     </div>
@@ -569,6 +705,7 @@
             document.getElementById('saveTemplateBtn').addEventListener('click', saveTemplate);
             document.getElementById('clearMappingsBtn').addEventListener('click', clearMappings);
             document.getElementById('newTemplateBtn').addEventListener('click', resetForm);
+            document.getElementById('sidebarNewTemplateBtn').addEventListener('click', resetForm);
             document.getElementById('duplicateBtn').addEventListener('click', duplicateTemplate);
             document.getElementById('addSubEventBtn').addEventListener('click', addSubEventMapping);
         }
@@ -922,31 +1059,20 @@
                 if (!response.ok) throw new Error('Failed to load templates');
 
                 const data = await response.json();
-                const container = document.getElementById('savedTemplates');
+                const container = document.getElementById('sidebarTemplatesList');
 
                 if (data.templates.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-folder-open"></i>
-                            <p>No saved templates yet</p>
-                        </div>
-                    `;
+                    container.innerHTML = '<li style="color: #999; text-align: center; padding: 20px; font-size: 13px;">No templates yet</li>';
                     return;
                 }
 
                 container.innerHTML = data.templates.map(t => `
-                    <div class="template-card" style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="flex: 1; cursor: pointer;" onclick="loadTemplate(${t.id})">
-                            <div class="template-card-name">${t.name}</div>
-                            <div class="template-card-details">
-                                Avery ${t.avery_template} | ${Object.keys(t.column_mappings || {}).length} mappings
-                            </div>
-                        </div>
-                        <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px; background: #ef4444;" 
-                                onclick="event.stopPropagation(); deleteTemplate(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
+                    <li class="sidebar-template-item ${currentTemplateId === t.id ? 'active' : ''}" onclick="loadTemplate(${t.id})">
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.name}</span>
+                        <button class="delete-btn" onclick="event.stopPropagation(); deleteTemplate(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
                             <i class="fas fa-trash"></i>
                         </button>
-                    </div>
+                    </li>
                 `).join('');
             } catch (error) {
                 console.error('Error loading saved templates:', error);
