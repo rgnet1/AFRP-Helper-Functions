@@ -14,7 +14,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #4b904b 0%, #3c723c 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -41,7 +41,7 @@
         }
 
         .back-btn {
-            background: #667eea;
+            background: #4b904b;
             color: white;
             border: none;
             padding: 10px 20px;
@@ -56,7 +56,7 @@
         }
 
         .back-btn:hover {
-            background: #5568d3;
+            background: #3c723c;
             transform: translateY(-2px);
         }
 
@@ -79,11 +79,11 @@
             color: #333;
             margin-bottom: 20px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
+            border-bottom: 2px solid #4b904b;
         }
 
         .upload-area {
-            border: 2px dashed #667eea;
+            border: 2px dashed #4b904b;
             border-radius: 10px;
             padding: 30px;
             text-align: center;
@@ -93,18 +93,18 @@
         }
 
         .upload-area:hover {
-            border-color: #5568d3;
+            border-color: #3c723c;
             background: #f8f9ff;
         }
 
         .upload-area.dragover {
             background: #e8ecff;
-            border-color: #5568d3;
+            border-color: #3c723c;
         }
 
         .upload-icon {
             font-size: 48px;
-            color: #667eea;
+            color: #4b904b;
             margin-bottom: 10px;
         }
 
@@ -131,7 +131,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #4b904b;
         }
 
         .placeholder-name {
@@ -151,7 +151,7 @@
 
         .mapping-select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #4b904b;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
@@ -176,7 +176,7 @@
 
         .form-input:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #4b904b;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
@@ -204,12 +204,12 @@
         }
 
         .btn-primary {
-            background: #667eea;
+            background: #4b904b;
             color: white;
         }
 
         .btn-primary:hover {
-            background: #5568d3;
+            background: #3c723c;
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
         }
@@ -257,12 +257,12 @@
         }
 
         .template-card:hover {
-            border-color: #667eea;
+            border-color: #4b904b;
             transform: translateX(5px);
         }
 
         .template-card.selected {
-            border-color: #667eea;
+            border-color: #4b904b;
             background: #e8ecff;
         }
 
@@ -344,7 +344,7 @@
         }
 
         .current-file i {
-            color: #667eea;
+            color: #4b904b;
         }
 
         .current-file-name {
@@ -440,6 +440,9 @@
                     </button>
                     <button class="btn btn-secondary" id="newTemplateBtn">
                         <i class="fas fa-file"></i> New Template
+                    </button>
+                    <button class="btn btn-secondary" id="duplicateBtn" style="display: none;">
+                        <i class="fas fa-copy"></i> Duplicate
                     </button>
                     <button class="btn btn-secondary" id="clearMappingsBtn">
                         <i class="fas fa-eraser"></i> Clear Mappings
@@ -566,6 +569,7 @@
             document.getElementById('saveTemplateBtn').addEventListener('click', saveTemplate);
             document.getElementById('clearMappingsBtn').addEventListener('click', clearMappings);
             document.getElementById('newTemplateBtn').addEventListener('click', resetForm);
+            document.getElementById('duplicateBtn').addEventListener('click', duplicateTemplate);
             document.getElementById('addSubEventBtn').addEventListener('click', addSubEventMapping);
         }
 
@@ -727,8 +731,8 @@
             // Add section header for sub-events if any exist
             if (subEventCounter > 0 || subEventPlaceholders.length > 0) {
                 html += `
-                    <div style="margin-top: 20px; padding: 10px; background: #f8f9ff; border-left: 4px solid #667eea;">
-                        <strong style="color: #667eea;"><i class="fas fa-calendar-alt"></i> Sub-Event Mappings</strong>
+                    <div style="margin-top: 20px; padding: 10px; background: #f8f9ff; border-left: 4px solid #4b904b;">
+                        <strong style="color: #4b904b;"><i class="fas fa-calendar-alt"></i> Sub-Event Mappings</strong>
                         <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Map each sub-event placeholder to a column. Click the + button to add more.</p>
                     </div>
                 `;
@@ -888,6 +892,7 @@
             subEventCounter = 0;
             document.getElementById('templateName').value = '';
             document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
+            document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
             clearMappings();
             removeSvgFile();
             removeLogoFile();
@@ -1043,6 +1048,7 @@
                     `;
                 }
 
+                document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
                 showToast('Template loaded for editing', 'success');
             } catch (error) {
                 showToast('Error loading template: ' + error.message, 'error');
@@ -1073,6 +1079,33 @@
                 }
             } catch (error) {
                 showToast('Error deleting template: ' + error.message, 'error');
+            }
+        }
+
+        async function duplicateTemplate() {
+            if (!currentTemplateId) {
+                showToast('No template selected to duplicate', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/badge-templates/${currentTemplateId}/duplicate`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to duplicate template');
+                }
+                
+                const result = await response.json();
+                showToast(result.message || 'Template duplicated successfully!', 'success');
+                
+                await loadSavedTemplates();
+                // Load the newly created template
+                await loadTemplate(result.template.id);
+            } catch (error) {
+                showToast('Error duplicating template: ' + error.message, 'error');
             }
         }
 

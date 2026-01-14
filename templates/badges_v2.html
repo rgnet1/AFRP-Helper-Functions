@@ -602,18 +602,24 @@
             <h2><i class="fas fa-sliders-h"></i> Processing Options</h2>
             <div class="processing-options">
                 <div class="form-group">
-                    <label for="eventSelect">Event *</label>
-                    <select id="eventSelect">
-                        <option value="">Loading events...</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
                     <label for="subEventSelect">Sub-Event (Optional)</label>
                     <select id="subEventSelect">
                         <option value="">Select a campaign first...</option>
                     </select>
                     <p class="form-help">Automatically populated with sub-events for the selected campaign.</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="preprocessingSelect">Data Preprocessing Template</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <select id="preprocessingSelect" style="flex: 1;">
+                            <option value="">Default (No custom preprocessing)</option>
+                        </select>
+                        <button type="button" class="btn btn-secondary" onclick="window.location.href='/preprocessing-designer'" style="white-space: nowrap;">
+                            <i class="fas fa-tools"></i> Designer
+                        </button>
+                    </div>
+                    <p class="form-help">Select a preprocessing template to transform your data, or create a new one in the Designer.</p>
                 </div>
 
                 <div class="expandable-section">
@@ -731,12 +737,12 @@
             console.log('DOMContentLoaded fired!');
             console.log('About to call loadCampaigns');
             loadCampaigns();
-            console.log('About to call loadAvailableEvents');
-            loadAvailableEvents();
             console.log('About to call loadBadgeTemplates');
             loadBadgeTemplates();
             console.log('About to call loadAveryTemplates');
             loadAveryTemplates();
+            console.log('About to call loadPreprocessingTemplates');
+            loadPreprocessingTemplates();
             console.log('About to call initializeEventListeners');
             initializeEventListeners();
             console.log('Initialization complete');
@@ -754,9 +760,6 @@
                     icon.style.transform = content.classList.contains('active') ? 'rotate(180deg)' : '';
                 });
             });
-
-            // Event selection
-            document.getElementById('eventSelect').addEventListener('change', updateProcessButton);
 
             // Process button
             document.getElementById('processBtn').addEventListener('click', processData);
@@ -829,33 +832,29 @@
             }
         }
 
-        async function loadAvailableEvents() {
+        async function loadPreprocessingTemplates() {
             try {
-                const response = await fetch('/api/available-events');
-                if (!response.ok) throw new Error('Failed to load events');
+                const response = await fetch('/api/preprocessing-templates');
+                if (!response.ok) throw new Error('Failed to load preprocessing templates');
                 
                 const data = await response.json();
-                const select = document.getElementById('eventSelect');
-                select.innerHTML = '<option value="">Select an event...</option>';
+                const select = document.getElementById('preprocessingSelect');
+                select.innerHTML = '<option value="">Default (No custom preprocessing)</option>';
                 
-                data.events.forEach(event => {
-                    const option = document.createElement('option');
-                    option.value = event;
-                    option.textContent = event;
-                    select.appendChild(option);
-                });
-                
-                // Auto-select "Default" if it exists
-                if (data.events.includes('Default')) {
-                    select.value = 'Default';
-                    updateProcessButton();
+                if (data.templates && data.templates.length > 0) {
+                    data.templates.forEach(template => {
+                        const option = document.createElement('option');
+                        option.value = template.id;
+                        option.textContent = template.name;
+                        select.appendChild(option);
+                    });
                 }
                 
-                console.log(`Loaded ${data.events.length} event(s)`);
+                console.log(`Loaded ${data.templates ? data.templates.length : 0} preprocessing template(s)`);
             } catch (error) {
-                console.error('Error loading events:', error);
-                showToast('Failed to load events: ' + error.message, 'error');
-                document.getElementById('eventSelect').innerHTML = '<option value="">Error loading events</option>';
+                console.error('Error loading preprocessing templates:', error);
+                // Non-critical error, just log it
+                console.warn('Preprocessing templates not available');
             }
         }
 
@@ -923,10 +922,11 @@
             const data = {
                 campaign_id: campaignId,
                 campaign_name: campaignName,
-                event: document.getElementById('eventSelect').value || 'Default',
+                event: 'Default',  // No longer used, kept for backwards compatibility
                 subEvent: document.getElementById('subEventSelect').value || null,
                 inclusionList: inclusionList,
-                createdOnFilter: document.getElementById('createdOnFilter').value || null
+                createdOnFilter: document.getElementById('createdOnFilter').value || null,
+                preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null
             };
 
             showLoading();
@@ -1174,10 +1174,11 @@
             const data = {
                 campaign_id: campaignId,
                 campaign_name: campaignName,
-                event: document.getElementById('eventSelect').value || 'Default',
+                event: 'Default',  // No longer used, kept for backwards compatibility
                 subEvent: document.getElementById('subEventSelect').value || null,
                 inclusionList: inclusionList,
                 createdOnFilter: document.getElementById('createdOnFilter').value || null,
+                preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null,
                 template_id: parseInt(templateId),
                 avery_template: averyTemplate
             };

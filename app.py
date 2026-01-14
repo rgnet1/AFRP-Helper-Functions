@@ -48,6 +48,31 @@ for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos']:
     os.makedirs(full_path, exist_ok=True)
     os.chmod(full_path, 0o777)
 
+# Helper function to create a preprocessor class from a database template
+def create_preprocessor_from_template(template):
+    """Create a dynamic preprocessor class from a database template."""
+    from utils.badges.pre_processing_module import PreprocessingBase, PreprocessingConfig
+    import pandas as pd
+    
+    class DynamicPreprocessor(PreprocessingBase):
+        """Dynamically created preprocessor from database template."""
+        
+        def __init__(self, config=None):
+            self.config = config
+            self._value_mappings = template.value_mappings if isinstance(template.value_mappings, dict) else json.loads(template.value_mappings or '{}')
+            self._contains_mappings = template.contains_mappings if isinstance(template.contains_mappings, dict) else json.loads(template.contains_mappings or '{}')
+        
+        def get_value_mappings(self):
+            return self._value_mappings
+        
+        def get_contains_mappings(self):
+            return self._contains_mappings
+        
+        def preprocess_dataframe(self, df):
+            return super().preprocess_dataframe(df)
+    
+    return DynamicPreprocessor
+
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -752,6 +777,11 @@ def badge_mapping():
     """Badge template mapping configuration page."""
     return render_template('badge_mapping.html')
 
+@app.route('/preprocessing-designer')
+def preprocessing_designer():
+    """Preprocessing template designer page."""
+    return render_template('preprocessing_designer.html')
+
 @app.route('/badge_templates/<path:filename>')
 def serve_badge_template(filename):
     """Serve badge template SVG files."""
@@ -869,6 +899,7 @@ def badges_v2_pull_and_process():
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
         created_on_filter = data.get('createdOnFilter')
+        preprocessing_template_id = data.get('preprocessingTemplateId')
         
         if not campaign_id and not campaign_name:
             logger.error("No campaign ID or name provided")
@@ -971,10 +1002,27 @@ def badges_v2_pull_and_process():
             logger.error("No event name provided for processing")
             return jsonify({'error': 'Event name is required'}), 400
         
-        # Get the preprocessing implementation
-        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
-        if preprocessor_class == DefaultPreprocessing:
-            logger.warning(f"No specific preprocessor found for '{event_name}', using DefaultPreprocessing")
+        # Get the preprocessing implementation from database templates
+        preprocessor_class = None
+        
+        # Check if user selected a database template
+        if preprocessing_template_id:
+            try:
+                from utils.magazine.scheduler import PreprocessingTemplate
+                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+                if template:
+                    logger.info(f"Using database preprocessing template: {template.name}")
+                    # Create a dynamic preprocessor class from the database template
+                    preprocessor_class = create_preprocessor_from_template(template)
+                else:
+                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
+            except Exception as e:
+                logger.error(f"Error loading preprocessing template: {str(e)}")
+        
+        # Use default preprocessing (no custom mappings) if no template selected
+        if not preprocessor_class:
+            logger.info("No preprocessing template selected, using default (no custom transformations)")
+            preprocessor_class = DefaultPreprocessing
         
         # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1172,6 +1220,47 @@ def delete_badge_template(template_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/badge-templates/<int:template_id>/duplicate', methods=['POST'])
+def duplicate_badge_template(template_id):
+    """Duplicate a badge template with auto-incremented name."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Generate new name with auto-increment
+        base_name = template.name
+        new_name = base_name
+        counter = 1
+        
+        while BadgeTemplate.query.filter_by(name=new_name).first():
+            new_name = f"{base_name} ({counter})"
+            counter += 1
+        
+        # Create duplicate
+        new_template = BadgeTemplate(
+            name=new_name,
+            svg_filename=template.svg_filename,
+            club_logo_filename=template.club_logo_filename,
+            column_mappings=template.column_mappings,
+            avery_template=template.avery_template
+        )
+        
+        db.session.add(new_template)
+        db.session.commit()
+        
+        logger.info(f"Duplicated badge template '{template.name}' as '{new_name}'")
+        return jsonify({
+            'success': True,
+            'message': 'Template duplicated successfully',
+            'template': new_template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception(f"Error duplicating badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/badge-templates/upload-svg', methods=['POST'])
 def upload_svg_template():
     """Upload SVG template file."""
@@ -1247,6 +1336,188 @@ def get_avery_templates():
         return jsonify({'templates': templates})
     except Exception as e:
         logger.exception("Error fetching Avery templates")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# Preprocessing Template Endpoints
+# ============================================
+
+@app.route('/api/preprocessing-templates', methods=['GET'])
+def get_preprocessing_templates():
+    """Get list of saved preprocessing templates."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        templates = PreprocessingTemplate.query.all()
+        return jsonify({
+            'success': True,
+            'templates': [t.to_dict() for t in templates]
+        })
+    except Exception as e:
+        logger.exception("Error fetching preprocessing templates")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates', methods=['POST'])
+def create_preprocessing_template():
+    """Create a new preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name'):
+            return jsonify({'error': 'Template name is required'}), 400
+        
+        # Check if template with same name exists
+        existing = PreprocessingTemplate.query.filter_by(name=data['name']).first()
+        if existing:
+            return jsonify({'error': 'Template with this name already exists'}), 400
+        
+        # Create new template
+        template = PreprocessingTemplate(
+            name=data['name'],
+            description=data.get('description', ''),
+            value_mappings=json.dumps(data.get('value_mappings', {})),
+            contains_mappings=json.dumps(data.get('contains_mappings', {}))
+        )
+        
+        db.session.add(template)
+        db.session.commit()
+        
+        logger.info(f"Created preprocessing template: {template.name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template created successfully',
+            'template': template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception("Error creating preprocessing template")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['GET'])
+def get_preprocessing_template(template_id):
+    """Get a specific preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify({
+            'success': True,
+            'template': template.to_dict()
+        })
+    except Exception as e:
+        logger.exception(f"Error fetching preprocessing template {template_id}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['PUT'])
+def update_preprocessing_template(template_id):
+    """Update an existing preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        data = request.get_json()
+        
+        # Update fields if provided
+        if 'name' in data:
+            # Check if new name conflicts with another template
+            existing = PreprocessingTemplate.query.filter(
+                PreprocessingTemplate.name == data['name'],
+                PreprocessingTemplate.id != template_id
+            ).first()
+            if existing:
+                return jsonify({'error': 'Template with this name already exists'}), 400
+            template.name = data['name']
+        
+        if 'description' in data:
+            template.description = data['description']
+        if 'value_mappings' in data:
+            template.value_mappings = json.dumps(data['value_mappings'])
+        if 'contains_mappings' in data:
+            template.contains_mappings = json.dumps(data['contains_mappings'])
+        
+        template.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Updated preprocessing template: {template.name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template updated successfully',
+            'template': template.to_dict()
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error updating preprocessing template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['DELETE'])
+def delete_preprocessing_template(template_id):
+    """Delete a preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        template_name = template.name
+        db.session.delete(template)
+        db.session.commit()
+        
+        logger.info(f"Deleted preprocessing template: {template_name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template deleted successfully'
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error deleting preprocessing template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>/duplicate', methods=['POST'])
+def duplicate_preprocessing_template(template_id):
+    """Duplicate a preprocessing template with auto-incremented name."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Generate new name with auto-increment
+        base_name = template.name
+        new_name = base_name
+        counter = 1
+        
+        while PreprocessingTemplate.query.filter_by(name=new_name).first():
+            new_name = f"{base_name} ({counter})"
+            counter += 1
+        
+        # Create duplicate
+        new_template = PreprocessingTemplate(
+            name=new_name,
+            description=template.description,
+            value_mappings=template.value_mappings,
+            contains_mappings=template.contains_mappings
+        )
+        
+        db.session.add(new_template)
+        db.session.commit()
+        
+        logger.info(f"Duplicated preprocessing template '{template.name}' as '{new_name}'")
+        return jsonify({
+            'success': True,
+            'message': 'Template duplicated successfully',
+            'template': new_template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception(f"Error duplicating preprocessing template {template_id}")
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badges/generate', methods=['POST'])
@@ -1331,10 +1602,11 @@ def badges_v2_pull_process_generate():
         # This will save the processed Excel file
         campaign_id = data.get('campaign_id')
         campaign_name = data.get('campaign_name')
-        event_name = data.get('event')
+        event_name = data.get('event', 'Default')
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
         created_on_filter = data.get('createdOnFilter')
+        preprocessing_template_id = data.get('preprocessingTemplateId')
         
         if not campaign_id and not campaign_name:
             return jsonify({'error': 'Campaign ID or name is required'}), 400
@@ -1366,8 +1638,28 @@ def badges_v2_pull_process_generate():
             temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
             df.to_excel(temp_file, index=False)
         
-        # Process data
-        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
+        # Get the preprocessing implementation from database templates
+        preprocessor_class = None
+        
+        # Check if user selected a database template
+        if preprocessing_template_id:
+            try:
+                from utils.magazine.scheduler import PreprocessingTemplate
+                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+                if template:
+                    logger.info(f"Using database preprocessing template: {template.name}")
+                    # Create a dynamic preprocessor class from the database template
+                    preprocessor_class = create_preprocessor_from_template(template)
+                else:
+                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
+            except Exception as e:
+                logger.error(f"Error loading preprocessing template: {str(e)}")
+        
+        # Use default preprocessing (no custom mappings) if no template selected
+        if not preprocessor_class:
+            logger.info("No preprocessing template selected, using default (no custom transformations)")
+            preprocessor_class = DefaultPreprocessing
+        
         config_obj = PreprocessingConfig(
             main_event=event_name,
             sub_event=sub_event,

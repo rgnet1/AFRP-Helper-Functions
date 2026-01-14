@@ -211,6 +211,33 @@ class BadgeTemplate(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
+
+class PreprocessingTemplate(db.Model):
+    """Store user-configurable preprocessing templates for data transformation."""
+    __tablename__ = 'preprocessing_template'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    description = db.Column(db.Text, nullable=True)
+    value_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for exact match replacements
+    contains_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for substring replacements
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        import json
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'value_mappings': json.loads(self.value_mappings) if self.value_mappings else {},
+            'contains_mappings': json.loads(self.contains_mappings) if self.contains_mappings else {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
 class ScheduleManager:
     def __init__(self, app=None):
         self.app = None
