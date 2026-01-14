@@ -29,13 +29,13 @@ class BadgeGenerator:
     AVERY_TEMPLATES = {
         '5392': {
             'name': 'Avery 5392 - Name Badge Insert Refills',
-            'width': 3.0,
-            'height': 3.5,
+            'width': 4.0,
+            'height': 3.0,
             'cols': 2,
             'rows': 3,
-            'margin_left': 1.25,
-            'margin_top': 0.25,
-            'gap_horizontal': 0.5,
+            'margin_left': 0.25,
+            'margin_top': 1.0,
+            'gap_horizontal': 0.0,
             'gap_vertical': 0.0,
             'orientation': 'portrait'
         },
