@@ -733,6 +733,107 @@
 
         // Initialize
         console.log('Setting up DOMContentLoaded listener');
+        // ============================================
+        // LocalStorage Cache Management
+        // ============================================
+        const CACHE_KEY = 'badgeGeneratorV2_preferences';
+
+        function saveToCache() {
+            try {
+                const preferences = {
+                    campaignId: document.getElementById('campaignSelect')?.value || '',
+                    preprocessingTemplateId: document.getElementById('preprocessingSelect')?.value || '',
+                    subEventId: document.getElementById('subEventSelect')?.value || '',
+                    contactIdsFilter: document.getElementById('inclusionList')?.value || '',
+                    dateFilter: document.getElementById('createdOnFilter')?.value || '',
+                    badgeTemplateId: document.getElementById('badgeTemplateSelect')?.value || '',
+                    averyTemplate: document.getElementById('averyTemplateSelect')?.value || ''
+                };
+                localStorage.setItem(CACHE_KEY, JSON.stringify(preferences));
+                console.log('Saved preferences to cache:', preferences);
+            } catch (error) {
+                console.error('Error saving to cache:', error);
+            }
+        }
+
+        function loadFromCache() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (cached) {
+                    const preferences = JSON.parse(cached);
+                    console.log('Loaded preferences from cache:', preferences);
+                    return preferences;
+                }
+            } catch (error) {
+                console.error('Error loading from cache:', error);
+            }
+            return null;
+        }
+
+        function restorePreferences(preferences) {
+            if (!preferences) return;
+
+            // Restore campaign
+            if (preferences.campaignId) {
+                const campaignSelect = document.getElementById('campaignSelect');
+                if (campaignSelect && campaignSelect.querySelector(`option[value="${preferences.campaignId}"]`)) {
+                    campaignSelect.value = preferences.campaignId;
+                    // Trigger change event to load sub-events
+                    campaignSelect.dispatchEvent(new Event('change'));
+                }
+            }
+
+            // Restore preprocessing template
+            if (preferences.preprocessingTemplateId) {
+                const preprocessingSelect = document.getElementById('preprocessingSelect');
+                if (preprocessingSelect && preprocessingSelect.querySelector(`option[value="${preferences.preprocessingTemplateId}"]`)) {
+                    preprocessingSelect.value = preferences.preprocessingTemplateId;
+                }
+            }
+
+            // Restore sub-event (delayed to allow sub-events to load)
+            if (preferences.subEventId) {
+                setTimeout(() => {
+                    const subEventSelect = document.getElementById('subEventSelect');
+                    if (subEventSelect && subEventSelect.querySelector(`option[value="${preferences.subEventId}"]`)) {
+                        subEventSelect.value = preferences.subEventId;
+                    }
+                }, 1000);
+            }
+
+            // Restore filters
+            if (preferences.contactIdsFilter) {
+                const inclusionList = document.getElementById('inclusionList');
+                if (inclusionList) inclusionList.value = preferences.contactIdsFilter;
+            }
+
+            if (preferences.dateFilter) {
+                const createdOnFilter = document.getElementById('createdOnFilter');
+                if (createdOnFilter) createdOnFilter.value = preferences.dateFilter;
+            }
+
+            // Restore badge template
+            if (preferences.badgeTemplateId) {
+                const badgeTemplateSelect = document.getElementById('badgeTemplateSelect');
+                if (badgeTemplateSelect && badgeTemplateSelect.querySelector(`option[value="${preferences.badgeTemplateId}"]`)) {
+                    badgeTemplateSelect.value = preferences.badgeTemplateId;
+                    badgeTemplateSelect.dispatchEvent(new Event('change'));
+                }
+            }
+
+            // Restore Avery template
+            if (preferences.averyTemplate) {
+                const averyTemplateSelect = document.getElementById('averyTemplateSelect');
+                if (averyTemplateSelect && averyTemplateSelect.querySelector(`option[value="${preferences.averyTemplate}"]`)) {
+                    averyTemplateSelect.value = preferences.averyTemplate;
+                }
+            }
+
+            // Update button states
+            updateProcessButton();
+            updateBadgeButtons();
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOMContentLoaded fired!');
             console.log('About to call loadCampaigns');
@@ -745,6 +846,16 @@
             loadPreprocessingTemplates();
             console.log('About to call initializeEventListeners');
             initializeEventListeners();
+            
+            // Load cached preferences after all dropdowns are populated
+            setTimeout(() => {
+                const preferences = loadFromCache();
+                if (preferences) {
+                    restorePreferences(preferences);
+                    console.log('Restored user preferences from cache');
+                }
+            }, 1500);
+            
             console.log('Initialization complete');
         });
 
@@ -765,9 +876,38 @@
             document.getElementById('processBtn').addEventListener('click', processData);
 
             // Badge generation buttons
-            document.getElementById('badgeTemplateSelect').addEventListener('change', updateBadgeButtons);
+            document.getElementById('badgeTemplateSelect').addEventListener('change', () => {
+                updateBadgeButtons();
+                saveToCache();
+            });
             document.getElementById('generateBadgesBtn').addEventListener('click', generateBadges);
             document.getElementById('processAndGenerateBtn').addEventListener('click', processAndGenerateBadges);
+
+            // ============================================
+            // Cache Management - Save on Change
+            // ============================================
+            // Note: Campaign selection is handled in loadCampaigns()
+            
+            // Save preprocessing template selection
+            document.getElementById('preprocessingSelect').addEventListener('change', saveToCache);
+            
+            // Save sub-event selection
+            document.getElementById('subEventSelect').addEventListener('change', saveToCache);
+            
+            // Save filters (with debounce to avoid too many saves while typing)
+            let filterSaveTimeout;
+            const saveFiltersDebounced = () => {
+                clearTimeout(filterSaveTimeout);
+                filterSaveTimeout = setTimeout(saveToCache, 500);
+            };
+            
+            document.getElementById('inclusionList').addEventListener('input', saveFiltersDebounced);
+            document.getElementById('createdOnFilter').addEventListener('input', saveFiltersDebounced);
+            
+            // Note: Badge template selection is handled above with updateBadgeButtons()
+            
+            // Save Avery template selection
+            document.getElementById('averyTemplateSelect').addEventListener('change', saveToCache);
         }
 
         async function loadCampaigns() {
@@ -805,6 +945,7 @@
                 select.addEventListener('change', async function() {
                     updateProcessButton();
                     updateBadgeButtons();  // Also update badge generation buttons
+                    saveToCache();  // Save selection to cache
                     // Load sub-events for the selected campaign
                     const campaignId = this.value;
                     if (campaignId) {
