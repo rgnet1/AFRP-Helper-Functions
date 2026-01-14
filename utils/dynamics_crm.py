@@ -136,11 +136,18 @@ class DynamicsCRMClient:
         
         return df
 
-    def get_qr_codes(self, view_id: str) -> pd.DataFrame:
-        """Fetch QR codes data using a saved query/view."""
+    def get_qr_codes(self, view_id: str, campaign_id: str = None) -> pd.DataFrame:
+        """Fetch QR codes data, optionally filtered by main event/campaign."""
         # Expand to get Contact directly (not through Event Guest)
         expand_query = "$expand=aha_EventGuestContactId($select=contactid)"
-        endpoint = f"aha_eventguestqrcodeses?{expand_query}"
+        
+        # Filter by main event if campaign_id provided
+        if campaign_id:
+            filter_query = f"$filter=_aha_mainevent_value eq {campaign_id}"
+            endpoint = f"aha_eventguestqrcodeses?{filter_query}&{expand_query}"
+        else:
+            endpoint = f"aha_eventguestqrcodeses?{expand_query}"
+            
         response = self._make_request(endpoint)
         df = self._process_response(response, "aha_")
         
@@ -732,8 +739,8 @@ class DynamicsCRMClient:
             if data_type == "event_guests":
                 return self._get_event_guests_filtered(campaign_id)
             elif data_type == "qr_codes":
-                # QR codes don't have direct campaign link, return all
-                return self.get_qr_codes(view_id)
+                # Filter QR codes by main event
+                return self.get_qr_codes(view_id, campaign_id)
             elif data_type == "table_reservations":
                 return self._get_table_reservations_filtered(campaign_id)
             elif data_type == "form_responses":

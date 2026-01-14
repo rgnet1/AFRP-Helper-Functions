@@ -786,6 +786,36 @@ def get_campaign_sub_events(campaign_id):
         logger.error(f"Error fetching sub-events for campaign {campaign_id}: {str(e)}")
         return jsonify({'error': f'Failed to fetch sub-events: {str(e)}'}), 500
 
+@app.route('/api/debug/qr-code-fields', methods=['GET'])
+def debug_qr_code_fields():
+    """Debug endpoint to discover QR code fields in Dynamics."""
+    try:
+        crm_client = DynamicsCRMClient()
+        
+        # Get first QR codes with all fields
+        endpoint = "aha_eventguestqrcodeses?$top=5"
+        response = crm_client._make_request(endpoint)
+        records = response.get('value', [])
+        
+        if records:
+            all_fields_data = []
+            for record in records:
+                fields = {}
+                for key, value in record.items():
+                    fields[key] = str(value)[:200] if value else None
+                all_fields_data.append(fields)
+            
+            return jsonify({
+                'total_records': len(records),
+                'records': all_fields_data
+            })
+        else:
+            return jsonify({'error': 'No QR codes found'}), 404
+        
+    except Exception as e:
+        logger.exception(f"Error fetching QR code fields: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug/contact-fields', methods=['GET'])
 def debug_contact_fields():
     """Debug endpoint to discover contact fields in Dynamics."""
