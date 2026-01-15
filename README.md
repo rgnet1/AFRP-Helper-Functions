@@ -175,6 +175,31 @@ Admins can manage users at `/users`:
 - Delete users (except self)
 - View login history
 
+#### Password Reset
+
+If you're locked out or need to reset a password:
+
+```bash
+# Interactive mode (prompts for password)
+docker-compose exec afrp-helper python3 reset_password.py username
+
+# Non-interactive mode (for scripts)
+docker-compose exec afrp-helper python3 reset_password.py username --password "NewPass123!"
+
+# List all users
+docker-compose exec afrp-helper python3 reset_password.py --list
+
+# Force weak password (not recommended)
+docker-compose exec afrp-helper python3 reset_password.py username --password "weak" --force
+```
+
+**Password Requirements**:
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one number
+- At least one special character
+
 ### Docker Configuration
 Default `docker-compose.yaml` settings:
 - Port: 5066 (external) → 5000 (internal)
