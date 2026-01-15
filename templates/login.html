@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - AFRP CRM Helper</title>
+    
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/favicons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicons/favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicons/favicon-16x16.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicons/favicon.ico') }}">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #4b904b 0%, #3a7a3a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 400px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-section i {
+            font-size: 60px;
+            color: #4b904b;
+            margin-bottom: 10px;
+        }
+
+        .logo-section h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .logo-section p {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i:not(.password-toggle) {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 12px 12px 40px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #4b904b;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .password-toggle:hover {
+            color: #4b904b;
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .remember-me input[type="checkbox"] {
+            margin-right: 8px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .remember-me label {
+            margin-bottom: 0;
+            font-weight: normal;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background-color: #4b904b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .btn-login:hover {
+            background-color: #3a7a3a;
+        }
+
+        .btn-login:active {
+            transform: scale(0.98);
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-error {
+            background-color: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .alert-success {
+            background-color: #efe;
+            color: #3c3;
+            border: 1px solid #cfc;
+        }
+
+        .alert-info {
+            background-color: #def;
+            color: #36c;
+            border: 1px solid #cdf;
+        }
+
+        .alert i {
+            margin-right: 8px;
+        }
+
+        .footer-text {
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .rate-limit-notice {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            font-size: 12px;
+            color: #856404;
+            text-align: center;
+        }
+
+        .rate-limit-notice i {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo-section">
+            <i class="fas fa-user-shield"></i>
+            <h1>AFRP CRM Helper</h1>
+            <p>Please log in to continue</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {% if category == 'error' %}
+                            <i class="fas fa-exclamation-circle"></i>
+                        {% elif category == 'success' %}
+                            <i class="fas fa-check-circle"></i>
+                        {% elif category == 'info' %}
+                            <i class="fas fa-info-circle"></i>
+                        {% endif %}
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <div class="input-group">
+                    <i class="fas fa-user"></i>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        required 
+                        autofocus
+                        autocomplete="username"
+                        placeholder="Enter your username"
+                    >
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="input-group">
+                    <i class="fas fa-lock"></i>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        required
+                        autocomplete="current-password"
+                        placeholder="Enter your password"
+                    >
+                    <i class="fas fa-eye password-toggle" id="togglePassword"></i>
+                </div>
+            </div>
+
+            <div class="remember-me">
+                <input type="checkbox" id="remember" name="remember">
+                <label for="remember">Remember me for 30 days</label>
+            </div>
+
+            <button type="submit" class="btn-login">
+                <i class="fas fa-sign-in-alt"></i> Log In
+            </button>
+
+            <div class="rate-limit-notice">
+                <i class="fas fa-shield-alt"></i>
+                For security, login attempts are limited to 5 per 15 minutes
+            </div>
+        </form>
+
+        <div class="footer-text">
+            <p>&copy; 2026 AFRP CRM Helper</p>
+        </div>
+    </div>
+
+    <script>
+        // Password visibility toggle
+        const togglePassword = document.getElementById('togglePassword');
+        const passwordInput = document.getElementById('password');
+
+        togglePassword.addEventListener('click', function() {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            
+            // Toggle icon
+            this.classList.toggle('fa-eye');
+            this.classList.toggle('fa-eye-slash');
+        });
+
+        // Auto-dismiss flash messages after 5 seconds
+        setTimeout(() => {
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                alert.style.transition = 'opacity 0.5s';
+                alert.style.opacity = '0';
+                setTimeout(() => alert.remove(), 500);
+            });
+        }, 5000);
+    </script>
+</body>
+</html>

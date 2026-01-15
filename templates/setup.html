@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Setup - AFRP CRM Helper</title>
+    
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/favicons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicons/favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='images/favicons/favicon-16x16.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='images/favicons/favicon.ico') }}">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #4b904b 0%, #3a7a3a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .setup-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo-section i {
+            font-size: 60px;
+            color: #4b904b;
+            margin-bottom: 10px;
+        }
+
+        .logo-section h1 {
+            color: #333;
+            font-size: 26px;
+            margin-bottom: 5px;
+        }
+
+        .logo-section p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .welcome-box {
+            background-color: #f0f8f0;
+            border-left: 4px solid #4b904b;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 5px;
+        }
+
+        .welcome-box h3 {
+            color: #4b904b;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .welcome-box p {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group i:not(.password-toggle) {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 12px 12px 40px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #4b904b;
+        }
+
+        input.valid {
+            border-color: #4caf50;
+        }
+
+        input.invalid {
+            border-color: #f44336;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .password-toggle:hover {
+            color: #4b904b;
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            height: 4px;
+            background-color: #eee;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            transition: width 0.3s, background-color 0.3s;
+            width: 0%;
+        }
+
+        .strength-weak { background-color: #f44336; }
+        .strength-fair { background-color: #ff9800; }
+        .strength-good { background-color: #ffc107; }
+        .strength-strong { background-color: #4caf50; }
+
+        .password-requirements {
+            margin-top: 10px;
+            padding: 12px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+
+        .requirement {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+            color: #999;
+        }
+
+        .requirement.met {
+            color: #4caf50;
+        }
+
+        .requirement i {
+            margin-right: 8px;
+            width: 16px;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .btn-setup {
+            width: 100%;
+            padding: 14px;
+            background-color: #4b904b;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-setup:hover:not(:disabled) {
+            background-color: #3a7a3a;
+        }
+
+        .btn-setup:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-setup:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .alert {
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .alert-error {
+            background-color: #fee;
+            color: #c33;
+            border: 1px solid #fcc;
+        }
+
+        .alert i {
+            margin-right: 8px;
+        }
+
+        .footer-text {
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="setup-container">
+        <div class="logo-section">
+            <i class="fas fa-cog"></i>
+            <h1>First-Time Setup</h1>
+            <p>Create your administrator account</p>
+        </div>
+
+        <div class="welcome-box">
+            <h3><i class="fas fa-shield-alt"></i> Welcome!</h3>
+            <p>This is your first time using AFRP CRM Helper. Please create an administrator account to get started. This account will have full access to all features.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        <i class="fas fa-exclamation-circle"></i>
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('setup') }}" id="setupForm">
+            <div class="form-group">
+                <label for="username">Username *</label>
+                <div class="input-group">
+                    <i class="fas fa-user"></i>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        required 
+                        autofocus
+                        autocomplete="username"
+                        placeholder="Choose a username (3-80 characters)"
+                        minlength="3"
+                        maxlength="80"
+                    >
+                </div>
+                <div class="help-text">Letters, numbers, hyphens, and underscores only</div>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email (optional)</label>
+                <div class="input-group">
+                    <i class="fas fa-envelope"></i>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        name="email" 
+                        autocomplete="email"
+                        placeholder="your.email@example.com"
+                    >
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password *</label>
+                <div class="input-group">
+                    <i class="fas fa-lock"></i>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        required
+                        autocomplete="new-password"
+                        placeholder="Create a strong password"
+                    >
+                    <i class="fas fa-eye password-toggle" id="togglePassword"></i>
+                </div>
+                <div class="password-strength">
+                    <div class="password-strength-bar" id="strengthBar"></div>
+                </div>
+                <div class="password-requirements">
+                    <div class="requirement" id="req-length">
+                        <i class="far fa-circle"></i>
+                        <span>At least 8 characters</span>
+                    </div>
+                    <div class="requirement" id="req-uppercase">
+                        <i class="far fa-circle"></i>
+                        <span>One uppercase letter (A-Z)</span>
+                    </div>
+                    <div class="requirement" id="req-lowercase">
+                        <i class="far fa-circle"></i>
+                        <span>One lowercase letter (a-z)</span>
+                    </div>
+                    <div class="requirement" id="req-number">
+                        <i class="far fa-circle"></i>
+                        <span>One number (0-9)</span>
+                    </div>
+                    <div class="requirement" id="req-special">
+                        <i class="far fa-circle"></i>
+                        <span>One special character (!@#$%^&*)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password_confirm">Confirm Password *</label>
+                <div class="input-group">
+                    <i class="fas fa-lock"></i>
+                    <input 
+                        type="password" 
+                        id="password_confirm" 
+                        name="password_confirm" 
+                        required
+                        autocomplete="new-password"
+                        placeholder="Re-enter your password"
+                    >
+                    <i class="fas fa-eye password-toggle" id="togglePasswordConfirm"></i>
+                </div>
+                <div class="help-text" id="passwordMatch"></div>
+            </div>
+
+            <button type="submit" class="btn-setup" id="submitBtn">
+                <i class="fas fa-check-circle"></i> Create Admin Account
+            </button>
+        </form>
+
+        <div class="footer-text">
+            <p>&copy; 2026 AFRP CRM Helper</p>
+        </div>
+    </div>
+
+    <script>
+        const password = document.getElementById('password');
+        const passwordConfirm = document.getElementById('password_confirm');
+        const strengthBar = document.getElementById('strengthBar');
+        const submitBtn = document.getElementById('submitBtn');
+        const form = document.getElementById('setupForm');
+
+        // Password visibility toggles
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            togglePasswordVisibility(password, this);
+        });
+
+        document.getElementById('togglePasswordConfirm').addEventListener('click', function() {
+            togglePasswordVisibility(passwordConfirm, this);
+        });
+
+        function togglePasswordVisibility(input, icon) {
+            const type = input.getAttribute('type') === 'password' ? 'text' : 'password';
+            input.setAttribute('type', type);
+            icon.classList.toggle('fa-eye');
+            icon.classList.toggle('fa-eye-slash');
+        }
+
+        // Password validation
+        password.addEventListener('input', function() {
+            const value = this.value;
+            let strength = 0;
+            const requirements = {
+                length: value.length >= 8,
+                uppercase: /[A-Z]/.test(value),
+                lowercase: /[a-z]/.test(value),
+                number: /[0-9]/.test(value),
+                special: /[!@#$%^&*(),.?":{}|<>]/.test(value)
+            };
+
+            // Update requirement indicators
+            updateRequirement('req-length', requirements.length);
+            updateRequirement('req-uppercase', requirements.uppercase);
+            updateRequirement('req-lowercase', requirements.lowercase);
+            updateRequirement('req-number', requirements.number);
+            updateRequirement('req-special', requirements.special);
+
+            // Calculate strength
+            for (let req in requirements) {
+                if (requirements[req]) strength++;
+            }
+
+            // Update strength bar
+            const percentage = (strength / 5) * 100;
+            strengthBar.style.width = percentage + '%';
+            
+            strengthBar.className = 'password-strength-bar';
+            if (strength >= 5) strengthBar.classList.add('strength-strong');
+            else if (strength >= 4) strengthBar.classList.add('strength-good');
+            else if (strength >= 3) strengthBar.classList.add('strength-fair');
+            else if (strength >= 1) strengthBar.classList.add('strength-weak');
+
+            checkPasswordMatch();
+        });
+
+        // Password match validation
+        passwordConfirm.addEventListener('input', checkPasswordMatch);
+
+        function updateRequirement(id, met) {
+            const elem = document.getElementById(id);
+            if (met) {
+                elem.classList.add('met');
+                elem.querySelector('i').classList.remove('far', 'fa-circle');
+                elem.querySelector('i').classList.add('fas', 'fa-check-circle');
+            } else {
+                elem.classList.remove('met');
+                elem.querySelector('i').classList.remove('fas', 'fa-check-circle');
+                elem.querySelector('i').classList.add('far', 'fa-circle');
+            }
+        }
+
+        function checkPasswordMatch() {
+            const matchDiv = document.getElementById('passwordMatch');
+            if (passwordConfirm.value === '') {
+                matchDiv.textContent = '';
+                return;
+            }
+
+            if (password.value === passwordConfirm.value) {
+                matchDiv.textContent = '✓ Passwords match';
+                matchDiv.style.color = '#4caf50';
+                passwordConfirm.classList.add('valid');
+                passwordConfirm.classList.remove('invalid');
+            } else {
+                matchDiv.textContent = '✗ Passwords do not match';
+                matchDiv.style.color = '#f44336';
+                passwordConfirm.classList.add('invalid');
+                passwordConfirm.classList.remove('valid');
+            }
+        }
+
+        // Form validation before submit
+        form.addEventListener('submit', function(e) {
+            if (password.value !== passwordConfirm.value) {
+                e.preventDefault();
+                alert('Passwords do not match!');
+                return false;
+            }
+
+            // Check all password requirements
+            const requirements = {
+                length: password.value.length >= 8,
+                uppercase: /[A-Z]/.test(password.value),
+                lowercase: /[a-z]/.test(password.value),
+                number: /[0-9]/.test(password.value),
+                special: /[!@#$%^&*(),.?":{}|<>]/.test(password.value)
+            };
+
+            for (let req in requirements) {
+                if (!requirements[req]) {
+                    e.preventDefault();
+                    alert('Please meet all password requirements!');
+                    return false;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

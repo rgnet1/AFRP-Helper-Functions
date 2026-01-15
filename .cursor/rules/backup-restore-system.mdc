@@ -1,0 +1,322 @@
+---
+description: Backup and restore system documentation - use when working with backup.py, restore.py, or helping users with data backup/recovery
+---
+
+# AFRP CRM Helper - Backup & Restore System
+
+Complete backup and restore system for AFRP CRM Helper, including all users, schedules, templates, and configurations.
+
+## Core Files
+
+- [backup/backup.py](mdc:backup/backup.py) - Main backup script
+- [backup/restore.py](mdc:backup/restore.py) - Restore script with safety features
+- [backup/backup.sh](mdc:backup/backup.sh) - Bash wrapper for ease of use
+- [Dockerfile](mdc:Dockerfile) - Includes backup scripts in container
+- [docker-compose.yaml](mdc:docker-compose.yaml) - Mounts backups/ volume
+
+## What Gets Backed Up
+
+✅ **Database** (`data/magazine_schedules.db`)
+- User accounts and passwords (from [utils/magazine/scheduler.py](mdc:utils/magazine/scheduler.py) User model)
+- Cron job schedules (Schedule, JobRun models)
+- Badge templates configuration (BadgeTemplate model)
+- Preprocessing templates (PreprocessingTemplate model)
+- Event view configurations (EventViewConfig model)
+- All system settings
+
+✅ **Badge Templates** (`badge_templates/`)
+- User-uploaded SVG templates
+- Custom badge designs
+
+✅ **Badge Logos** (`badge_logos/`)
+- Uploaded club logos
+- Event-specific images
+
+✅ **Configuration Files** (`config/`)
+- Dropbox tokens
+- Last downloaded file metadata
+- **Note**: `.env` files are excluded (sensitive credentials per [.gitignore](mdc:.gitignore))
+
+## Quick Usage
+
+### Creating a Backup
+
+```bash
+# From Docker (recommended)
+docker-compose exec afrp-helper python3 backup/backup.py --compress
+
+# Using bash wrapper
+./backup/backup.sh --compress
+```
+
+### Restoring a Backup
+
+```bash
+# Stop the application first!
+docker-compose down
+
+# Restore
+docker-compose exec afrp-helper python3 backup/restore.py afrp_backup_20260115_120000
+
+# Start application
+docker-compose up -d
+```
+
+## Backup Script Options
+
+```bash
+python3 backup/backup.py [options]
+
+Options:
+  --output-dir DIR    Specify backup output directory (default: ./backups)
+  --compress          Create compressed .tar.gz archive
+  -h, --help          Show help message
+```
+
+### Key Functions in backup.py
+
+- `backup_database()` - SQLite backup with integrity check
+- `backup_directory()` - Recursive directory backup
+- `backup_config()` - Config files (excludes .env)
+- `create_manifest()` - Creates BACKUP_MANIFEST.json with metadata
+- `compress_backup()` - Creates .tar.gz archive
+
+## Restore Script Options
+
+```bash
+python3 backup/restore.py backup_name [options]
+
+Options:
+  --dry-run               Show what would be restored without making changes
+  --skip-safety-backup    Don't create safety backup of current state
+  -h, --help             Show help message
+```
+
+### Key Functions in restore.py
+
+- `verify_backup()` - Validates backup integrity and reads manifest
+- `create_backup_of_current()` - Automatic safety backup before restore
+- `restore_database()` - Restores DB with integrity verification
+- `restore_directory()` - Restores templates/logos directories
+- `extract_backup()` - Handles compressed archives
+
+## Backup Structure
+
+```
+backups/
+└── afrp_backup_20260115_120000/
+    ├── BACKUP_MANIFEST.json    # Backup metadata and restore instructions
+    ├── README.txt               # Human-readable backup info
+    ├── database/
+    │   ├── magazine_schedules.db
+    │   └── db_stats.json        # Database statistics
+    ├── badge_templates/
+    │   └── [SVG files]
+    ├── badge_logos/
+    │   └── [Image files]
+    └── config/
+        ├── dropbox_token.json
+        └── last_downloaded_file.json
+```
+
+## Safety Features
+
+### Automatic Safety Backups
+
+When restoring, a safety backup of the **current state** is automatically created with suffix `pre_restore` before any changes are made. If something goes wrong, you can restore this safety backup!
+
+### Dry Run Mode
+
+Test restore operations without making changes:
+```bash
+python3 backup/restore.py backup_name --dry-run
+```
+
+### Database Integrity Checks
+
+- Database integrity verified before backup using `PRAGMA integrity_check`
+- Database integrity verified after restore
+- Automatic rollback if integrity check fails
+
+## Best Practices
+
+### 1. Regular Backups
+
+Set up automated backups using cron:
+```bash
+# Daily backup at 2 AM
+0 2 * * * cd /path/to/qr_code_generator && ./backup/backup.sh --compress
+
+# Weekly backup to external drive
+0 3 * * 0 cd /path/to/qr_code_generator && python3 backup/backup.py --output-dir /mnt/external/backups --compress
+```
+
+### 2. Before Major Changes
+
+Always create a backup before:
+- Updating the application
+- Modifying templates
+- Bulk data operations
+- System maintenance
+
+### 3. Test Restores
+
+Periodically test restore procedures:
+```bash
+python3 backup/restore.py latest_backup --dry-run
+```
+
+### 4. Off-site Backups
+
+Store compressed backups off-site:
+```bash
+# Backup to external drive
+python3 backup/backup.py --output-dir /mnt/external/backups --compress
+
+# Or use rsync/scp to remote server
+scp backups/afrp_backup_*.tar.gz user@backup-server:/backups/
+```
+
+## Docker Integration
+
+### Volume Mounting
+
+The `backups/` folder is mounted in [docker-compose.yaml](mdc:docker-compose.yaml):
+```yaml
+volumes:
+  - ./backups:/app/backups
+```
+
+This ensures backups are accessible from both host and container.
+
+### Container Execution
+
+```bash
+# Execute backup inside container
+docker-compose exec afrp-helper python3 backup/backup.py --compress
+
+# Execute restore inside container
+docker-compose exec afrp-helper python3 backup/restore.py backup_name
+```
+
+## Troubleshooting
+
+### "Backup not found"
+
+Make sure you're in the correct directory or provide full path:
+```bash
+# Use absolute path
+python3 backup/restore.py /app/backups/afrp_backup_20260115_120000
+
+# Or navigate to project directory first
+cd /path/to/qr_code_generator
+python3 backup/restore.py afrp_backup_20260115_120000
+```
+
+### "Database integrity check failed"
+
+If backup database fails integrity check:
+1. Try a different backup
+2. Check disk space
+3. Verify source backup is not corrupted
+
+### "Permission denied"
+
+Ensure scripts are executable:
+```bash
+chmod +x backup.py restore.py backup.sh
+```
+
+For Docker, the container needs write access:
+```bash
+chmod 777 backups/
+```
+
+### Application Won't Start After Restore
+
+1. Check logs: `docker-compose logs --tail=50`
+2. Verify `config/.env` file exists (backups exclude this for security)
+3. Restore safety backup: `python3 backup/restore.py afrp_backup_pre_restore_*`
+
+## Migration & Transfer
+
+To move the system to a new server:
+
+1. **Create backup on old server:**
+   ```bash
+   python3 backup/backup.py --compress
+   ```
+
+2. **Copy backup to new server:**
+   ```bash
+   scp backups/afrp_backup_*.tar.gz user@newserver:/path/
+   ```
+
+3. **On new server:**
+   ```bash
+   # Set up application
+   git clone <repo>
+   cd qr_code_generator
+   
+   # Copy config/.env from old server (not in backup!)
+   # Then restore backup
+   python3 backup/restore.py afrp_backup_20260115_120000.tar.gz
+   
+   # Start application
+   docker-compose up -d
+   ```
+
+## Recovery Scenarios
+
+### Scenario 1: Accidental Data Deletion
+
+```bash
+docker-compose down
+docker-compose exec afrp-helper python3 backup/restore.py $(ls -t backups/ | head -1)
+docker-compose up -d
+```
+
+### Scenario 2: Testing Changes
+
+```bash
+# Create backup before changes
+python3 backup/backup.py --compress
+
+# Make changes...
+
+# If changes fail, restore
+docker-compose down
+python3 backup/restore.py afrp_backup_pre_restore_*
+docker-compose up -d
+```
+
+### Scenario 3: Corruption
+
+```bash
+# Try different backups until one works
+for backup in $(ls -t backups/); do
+    echo "Trying $backup..."
+    python3 backup/restore.py $backup --dry-run && break
+done
+
+# Restore working backup
+python3 backup/restore.py $backup
+```
+
+## Important Notes
+
+- **`.env` files are NOT backed up** for security reasons (contains SECRET_KEY, credentials)
+- User must manually copy `config/.env` when migrating to new server
+- Backups folder is in [.gitignore](mdc:.gitignore) to prevent committing sensitive data
+- Database includes authentication system (User table with bcrypt hashed passwords)
+- All timestamps use UTC
+- Backup filenames use format: `afrp_backup_YYYYMMDD_HHMMSS`
+- Compressed archives use `.tar.gz` extension
+- BACKUP_MANIFEST.json contains full metadata and restore instructions
+
+## Related Files
+
+- [app.py](mdc:app.py) - Main application that uses the database
+- [utils/magazine/scheduler.py](mdc:utils/magazine/scheduler.py) - Database models
+- [README.md](mdc:README.md) - Main documentation with backup section
+- [.gitignore](mdc:.gitignore) - Excludes backups/ from version control

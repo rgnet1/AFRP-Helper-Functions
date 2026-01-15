@@ -1,5 +1,9 @@
-from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response
+from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response, flash, redirect, url_for
 from werkzeug.utils import secure_filename
+from flask_login import LoginManager, login_required, current_user, login_user, logout_user
+from flask_bcrypt import Bcrypt
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import qrcode
 from io import BytesIO, StringIO
 from PIL import Image
@@ -16,8 +20,9 @@ import shutil
 import tempfile
 import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
+from utils.auth import validate_password, validate_username, validate_email
 from utils.magazine.download_latest_magazine import main as magazine_main
-from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate
+from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate, User, PreprocessingTemplate
 from utils.badges.pre_processing_module import PreprocessingBase
 from utils.badges.event_preprocessing import preprocessing_implementations
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
@@ -91,10 +96,55 @@ else:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Load SECRET_KEY from environment
+# Note: Environment variables are loaded from config/.env via docker-compose
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '')
+
+# Validate SECRET_KEY is configured
+if not app.config.get('SECRET_KEY') or app.config['SECRET_KEY'] == '':
+    raise RuntimeError(
+        "SECRET_KEY is not set! "
+        "Please set SECRET_KEY in config/.env file. "
+        "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
+# Session configuration for security
+app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS only
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # No JavaScript access
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+from datetime import timedelta
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)  # Session timeout
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)  # Remember me duration
+app.config['REMEMBER_COOKIE_SECURE'] = True  # HTTPS only
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # No JavaScript access
+
 logger.info(f"Database URI configured: {db_uri}")
 
 # Initialize extensions
 db.init_app(app)
+
+# Initialize authentication extensions
+bcrypt = Bcrypt(app)
+# Store bcrypt in app.extensions so User model can access it
+app.extensions['bcrypt'] = bcrypt
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.session_protection = 'strong'
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user for Flask-Login."""
+    from utils.magazine.scheduler import User
+    return User.query.get(int(user_id))
 
 # Create database tables
 with app.app_context():
@@ -147,12 +197,291 @@ os.makedirs(app.config['BADGE_LOGOS_FOLDER'], mode=0o777, exist_ok=True)
 # Log registered preprocessors at startup
 logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
 
+# ========================================
+# Authentication Routes
+# ========================================
+
+def is_safe_url(target):
+    """Validate redirect URL to prevent open redirects."""
+    from urllib.parse import urlparse, urljoin
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    """First-time setup wizard - only accessible if no users exist."""
+    # Check if users already exist
+    if User.query.first() is not None:
+        flash('Setup already completed', 'info')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        email = request.form.get('email', '').strip()
+        
+        # Validate username
+        valid, error = validate_username(username)
+        if not valid:
+            flash(error, 'error')
+            return render_template('setup.html')
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'error')
+            return render_template('setup.html')
+        
+        # Validate email if provided
+        if email:
+            valid, error = validate_email(email)
+            if not valid:
+                flash(error, 'error')
+                return render_template('setup.html')
+            
+            # Check if email already exists
+            if User.query.filter_by(email=email).first():
+                flash('Email already exists', 'error')
+                return render_template('setup.html')
+        
+        # Validate password
+        valid, error = validate_password(password)
+        if not valid:
+            flash(error, 'error')
+            return render_template('setup.html')
+        
+        # Check password confirmation
+        if password != password_confirm:
+            flash('Passwords do not match', 'error')
+            return render_template('setup.html')
+        
+        # Create admin user
+        try:
+            user = User(
+                username=username,
+                email=email if email else None,
+                is_admin=True,
+                is_active=True
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            
+            logger.info(f"Admin user created: {username}")
+            flash('Admin account created successfully! Please log in.', 'success')
+            return redirect(url_for('login'))
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error creating admin user")
+            flash(f'Error creating account: {str(e)}', 'error')
+    
+    return render_template('setup.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per 15 minutes")
+def login():
+    """User login."""
+    # Check if setup is needed
+    if User.query.first() is None:
+        return redirect(url_for('setup'))
+    
+    # Already logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember = request.form.get('remember', False) == 'on'
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password):
+            if not user.is_active:
+                flash('Account is disabled', 'error')
+                return render_template('login.html')
+            
+            # Log in user
+            login_user(user, remember=remember)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            
+            logger.info(f"User logged in: {username}")
+            
+            # Redirect to next page or home
+            next_page = request.args.get('next')
+            if next_page and is_safe_url(next_page):
+                return redirect(next_page)
+            return redirect(url_for('home'))
+        else:
+            flash('Invalid username or password', 'error')
+            logger.warning(f"Failed login attempt for username: {username}")
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """User logout."""
+    username = current_user.username
+    logout_user()
+    logger.info(f"User logged out: {username}")
+    flash('You have been logged out', 'info')
+    return redirect(url_for('login'))
+
+# ========================================
+# User Management Routes (Admin Only)
+# ========================================
+
+@app.route('/users')
+@login_required
+def list_users():
+    """List all users (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+    
+    users = User.query.order_by(User.created_at.desc()).all()
+    return render_template('users.html', users=users)
+
+@app.route('/users/create', methods=['GET', 'POST'])
+@login_required
+def create_user():
+    """Create new user (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        email = request.form.get('email', '').strip()
+        is_admin = request.form.get('is_admin') == 'on'
+        
+        # Validate username
+        valid, error = validate_username(username)
+        if not valid:
+            flash(error, 'error')
+            return render_template('create_user.html')
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'error')
+            return render_template('create_user.html')
+        
+        # Validate email if provided
+        if email:
+            valid, error = validate_email(email)
+            if not valid:
+                flash(error, 'error')
+                return render_template('create_user.html')
+            
+            # Check if email already exists
+            if User.query.filter_by(email=email).first():
+                flash('Email already exists', 'error')
+                return render_template('create_user.html')
+        
+        # Validate password
+        valid, error = validate_password(password)
+        if not valid:
+            flash(error, 'error')
+            return render_template('create_user.html')
+        
+        # Check password confirmation
+        if password != password_confirm:
+            flash('Passwords do not match', 'error')
+            return render_template('create_user.html')
+        
+        # Create user
+        try:
+            user = User(
+                username=username,
+                email=email if email else None,
+                is_admin=is_admin,
+                is_active=True
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            
+            logger.info(f"User created: {username} by {current_user.username}")
+            flash(f'User {username} created successfully', 'success')
+            return redirect(url_for('list_users'))
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error creating user")
+            flash(f'Error creating user: {str(e)}', 'error')
+    
+    return render_template('create_user.html')
+
+@app.route('/users/<int:user_id>/toggle-active', methods=['POST'])
+@login_required
+def toggle_user_active(user_id):
+    """Toggle user active status (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Prevent deactivating yourself
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot deactivate your own account'}), 400
+    
+    try:
+        user.is_active = not user.is_active
+        db.session.commit()
+        status = 'activated' if user.is_active else 'deactivated'
+        logger.info(f"User {user.username} {status} by {current_user.username}")
+        return jsonify({'success': True, 'is_active': user.is_active})
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error toggling user status")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    """Delete user (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Prevent deleting yourself
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    
+    try:
+        username = user.username
+        db.session.delete(user)
+        db.session.commit()
+        logger.info(f"User deleted: {username} by {current_user.username}")
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error deleting user")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
+# Main Application Routes
+# ========================================
+
 @app.route('/', methods=['GET'])
+@login_required
 def home():
     # This route displays the home page with tiles
     return render_template('home.html')
 
 @app.route('/qr', methods=['GET', 'POST'])
+@login_required
 def qr():
     if request.method == 'POST':
         data = request.form.get('data')
@@ -246,11 +575,13 @@ def qr():
     return render_template('qr.html')
 
 @app.route('/magazine')
+@login_required
 def magazine():
     schedules = Schedule.query.all()
     return render_template('magazine.html', schedules=schedules)
 
 @app.route('/event', methods=['GET', 'POST'])
+@login_required
 def event_page():
     if request.method == 'POST':
         crm_url = request.form.get('crmUrl')
@@ -278,6 +609,7 @@ def validate_time_format(time_str):
         return False
 
 @app.route('/api/schedules', methods=['GET', 'POST', 'DELETE'])
+@login_required
 def manage_schedules():
     if request.method == 'GET':
         schedules = Schedule.query.all()
@@ -370,6 +702,7 @@ def manage_schedules():
             return jsonify({'error': f'Failed to delete schedule: {str(e)}'}), 500
 
 @app.route('/run-magazine-download')
+@login_required
 def run_magazine_download():
     def generate():
         logging.info("Starting magazine download process")
@@ -453,6 +786,7 @@ def run_magazine_download():
 
 # Badge Generator Routes
 @app.route('/badges')
+@login_required
 def badges():
     """Badge Generator page with automated CRM integration."""
     return render_template('badges.html')
@@ -461,22 +795,26 @@ def badges():
 
 
 @app.route('/badge-mapping')
+@login_required
 def badge_mapping():
     """Badge template mapping configuration page."""
     return render_template('badge_mapping.html')
 
 @app.route('/preprocessing-designer')
+@login_required
 def preprocessing_designer():
     """Preprocessing template designer page."""
     return render_template('preprocessing_designer.html')
 
 @app.route('/badge_templates/<path:filename>')
+@login_required
 def serve_badge_template(filename):
     """Serve badge template SVG files."""
     return send_from_directory(app.config['BADGE_TEMPLATES_FOLDER'], filename)
 
 
 @app.route('/api/campaigns/open', methods=['GET'])
+@login_required
 def get_open_campaigns():
     """Get list of open campaigns from Dynamics CRM."""
     try:
@@ -491,6 +829,7 @@ def get_open_campaigns():
         return jsonify({'error': f'Failed to fetch open campaigns: {str(e)}'}), 500
 
 @app.route('/api/campaigns/<campaign_id>/sub-events', methods=['GET'])
+@login_required
 def get_campaign_sub_events(campaign_id):
     """Get list of sub-events for a specific campaign from Dynamics CRM."""
     try:
@@ -504,6 +843,7 @@ def get_campaign_sub_events(campaign_id):
         logger.error(f"Error fetching sub-events for campaign {campaign_id}: {str(e)}")
         return jsonify({'error': f'Failed to fetch sub-events: {str(e)}'}), 500
 @app.route('/api/badges/pull-and-process', methods=['POST'])
+@login_required
 def badges_pull_and_process():
     """One-click endpoint to pull all data from CRM and process it."""
     logger.debug("Starting Badge Generator V2 pull and process")
@@ -718,6 +1058,7 @@ def badges_pull_and_process():
 # ============================================================================
 
 @app.route('/api/badge-templates', methods=['GET'])
+@login_required
 def get_badge_templates():
     """Get list of saved badge templates."""
     try:
@@ -730,6 +1071,7 @@ def get_badge_templates():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates', methods=['POST'])
+@login_required
 def create_badge_template():
     """Save a new badge template configuration."""
     try:
@@ -771,6 +1113,7 @@ def create_badge_template():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates/<int:template_id>', methods=['GET'])
+@login_required
 def get_badge_template(template_id):
     """Get a specific badge template."""
     try:
@@ -783,6 +1126,7 @@ def get_badge_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates/<int:template_id>', methods=['PUT'])
+@login_required
 def update_badge_template(template_id):
     """Update an existing badge template."""
     try:
@@ -828,6 +1172,7 @@ def update_badge_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates/<int:template_id>', methods=['DELETE'])
+@login_required
 def delete_badge_template(template_id):
     """Delete a badge template."""
     try:
@@ -848,6 +1193,7 @@ def delete_badge_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates/<int:template_id>/duplicate', methods=['POST'])
+@login_required
 def duplicate_badge_template(template_id):
     """Duplicate a badge template with auto-incremented name."""
     try:
@@ -889,6 +1235,7 @@ def duplicate_badge_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-templates/upload-svg', methods=['POST'])
+@login_required
 def upload_svg_template():
     """Upload SVG template file."""
     try:
@@ -921,6 +1268,7 @@ def upload_svg_template():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-logos/upload', methods=['POST'])
+@login_required
 def upload_club_logo():
     """Upload club logo for badge generation."""
     try:
@@ -968,6 +1316,7 @@ def upload_club_logo():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/avery-templates', methods=['GET'])
+@login_required
 def get_avery_templates():
     """Get list of available Avery templates."""
     try:
@@ -982,6 +1331,7 @@ def get_avery_templates():
 # ============================================
 
 @app.route('/api/preprocessing-templates', methods=['GET'])
+@login_required
 def get_preprocessing_templates():
     """Get list of saved preprocessing templates."""
     try:
@@ -996,6 +1346,7 @@ def get_preprocessing_templates():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/preprocessing-templates', methods=['POST'])
+@login_required
 def create_preprocessing_template():
     """Create a new preprocessing template."""
     try:
@@ -1035,6 +1386,7 @@ def create_preprocessing_template():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/preprocessing-templates/<int:template_id>', methods=['GET'])
+@login_required
 def get_preprocessing_template(template_id):
     """Get a specific preprocessing template."""
     try:
@@ -1051,6 +1403,7 @@ def get_preprocessing_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/preprocessing-templates/<int:template_id>', methods=['PUT'])
+@login_required
 def update_preprocessing_template(template_id):
     """Update an existing preprocessing template."""
     try:
@@ -1095,6 +1448,7 @@ def update_preprocessing_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/preprocessing-templates/<int:template_id>', methods=['DELETE'])
+@login_required
 def delete_preprocessing_template(template_id):
     """Delete a preprocessing template."""
     try:
@@ -1119,6 +1473,7 @@ def delete_preprocessing_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/preprocessing-templates/<int:template_id>/duplicate', methods=['POST'])
+@login_required
 def duplicate_preprocessing_template(template_id):
     """Duplicate a preprocessing template with auto-incremented name."""
     try:
@@ -1160,6 +1515,7 @@ def duplicate_preprocessing_template(template_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badges/generate', methods=['POST'])
+@login_required
 def generate_badges():
     """Generate PDF badges from processed Excel file."""
     try:
@@ -1235,6 +1591,7 @@ def generate_badges():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badges/pull-process-generate', methods=['POST'])
+@login_required
 def badges_pull_process_generate():
     """Combined endpoint: pull data, process, and generate badges."""
     try:

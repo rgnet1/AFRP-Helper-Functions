@@ -140,6 +140,41 @@ The application uses these directories (created automatically):
    DYNAMICS_CRM_URL=https://yourorg.crm.dynamics.com
    ```
 
+### Authentication
+
+The application includes a secure authentication system to protect access.
+
+#### First-Time Setup
+
+1. **Generate a SECRET_KEY**:
+   ```bash
+   python3 -c "import secrets; print(secrets.token_hex(32))"
+   ```
+
+2. **Add it to `config/.env`**:
+   ```bash
+   SECRET_KEY=your-generated-key-here
+   ```
+
+3. **Start the application** and visit `/setup` to create your admin account
+
+#### Security Features
+
+- Server-side bcrypt password hashing (cost factor 12)
+- Session management with HttpOnly, Secure cookies
+- Rate limiting (5 login attempts per 15 minutes)
+- Password requirements (min 8 chars, uppercase, lowercase, number, special char)
+- Remember me functionality (30-day sessions)
+- Admin-only user management interface
+
+#### User Management
+
+Admins can manage users at `/users`:
+- Create new user accounts
+- Toggle user active/inactive status
+- Delete users (except self)
+- View login history
+
 ### Docker Configuration
 Default `docker-compose.yaml` settings:
 - Port: 5066 (external) → 5000 (internal)
@@ -208,6 +243,56 @@ Visual interface for mapping spreadsheet columns to badge placeholders:
 3. Set download schedule
 4. Monitor progress in logs
 
+## Backup & Restore
+
+Complete system backup and restore capability for data protection and migration.
+
+### Quick Backup
+
+```bash
+# Create compressed backup
+docker-compose exec afrp-helper python3 backup/backup.py --compress
+
+# Or use bash wrapper
+./backup/backup.sh --compress
+```
+
+### Quick Restore
+
+```bash
+# Stop application
+docker-compose down
+
+# Restore from backup
+docker-compose exec afrp-helper python3 backup/restore.py afrp_backup_20260115_120000
+
+# Start application
+docker-compose up -d
+```
+
+### What Gets Backed Up
+
+✅ **Database**: Users, schedules, templates, all configurations  
+✅ **Badge Templates**: User-uploaded SVG files  
+✅ **Badge Logos**: Club logos and images  
+✅ **Configuration**: Non-sensitive config files  
+
+**Note**: `.env` files excluded (sensitive credentials)
+
+### Safety Features
+
+- Automatic pre-restore safety backup
+- Database integrity verification
+- Dry-run mode for testing
+- Detailed backup manifests
+
+📖 **Full Documentation**: See `.cursor/rules/backup-restore-system.mdc` for:
+- Detailed usage instructions
+- Best practices
+- Recovery scenarios
+- Migration guides
+- Troubleshooting
+
 ## API Endpoints
 
 ### Badge Generation
@@ -270,10 +355,33 @@ This tests:
 
 ### Database Migrations
 
-Database schema is managed by SQLAlchemy. Models are defined in:
-- `utils/magazine/scheduler.py` - Schedule, BadgeTemplate, PreprocessingTemplate models
+Database migrations run **automatically** at container startup. The system:
+- ✅ Detects pending schema changes
+- ✅ Applies migrations in order
+- ✅ Tracks applied migrations
+- ✅ Skips already-applied migrations (idempotent)
 
-Database is automatically initialized on first run.
+**Database Models**: `utils/magazine/scheduler.py`
+- User, Schedule, BadgeTemplate, PreprocessingTemplate, EventViewConfig, JobRun
+
+**Migration Files**: `db_migrations/migrations/`
+- `001_create_user_table.py` - User authentication table
+- `002_add_club_logo_dimensions.py` - Badge template enhancements
+
+**Creating New Migrations**:
+```bash
+# Create migration file: db_migrations/migrations/003_your_change.py
+# See db_migrations/README.md for detailed instructions
+
+# Test locally
+python3 db_migrations/migration_runner.py --dry-run
+python3 db_migrations/migration_runner.py
+
+# Deploy - migrations run automatically on container restart
+docker-compose up -d --build
+```
+
+For detailed migration documentation, see `db_migrations/README.md` or `.cursor/rules/database-migrations.mdc`.
 
 ## Troubleshooting
 

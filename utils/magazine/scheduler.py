@@ -1,4 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
 from datetime import datetime
 import re
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -240,6 +241,54 @@ class PreprocessingTemplate(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
+
+class User(db.Model, UserMixin):
+    """User model for authentication with bcrypt password hashing."""
+    __tablename__ = 'user'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, nullable=True)
+    
+    def set_password(self, password):
+        """Hash and store password using bcrypt.
+        
+        Note: bcrypt instance must be initialized in app.py before calling this.
+        """
+        from flask import current_app
+        bcrypt = current_app.extensions.get('bcrypt')
+        if not bcrypt:
+            raise RuntimeError("Bcrypt extension not initialized")
+        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    
+    def check_password(self, password):
+        """Verify password against stored hash."""
+        from flask import current_app
+        bcrypt = current_app.extensions.get('bcrypt')
+        if not bcrypt:
+            raise RuntimeError("Bcrypt extension not initialized")
+        return bcrypt.check_password_hash(self.password_hash, password)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization (excluding password_hash)."""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'is_admin': self.is_admin,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 
 class ScheduleManager:

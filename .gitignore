@@ -24,6 +24,10 @@ __pycache__/
 /badge_templates/*
 !/badge_templates/.gitkeep
 
+# Backups
+/backups/
+*.tar.gz
+
 # IDE files
 .vscode/
 .idea/

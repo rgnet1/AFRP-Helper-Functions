@@ -17,6 +17,8 @@ services:
       - ./badge_logos:/app/badge_logos
       # Mount static folder for easy access to logos and SVG samples
       - ./static:/app/static
+      # Mount backups folder for backup/restore scripts
+      - ./backups:/app/backups
     env_file:
       - ./config/.env
     dns:

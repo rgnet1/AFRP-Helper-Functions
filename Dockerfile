@@ -28,10 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only necessary files, excluding config
-COPY app.py .
-COPY static/ static/
-COPY templates/ templates/
-COPY utils/ utils/
+COPY app.py ./
+COPY backup/ ./backup/
+COPY db_migrations/ ./db_migrations/
+COPY static/ ./static/
+COPY templates/ ./templates/
+COPY utils/ ./utils/
 
 EXPOSE 5066
 
