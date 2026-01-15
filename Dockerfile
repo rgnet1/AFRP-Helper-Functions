@@ -23,7 +23,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y build-essential python3-dev pkg-config libcairo2-dev \
-    && apt-get autoremove -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
