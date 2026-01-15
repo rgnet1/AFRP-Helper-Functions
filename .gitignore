@@ -1,7 +1,9 @@
 # Config files
 /config/
+!config/.env.sample
 .env
 .venv/
+
 # Generated files
 /downloads/
 /logs/
@@ -9,6 +11,22 @@
 *.pyc
 __pycache__/
 /data/magazine_schedules.db
+
+# Temporary and cache folders
+/temp/*
+!/temp/.gitkeep
+/instance/*
+!/instance/.gitkeep
+
+# Uploaded files
+/badge_logos/*
+!/badge_logos/.gitkeep
+/badge_templates/*
+!/badge_templates/.gitkeep
+
+# Backups
+/backups/
+*.tar.gz
 
 # IDE files
 .vscode/

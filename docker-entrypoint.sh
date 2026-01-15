@@ -1,15 +1,29 @@
 #!/bin/bash
 set -e
 
-# Initialize SQLite database if it doesn't exist
-if [ ! -f "/app/data/magazine.db" ]; then
-    echo "Initializing database..."
-    python -c "
-from app import app, db
-with app.app_context():
-    db.create_all()
-"
+echo "=========================================="
+echo "AFRP CRM Helper - Container Startup"
+echo "=========================================="
+
+# Ensure data directory exists
+mkdir -p /app/data
+
+# Run database migrations
+echo ""
+echo "Running database migrations..."
+python3 /app/db_migrations/migration_runner.py --db /app/data/magazine_schedules.db
+
+# Check migration exit code
+if [ $? -ne 0 ]; then
+    echo "⚠ Database migrations failed! Check logs above."
+    echo "Application may not function correctly."
+    # Continue anyway - don't block startup
 fi
+
+echo ""
+echo "=========================================="
+echo "Starting application server..."
+echo "=========================================="
 
 # Start the application with gunicorn
 # The scheduler will be initialized by the app

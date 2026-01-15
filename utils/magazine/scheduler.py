@@ -1,4 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
 from datetime import datetime
 import re
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -152,6 +153,143 @@ class Schedule(db.Model):
             return f'{minute} {hour} {self.day_of_month} * *'
         else:
             raise ValueError("Invalid schedule configuration")
+
+class EventViewConfig(db.Model):
+    """
+    Stores Dynamics CRM view configurations for Badge Generator V2.
+    Groups all 4 view IDs under a single event name for easy management.
+    """
+    __tablename__ = 'event_view_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    event_name = db.Column(db.String(200), unique=True, nullable=False)
+    event_guests_view_id = db.Column(db.String(100), nullable=False)
+    qr_codes_view_id = db.Column(db.String(100), nullable=False)
+    table_reservations_view_id = db.Column(db.String(100), nullable=False)
+    form_responses_view_id = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_default = db.Column(db.Boolean, default=False)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'event_name': self.event_name,
+            'event_guests_view_id': self.event_guests_view_id,
+            'qr_codes_view_id': self.qr_codes_view_id,
+            'table_reservations_view_id': self.table_reservations_view_id,
+            'form_responses_view_id': self.form_responses_view_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_default': self.is_default
+        }
+
+class BadgeTemplate(db.Model):
+    """Store badge template configurations for badge generation."""
+    __tablename__ = 'badge_template'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    svg_filename = db.Column(db.String(255), nullable=False)
+    club_logo_filename = db.Column(db.String(255), nullable=True)
+    club_logo_width = db.Column(db.Integer, nullable=True)  # Original width in pixels
+    club_logo_height = db.Column(db.Integer, nullable=True)  # Original height in pixels
+    column_mappings = db.Column(db.Text, nullable=False)  # JSON string
+    avery_template = db.Column(db.String(50), default='5392')  # Avery template number
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        import json
+        return {
+            'id': self.id,
+            'name': self.name,
+            'svg_filename': self.svg_filename,
+            'club_logo_filename': self.club_logo_filename,
+            'club_logo_width': self.club_logo_width,
+            'club_logo_height': self.club_logo_height,
+            'column_mappings': json.loads(self.column_mappings) if self.column_mappings else {},
+            'avery_template': self.avery_template,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class PreprocessingTemplate(db.Model):
+    """Store user-configurable preprocessing templates for data transformation."""
+    __tablename__ = 'preprocessing_template'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    description = db.Column(db.Text, nullable=True)
+    value_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for exact match replacements
+    contains_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for substring replacements
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization."""
+        import json
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description or '',
+            'value_mappings': json.loads(self.value_mappings) if self.value_mappings else {},
+            'contains_mappings': json.loads(self.contains_mappings) if self.contains_mappings else {},
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class User(db.Model, UserMixin):
+    """User model for authentication with bcrypt password hashing."""
+    __tablename__ = 'user'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, nullable=True)
+    
+    def set_password(self, password):
+        """Hash and store password using bcrypt.
+        
+        Note: bcrypt instance must be initialized in app.py before calling this.
+        """
+        from flask import current_app
+        bcrypt = current_app.extensions.get('bcrypt')
+        if not bcrypt:
+            raise RuntimeError("Bcrypt extension not initialized")
+        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+    
+    def check_password(self, password):
+        """Verify password against stored hash."""
+        from flask import current_app
+        bcrypt = current_app.extensions.get('bcrypt')
+        if not bcrypt:
+            raise RuntimeError("Bcrypt extension not initialized")
+        return bcrypt.check_password_hash(self.password_hash, password)
+    
+    def to_dict(self):
+        """Convert model to dictionary for JSON serialization (excluding password_hash)."""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'email': self.email,
+            'is_admin': self.is_admin,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_login': self.last_login.isoformat() if self.last_login else None
+        }
+    
+    def __repr__(self):
+        return f'<User {self.username}>'
+
 
 class ScheduleManager:
     def __init__(self, app=None):

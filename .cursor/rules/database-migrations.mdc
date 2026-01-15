@@ -1,0 +1,381 @@
+---
+description: Database migration system documentation - use when creating or modifying database migrations
+---
+
+# Database Migration System
+
+Automatic database migration system that runs at container startup in [docker-entrypoint.sh](mdc:docker-entrypoint.sh).
+
+## Core Components
+
+- [db_migrations/migration_runner.py](mdc:db_migrations/migration_runner.py) - Main migration engine
+- [db_migrations/migrations/](mdc:db_migrations/migrations/) - Individual migration files
+- [docker-entrypoint.sh](mdc:docker-entrypoint.sh) - Runs migrations at startup
+- [Dockerfile](mdc:Dockerfile) - Includes migrations in container
+
+## How It Works
+
+1. **Container Startup**: [docker-entrypoint.sh](mdc:docker-entrypoint.sh) runs migration_runner.py
+2. **Discovery**: Scans `migrations/` folder for `###_*.py` files
+3. **Tracking**: Checks `schema_migrations` table for applied migrations
+4. **Execution**: Runs pending migrations in version order
+5. **Recording**: Records successful migrations in tracking table
+
+## Migration File Format
+
+**Naming Convention**: `###_descriptive_name.py`
+- `###` = Zero-padded version number (001, 002, 003, ...)
+- Use underscores for spaces
+- Be descriptive
+
+**Required Structure**:
+```python
+"""
+Migration ###: Brief description
+
+Detailed explanation of what this migration does.
+"""
+
+
+def upgrade(conn):
+    """
+    Apply the migration
+    
+    Args:
+        conn: SQLite database connection object
+    """
+    cursor = conn.cursor()
+    
+    # Always check if changes already exist (idempotent)
+    cursor.execute("PRAGMA table_info(table_name)")
+    columns = {row[1] for row in cursor.fetchall()}
+    
+    if 'new_column' not in columns:
+        cursor.execute("ALTER TABLE table_name ADD COLUMN new_column TEXT")
+        conn.commit()
+        print("  ✓ Added new_column")
+    else:
+        print("  ℹ Column already exists, skipping")
+
+
+def downgrade(conn):
+    """
+    Rollback the migration (optional but recommended)
+    
+    Args:
+        conn: SQLite database connection object
+    """
+    # Implement rollback logic or document manual steps
+    pass
+```
+
+## Creating New Migrations
+
+### Step 1: Determine Version Number
+
+Find the highest existing version in [db_migrations/migrations/](mdc:db_migrations/migrations/) and increment by 1.
+
+```bash
+ls db_migrations/migrations/
+# Output: 001_create_user_table.py, 002_add_club_logo_dimensions.py
+# Next version: 003
+```
+
+### Step 2: Create File
+
+Create `db_migrations/migrations/003_your_description.py`
+
+### Step 3: Write Migration
+
+Follow these guidelines:
+
+**✓ DO:**
+- Make migrations idempotent (check before applying)
+- Use descriptive print statements
+- Handle existing state gracefully
+- Test both fresh DB and existing DB scenarios
+- Commit after each logical change
+- Use try-except for complex operations
+
+**✗ DON'T:**
+- Assume clean slate
+- Mix multiple unrelated changes
+- Forget to commit
+- Use relative imports
+- Hardcode paths or values
+
+### Step 4: Test
+
+```bash
+# Dry run (shows what would run)
+python3 db_migrations/migration_runner.py --dry-run
+
+# Apply migrations
+python3 db_migrations/migration_runner.py
+
+# In Docker
+docker-compose exec afrp-helper python3 db_migrations/migration_runner.py
+```
+
+## Common Migration Patterns
+
+### Adding a Column
+
+```python
+def upgrade(conn):
+    cursor = conn.cursor()
+    
+    # Check if column exists
+    cursor.execute("PRAGMA table_info(user)")
+    columns = {row[1] for row in cursor.fetchall()}
+    
+    if 'new_column' not in columns:
+        cursor.execute("""
+            ALTER TABLE user 
+            ADD COLUMN new_column VARCHAR(255) DEFAULT 'default_value'
+        """)
+        conn.commit()
+        print("  ✓ Added new_column to user table")
+    else:
+        print("  ℹ Column already exists, skipping")
+```
+
+### Creating a Table
+
+```python
+def upgrade(conn):
+    cursor = conn.cursor()
+    
+    # Check if table exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='new_table'
+    """)
+    
+    if not cursor.fetchone():
+        cursor.execute("""
+            CREATE TABLE new_table (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create indexes
+        cursor.execute("CREATE INDEX idx_new_table_name ON new_table(name)")
+        
+        conn.commit()
+        print("  ✓ Created new_table with indexes")
+    else:
+        print("  ℹ Table already exists, skipping")
+```
+
+### Adding an Index
+
+```python
+def upgrade(conn):
+    cursor = conn.cursor()
+    
+    # Check if index exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='index' AND name='idx_user_email'
+    """)
+    
+    if not cursor.fetchone():
+        cursor.execute("CREATE INDEX idx_user_email ON user(email)")
+        conn.commit()
+        print("  ✓ Created index idx_user_email")
+    else:
+        print("  ℹ Index already exists, skipping")
+```
+
+### Modifying Data
+
+```python
+def upgrade(conn):
+    cursor = conn.cursor()
+    
+    # Update records
+    cursor.execute("""
+        UPDATE user 
+        SET is_active = 1 
+        WHERE is_active IS NULL
+    """)
+    
+    affected = cursor.rowcount
+    conn.commit()
+    print(f"  ✓ Updated {affected} user records")
+```
+
+### Complex Table Changes (SQLite Limitation)
+
+SQLite doesn't support DROP COLUMN or ALTER COLUMN. For complex changes:
+
+```python
+def upgrade(conn):
+    cursor = conn.cursor()
+    
+    # 1. Create new table with desired schema
+    cursor.execute("""
+        CREATE TABLE user_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username VARCHAR(80) UNIQUE NOT NULL,
+            email VARCHAR(120) UNIQUE NOT NULL,
+            -- new schema here
+        )
+    """)
+    
+    # 2. Copy data from old table
+    cursor.execute("""
+        INSERT INTO user_new (id, username, email)
+        SELECT id, username, email FROM user
+    """)
+    
+    # 3. Drop old table
+    cursor.execute("DROP TABLE user")
+    
+    # 4. Rename new table
+    cursor.execute("ALTER TABLE user_new RENAME TO user")
+    
+    # 5. Recreate indexes
+    cursor.execute("CREATE UNIQUE INDEX ix_user_username ON user(username)")
+    cursor.execute("CREATE UNIQUE INDEX ix_user_email ON user(email)")
+    
+    conn.commit()
+    print("  ✓ Recreated user table with new schema")
+```
+
+## SQLite Limitations
+
+**Supported ALTER TABLE Operations:**
+- `ADD COLUMN` ✓
+- `RENAME COLUMN` ✓ (SQLite 3.25.0+)
+- `RENAME TABLE` ✓
+
+**NOT Supported:**
+- `DROP COLUMN` ✗ (requires table recreation)
+- `ALTER COLUMN` ✗ (requires table recreation)
+- `ADD CONSTRAINT` ✗ (must be in CREATE TABLE)
+
+**Workaround**: Recreate table (see "Complex Table Changes" pattern above)
+
+## Tracking Table Schema
+
+The `schema_migrations` table is automatically created by [migration_runner.py](mdc:db_migrations/migration_runner.py):
+
+```sql
+CREATE TABLE schema_migrations (
+    version TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    execution_time_ms INTEGER
+)
+```
+
+## Viewing Migration Status
+
+### Command Line
+
+```bash
+# See all applied migrations
+sqlite3 data/magazine_schedules.db "SELECT * FROM schema_migrations ORDER BY version"
+
+# Check if specific migration is applied
+sqlite3 data/magazine_schedules.db "SELECT * FROM schema_migrations WHERE version='001'"
+```
+
+### In Python
+
+```python
+import sqlite3
+conn = sqlite3.connect('data/magazine_schedules.db')
+cursor = conn.cursor()
+cursor.execute("SELECT version, name, applied_at FROM schema_migrations ORDER BY version")
+for version, name, applied_at in cursor.fetchall():
+    print(f"{version}: {name} (applied {applied_at})")
+```
+
+## Troubleshooting
+
+### Migration Not Running
+
+**Check filename format:**
+```
+✓ Good: 003_add_feature.py
+✗ Bad:  3_add_feature.py (not zero-padded)
+✗ Bad:  003-add-feature.py (dash instead of underscore)
+✗ Bad:  add_feature.py (no version number)
+```
+
+**Verify upgrade() function exists:**
+```python
+# Must have this function
+def upgrade(conn):
+    pass
+```
+
+**Check location:**
+- Must be in `db_migrations/migrations/` folder
+- Not in `db_migrations/` root
+
+### Re-running a Migration
+
+If you need to re-run a migration (after fixing it):
+
+```sql
+-- Remove from tracking table
+DELETE FROM schema_migrations WHERE version='003';
+
+-- Manually undo changes (if needed)
+-- Then re-run migration
+```
+
+### Migration Failed Partially
+
+If a migration fails midway:
+
+1. Check error in console output
+2. Manually inspect database state
+3. Manually rollback changes (or use downgrade() if implemented)
+4. Remove from tracking table
+5. Fix migration file
+6. Re-run
+
+## Existing Migrations
+
+Current migrations in the system:
+
+1. **001_create_user_table.py** - Creates User table for authentication
+   - Used by [app.py](mdc:app.py) Flask-Login system
+   - Model defined in [utils/magazine/scheduler.py](mdc:utils/magazine/scheduler.py)
+
+2. **002_add_club_logo_dimensions.py** - Adds club_logo_width and club_logo_height
+   - Used by [utils/badges/badge_generator.py](mdc:utils/badges/badge_generator.py)
+   - Stored in BadgeTemplate model
+
+## Integration Points
+
+- **Startup**: [docker-entrypoint.sh](mdc:docker-entrypoint.sh) runs migrations before starting app
+- **Models**: Database models in [utils/magazine/scheduler.py](mdc:utils/magazine/scheduler.py)
+- **App**: Flask app in [app.py](mdc:app.py) uses the database
+- **Backup**: [backup.py](mdc:backup.py) includes migration tracking table
+
+## Best Practices Summary
+
+1. **Idempotent**: Always check before applying changes
+2. **Ordered**: Use sequential version numbers
+3. **Descriptive**: Clear names and comments
+4. **Tested**: Test both on fresh and existing databases
+5. **Small**: One logical change per migration
+6. **Atomic**: Commit after successful changes
+7. **Logged**: Add print statements for visibility
+8. **Reversible**: Implement downgrade() when possible
+
+## Related Files
+
+- [db_migrations/README.md](mdc:db_migrations/README.md) - Full documentation
+- [docker-entrypoint.sh](mdc:docker-entrypoint.sh) - Container startup script
+- [Dockerfile](mdc:Dockerfile) - Container build configuration
+- [utils/magazine/scheduler.py](mdc:utils/magazine/scheduler.py) - Database models
+- [app.py](mdc:app.py) - Main application using database

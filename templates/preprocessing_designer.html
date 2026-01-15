@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preprocessing Designer - AFRP Helper</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #4b904b 0%, #3c723c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 24px;
+        }
+
+        .header h1 i {
+            color: #4b904b;
+            margin-right: 10px;
+        }
+
+        .back-btn {
+            padding: 10px 20px;
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .back-btn:hover {
+            background: #5a6268;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+
+        .sidebar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+        }
+
+        .sidebar h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .template-list {
+            list-style: none;
+            margin-bottom: 15px;
+        }
+
+        .template-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .template-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .template-item.active {
+            background: #4b904b;
+            color: white;
+        }
+
+        .template-item .delete-btn {
+            background: transparent;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            padding: 5px;
+            display: none;
+        }
+
+        .template-item.active .delete-btn {
+            color: white;
+        }
+
+        .template-item:hover .delete-btn {
+            display: block;
+        }
+
+        .new-template-btn {
+            width: 100%;
+            padding: 12px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .new-template-btn:hover {
+            background: #218838;
+        }
+
+        .designer-panel {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .designer-header {
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+
+        .designer-header h2 {
+            color: #333;
+            font-size: 22px;
+            margin-bottom: 10px;
+        }
+
+        .info-banner {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+
+        .info-banner h3 {
+            color: #1976D2;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .info-banner p {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .form-group textarea {
+            min-height: 80px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .mappings-section {
+            margin-top: 30px;
+        }
+
+        .mappings-section h3 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mapping-type {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .mapping-type h4 {
+            color: #4b904b;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .mapping-type p {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .mapping-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 40px;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .mapping-row input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .add-mapping-btn {
+            padding: 8px 16px;
+            background: #4b904b;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .add-mapping-btn:hover {
+            background: #3c723c;
+        }
+
+        .remove-mapping-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .remove-mapping-btn:hover {
+            background: #c82333;
+        }
+
+        .example-box {
+            background: #fffbea;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-top: 15px;
+            border-radius: 4px;
+        }
+
+        .example-box h5 {
+            color: #856404;
+            font-size: 14px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .example-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .example-box li {
+            color: #856404;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 5px;
+            padding: 5px 10px;
+            background: white;
+            border-radius: 3px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 2px solid #e9ecef;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #4b904b;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3c723c;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(75, 144, 75, 0.3);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            display: none;
+            align-items: center;
+            gap: 10px;
+            z-index: 1000;
+        }
+
+        .toast.error {
+            background: #dc3545;
+        }
+
+        .toast.show {
+            display: flex;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-tools"></i> Preprocessing Template Designer</h1>
+            <a href="/badges" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Badge Generator
+            </a>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <h2><i class="fas fa-list"></i> Saved Templates</h2>
+                <ul class="template-list" id="templateList">
+                    <li style="color: #999; text-align: center; padding: 20px;">No templates yet</li>
+                </ul>
+                <button class="new-template-btn" onclick="newTemplate()">
+                    <i class="fas fa-plus"></i> New Template
+                </button>
+            </div>
+
+            <div class="designer-panel">
+                <div class="designer-header">
+                    <h2 id="panelTitle">Create New Preprocessing Template</h2>
+                </div>
+
+                <div class="info-banner">
+                    <h3><i class="fas fa-info-circle"></i> What is Preprocessing?</h3>
+                    <p>
+                        Preprocessing templates allow you to transform and clean your data automatically. 
+                        Use <strong>Value Mappings</strong> for exact text replacements (e.g., "Steak" → "S") 
+                        and <strong>Contains Mappings</strong> to remove text that appears anywhere in a field (e.g., "- Reserved" → "").
+                    </p>
+                </div>
+
+                <div class="form-group">
+                    <label for="templateName">Template Name *</label>
+                    <input type="text" id="templateName" placeholder="e.g., Convention 2025, Lexington 2026">
+                </div>
+
+                <div class="form-group">
+                    <label for="templateDescription">Description (Optional)</label>
+                    <textarea id="templateDescription" placeholder="Describe what this template is used for..."></textarea>
+                </div>
+
+                <div class="mappings-section">
+                    <h3><i class="fas fa-exchange-alt"></i> Data Transformations</h3>
+
+                    <div class="mapping-type">
+                        <h4><i class="fas fa-equals"></i> Value Mappings (Exact Match)</h4>
+                        <p>
+                            Replace exact text values. For example, shorten meal preferences or simplify event names.
+                            Both fields support free text.
+                        </p>
+                        <div id="valueMappings"></div>
+                        <button class="add-mapping-btn" onclick="addValueMapping()">
+                            <i class="fas fa-plus"></i> Add Value Mapping
+                        </button>
+                        <div class="example-box">
+                            <h5><i class="fas fa-lightbulb"></i> Examples:</h5>
+                            <ul>
+                                <li>"Steak" → "S" (Shorten meal preference)</li>
+                                <li>"No Club Affiliation" → " " (Remove text)</li>
+                                <li>"Mid-Year Meeting 2026" → "Lexington 2026" (Simplify name)</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="mapping-type">
+                        <h4><i class="fas fa-search"></i> Contains Mappings (Substring Match)</h4>
+                        <p>
+                            Remove text that appears anywhere in a field. Useful for cleaning up notes, prefixes, or suffixes.
+                            Both fields support free text.
+                        </p>
+                        <div id="containsMappings"></div>
+                        <button class="add-mapping-btn" onclick="addContainsMapping()">
+                            <i class="fas fa-plus"></i> Add Contains Mapping
+                        </button>
+                        <div class="example-box">
+                            <h5><i class="fas fa-lightbulb"></i> Examples:</h5>
+                            <ul>
+                                <li>"- Reserved" → "" (Remove reservation note)</li>
+                                <li>"Ramallah Federation in " → "" (Remove prefix)</li>
+                                <li>"(Ages 13-17)" → "" (Remove age restriction)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="saveTemplate()">
+                        <i class="fas fa-save"></i> Save Template
+                    </button>
+                    <button class="btn btn-secondary" id="duplicateBtn" onclick="duplicateTemplate()" style="display: none;">
+                        <i class="fas fa-copy"></i> Duplicate
+                    </button>
+                    <button class="btn btn-secondary" onclick="newTemplate()">
+                        <i class="fas fa-file"></i> Clear Form
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMessage"></span>
+    </div>
+
+    <script>
+        let editingTemplateId = null;
+        let templates = [];
+
+        // Load templates on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadTemplates();
+            addValueMapping(); // Add one empty row by default
+            addContainsMapping(); // Add one empty row by default
+        });
+
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/preprocessing-templates');
+                if (!response.ok) throw new Error('Failed to load templates');
+                
+                const data = await response.json();
+                templates = data.templates || [];
+                renderTemplateList();
+            } catch (error) {
+                console.error('Error loading templates:', error);
+                showToast('Failed to load templates: ' + error.message, 'error');
+            }
+        }
+
+        function renderTemplateList() {
+            const list = document.getElementById('templateList');
+            
+            if (templates.length === 0) {
+                list.innerHTML = '<li style="color: #999; text-align: center; padding: 20px;">No templates yet</li>';
+                return;
+            }
+            
+            list.innerHTML = templates.map(t => `
+                <li class="template-item ${editingTemplateId === t.id ? 'active' : ''}" onclick="loadTemplate(${t.id})">
+                    <span>${t.name}</span>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteTemplate(${t.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </li>
+            `).join('');
+        }
+
+        async function loadTemplate(templateId) {
+            try {
+                const response = await fetch('/api/preprocessing-templates/' + templateId);
+                if (!response.ok) throw new Error('Failed to load template');
+                
+                const data = await response.json();
+                const template = data.template;
+                
+                editingTemplateId = template.id;
+                document.getElementById('panelTitle').textContent = 'Edit Template: ' + template.name;
+                document.getElementById('templateName').value = template.name;
+                document.getElementById('templateDescription').value = template.description || '';
+                
+                // Load value mappings
+                const valueMappingsDiv = document.getElementById('valueMappings');
+                valueMappingsDiv.innerHTML = '';
+                const valueMappings = template.value_mappings || {};
+                Object.entries(valueMappings).forEach(([key, value]) => {
+                    addValueMapping(key, value);
+                });
+                if (Object.keys(valueMappings).length === 0) {
+                    addValueMapping();
+                }
+                
+                // Load contains mappings
+                const containsMappingsDiv = document.getElementById('containsMappings');
+                containsMappingsDiv.innerHTML = '';
+                const containsMappings = template.contains_mappings || {};
+                Object.entries(containsMappings).forEach(([key, value]) => {
+                    addContainsMapping(key, value);
+                });
+                if (Object.keys(containsMappings).length === 0) {
+                    addContainsMapping();
+                }
+                
+                document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
+                renderTemplateList();
+            } catch (error) {
+                console.error('Error loading template:', error);
+                showToast('Failed to load template: ' + error.message, 'error');
+            }
+        }
+
+        function newTemplate() {
+            editingTemplateId = null;
+            document.getElementById('panelTitle').textContent = 'Create New Preprocessing Template';
+            document.getElementById('templateName').value = '';
+            document.getElementById('templateDescription').value = '';
+            document.getElementById('valueMappings').innerHTML = '';
+            document.getElementById('containsMappings').innerHTML = '';
+            addValueMapping();
+            addContainsMapping();
+            document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
+            renderTemplateList();
+        }
+
+        function addValueMapping(key = '', value = '') {
+            const container = document.getElementById('valueMappings');
+            const row = document.createElement('div');
+            row.className = 'mapping-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Original text (e.g., Steak)" value="${key}">
+                <input type="text" placeholder="Replacement text (e.g., S)" value="${value}">
+                <button class="remove-mapping-btn" onclick="this.parentElement.remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            container.appendChild(row);
+        }
+
+        function addContainsMapping(key = '', value = '') {
+            const container = document.getElementById('containsMappings');
+            const row = document.createElement('div');
+            row.className = 'mapping-row';
+            row.innerHTML = `
+                <input type="text" placeholder="Text to find (e.g., - Reserved)" value="${key}">
+                <input type="text" placeholder="Replacement text (usually empty)" value="${value}">
+                <button class="remove-mapping-btn" onclick="this.parentElement.remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            container.appendChild(row);
+        }
+
+        function getMappings(containerId) {
+            const container = document.getElementById(containerId);
+            const rows = container.querySelectorAll('.mapping-row');
+            const mappings = {};
+            
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                const key = inputs[0].value.trim();
+                const value = inputs[1].value; // Don't trim value, might want spaces
+                if (key) {
+                    mappings[key] = value;
+                }
+            });
+            
+            return mappings;
+        }
+
+        async function saveTemplate() {
+            const name = document.getElementById('templateName').value.trim();
+            if (!name) {
+                showToast('Please enter a template name', 'error');
+                return;
+            }
+            
+            const description = document.getElementById('templateDescription').value.trim();
+            const valueMappings = getMappings('valueMappings');
+            const containsMappings = getMappings('containsMappings');
+            
+            const data = {
+                name,
+                description,
+                value_mappings: valueMappings,
+                contains_mappings: containsMappings
+            };
+            
+            try {
+                let response;
+                if (editingTemplateId) {
+                    // Update existing template
+                    response = await fetch('/api/preprocessing-templates/' + editingTemplateId, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                } else {
+                    // Create new template
+                    response = await fetch('/api/preprocessing-templates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                }
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save template');
+                }
+                
+                const result = await response.json();
+                showToast(result.message || 'Template saved successfully!', 'success');
+                
+                await loadTemplates();
+                if (!editingTemplateId) {
+                    newTemplate();
+                }
+            } catch (error) {
+                console.error('Error saving template:', error);
+                showToast('Failed to save template: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteTemplate(templateId) {
+            if (!confirm('Are you sure you want to delete this template?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/preprocessing-templates/' + templateId, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to delete template');
+                }
+                
+                showToast('Template deleted successfully!', 'success');
+                
+                if (editingTemplateId === templateId) {
+                    newTemplate();
+                }
+                
+                await loadTemplates();
+            } catch (error) {
+                console.error('Error deleting template:', error);
+                showToast('Failed to delete template: ' + error.message, 'error');
+            }
+        }
+
+        async function duplicateTemplate() {
+            if (!editingTemplateId) {
+                showToast('No template selected to duplicate', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/preprocessing-templates/' + editingTemplateId + '/duplicate', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to duplicate template');
+                }
+                
+                const result = await response.json();
+                showToast(result.message || 'Template duplicated successfully!', 'success');
+                
+                await loadTemplates();
+                // Load the newly created template
+                loadTemplate(result.template.id);
+            } catch (error) {
+                console.error('Error duplicating template:', error);
+                showToast('Failed to duplicate template: ' + error.message, 'error');
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const messageEl = document.getElementById('toastMessage');
+            
+            messageEl.textContent = message;
+            toast.className = 'toast show' + (type === 'error' ? ' error' : '');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

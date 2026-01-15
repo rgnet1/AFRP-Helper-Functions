@@ -1,6 +1,7 @@
 version: '3'
 services:
   afrp-helper:
+    build: .
     image: afrp-helper:latest
     ports:
       - "5066:5066"
@@ -11,8 +12,15 @@ services:
       - ./downloads:/app/downloads
       - ./logs:/app/logs
       - ./data:/app/data
-    environment:
-      - PYTHONUNBUFFERED=1  # Ensure Python output is sent to container logs without buffering
+      # Mount badge templates and logos for persistence
+      - ./badge_templates:/app/badge_templates
+      - ./badge_logos:/app/badge_logos
+      # Mount static folder for easy access to logos and SVG samples
+      - ./static:/app/static
+      # Mount backups folder for backup/restore scripts
+      - ./backups:/app/backups
+    env_file:
+      - ./config/.env
     dns:
       - 8.8.8.8
       - 8.8.4.4

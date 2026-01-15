@@ -98,7 +98,8 @@ class PreprocessingBase(ABC):
     
     # Define core contact columns that should always be included
     CONTACT_COLUMNS = [
-        'Contact ID', 
+        'Contact ID',
+        'Member ID',
         'First Name', 
         'Last Name', 
         'Title', 

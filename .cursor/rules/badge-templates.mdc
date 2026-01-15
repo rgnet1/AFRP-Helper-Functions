@@ -1,0 +1,291 @@
+---
+globs: templates/badge_mapping.html,badge_templates/*.svg
+description: Badge template management UI, SVG structure, and column mapping system
+---
+
+# Badge Template Management
+
+## Overview
+The badge template system allows users to create, save, and manage SVG-based badge designs with flexible column mappings for dynamic data insertion.
+
+## UI Layout (3-Column Design)
+
+### Structure
+```
++----------+------------------+------------------+
+| Saved    | Template Config  | Column Mapping   |
+| Templates|                  |                  |
+| (Sidebar)|                  |                  |
++----------+------------------+------------------+
+```
+
+### Left Sidebar (280px)
+- **Saved Templates List**: Scrollable list with hover effects
+- **Active Template**: Highlighted in green
+- **New Template Button**: Full-width at bottom
+- **Delete Icons**: Appear on hover
+
+### Center Column
+- Template name input
+- SVG file upload (drag-and-drop)
+- Club logo upload
+- Avery template selector
+- Action buttons (Save/Update, Duplicate, Delete)
+
+### Right Column
+- Placeholder mapping interface
+- Dropdown selectors for each SVG placeholder
+- Multi-select support for sub-events
+- Visual feedback for mappings
+
+## Template Operations
+
+### Creating a New Template
+1. Click "New Template" button
+2. Enter template name
+3. Upload SVG file with placeholders
+4. System automatically extracts `{{PLACEHOLDER}}` patterns
+5. Map each placeholder to an Excel column
+6. Select Avery template size
+7. Click "Save Template"
+
+### Editing an Existing Template
+1. Click template name in sidebar
+2. Form populates with existing data:
+   - Template name
+   - SVG filename
+   - Column mappings (pre-selected)
+   - Avery template
+3. Make changes
+4. Click "Update Template"
+5. No duplicate name errors!
+
+### Duplicating a Template
+1. Load an existing template
+2. Click "Duplicate" button (appears when editing)
+3. System creates copy with auto-incremented name:
+   - "Original Name" → "Original Name (1)"
+   - "Original Name (1)" → "Original Name (2)"
+4. New template loads automatically
+
+### Deleting a Template
+1. Click red trash icon next to template
+2. Confirm deletion
+3. Template removed from database
+4. Form resets if you were editing the deleted template
+
+## Column Mapping System
+
+### Regular Placeholders
+- Single-select dropdown
+- Maps one placeholder to one column
+- Example: `{{FIRST_NAME}}` → "First Name"
+
+### Sub-Event Placeholders
+- Multi-select dropdown (height: 80px)
+- Hold Ctrl/Cmd to select multiple columns
+- System combines selected events with newlines
+- Example: `{{SUBEVENT_1}}` → ["Grand Banquet", "Keynote Speech"]
+
+### Available Columns
+Common columns available for mapping:
+- Contact ID
+- Member ID
+- First Name, Last Name
+- Local Club
+- Title (honorifics)
+- Gender, Age
+- QR Code
+- Table Number
+- Event-specific columns (dynamically populated)
+
+### Special Placeholders
+- `{{QR_CODE}}`: Automatically generates QR code image
+- `{{AFRP_LOGO}}`: Inserts default AFRP logo
+- `{{CLUB_LOGO}}`: Inserts uploaded club logo
+- Empty values: Placeholders with no data are removed from output
+
+## SVG Template Structure
+
+### Required Elements
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" 
+     width="288" height="336" 
+     viewBox="0 0 288 336">
+  <!-- 3" × 3.5" badge at 96 DPI -->
+  
+  <!-- Text placeholders -->
+  <text x="144" y="100">{{FIRST_NAME}} {{LAST_NAME}}</text>
+  <text x="144" y="130">{{MEMBER_ID}}</text>
+  
+  <!-- Image placeholders -->
+  <image x="10" y="10" width="60" height="60" href="{{AFRP_LOGO}}"/>
+  <image x="114" y="280" width="60" height="60" href="{{QR_CODE}}"/>
+</svg>
+```
+
+### Dimension Guidelines
+Match SVG dimensions to selected Avery template:
+- **5392** (3" × 3.5"): 288px × 336px
+- **5395** (2.625" × 3.625"): 252px × 348px
+- **74459** (2.25" × 3.5"): 216px × 336px
+
+At 96 DPI: inches × 96 = pixels
+
+### Design Best Practices
+1. **Margins**: Leave 0.25" (24px) from edges
+2. **Font Sizes**: Minimum 12px for readability
+3. **QR Code Space**: At least 60×60px (0.625")
+4. **Logo Placement**: Top corners for visibility
+5. **Text Alignment**: Center for names, left for lists
+6. **Line Spacing**: 1.2-1.5 for multi-line text
+
+## JavaScript Functions
+
+### Core Functions
+```javascript
+// Template management
+loadSavedTemplates()      // Populate sidebar
+loadTemplate(templateId)  // Load for editing
+saveTemplate()            // Create or update
+deleteTemplate(id)        // Delete with confirmation
+duplicateTemplate()       // Create copy with incremented name
+resetForm()               // Clear for new template
+
+// Mapping interface
+renderMappingInterface(savedMappings)  // Build column selectors
+getMappings()                          // Extract current mappings
+addSubEventMapping()                   // Add new sub-event field
+removeSubEventMapping(index)          // Remove sub-event field
+
+// UI helpers
+showToast(message, type)  // Success/error notifications
+updateButtonState()       // Enable/disable actions
+```
+
+### State Management
+```javascript
+let editingTemplateId = null;  // Tracks if editing (null = new)
+let currentTemplate = null;    // Currently loaded template data
+```
+
+## Template Data Structure
+
+### Saved in Database
+```json
+{
+  "id": 1,
+  "name": "Convention 2025",
+  "svg_filename": "convention_2025.svg",
+  "club_logo_filename": "afrp_logo.svg",
+  "column_mappings": {
+    "{{FIRST_NAME}}": "First Name",
+    "{{LAST_NAME}}": "Last Name",
+    "{{LOCAL_CLUB}}": "Local Club",
+    "{{MEMBER_ID}}": "Member ID",
+    "{{TABLE_NUMBER}}": "Grand Banquet ~ Table",
+    "{{SUBEVENT_1}}": ["Grand Banquet", "Keynote Speech"],
+    "{{QR_CODE}}": "QR Code"
+  },
+  "avery_template": "5392",
+  "created_at": "2026-01-14T10:00:00",
+  "updated_at": "2026-01-14T15:30:00"
+}
+```
+
+## Responsive Design
+
+### Breakpoints
+- **≤1400px**: Sidebar reduces to 250px
+- **≤1200px**: Main grid stacks (single column for config + mapping)
+- **≤900px**: Full single column (sidebar on top)
+
+### Mobile Considerations
+- Touch-friendly button sizes
+- Scrollable sidebar with custom scrollbar
+- Collapsible sections for small screens
+
+## Visual Design
+
+### Color Scheme (Green Theme)
+- Primary: `#4b904b` (green)
+- Hover: `#5ca05c` (lighter green)
+- Active: `rgba(75, 144, 75, 0.1)` (light green background)
+- Delete: `#dc3545` (red)
+
+### Transitions
+- 0.2s ease on hover effects
+- Smooth color transitions
+- Subtle slide animations (3px) on hover
+
+### Scrollbar Styling
+```css
+.sidebar-templates-list::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-templates-list::-webkit-scrollbar-thumb {
+  background: #4b904b;
+  border-radius: 3px;
+}
+```
+
+## Error Handling
+
+### Form Validation
+- Template name required
+- SVG file required for new templates
+- At least one column mapping required
+- Avery template selection required
+
+### API Error Handling
+```javascript
+try {
+  const response = await fetch(endpoint, options);
+  if (!response.ok) throw new Error(await response.json().error);
+  // Success handling
+} catch (error) {
+  showToast(`Failed: ${error.message}`, 'error');
+}
+```
+
+### Common Errors
+1. **Duplicate name**: Template name already exists
+2. **Missing SVG**: No SVG file uploaded
+3. **Invalid placeholders**: SVG has no `{{PLACEHOLDER}}` patterns
+4. **File too large**: SVG exceeds size limit
+
+## Sample Templates
+
+### Included Templates
+Located in `static/svg/`:
+1. `minimal_badge_template.svg` - Portrait, essential fields only
+2. `minimal_badge_landscape.svg` - Landscape, essential fields
+3. `formal_badge_template.svg` - Portrait, professional design
+4. `formal_badge_landscape.svg` - Landscape, professional design
+5. `sample_badge_template.svg` - Full-featured example
+
+### Template Features
+- **Minimal**: Name, Member ID, Local Club, QR Code
+- **Landscape Minimal**: Adds Table Number and Sub-Events
+- **Formal**: Adds decorative elements and logos
+- **Sample**: Demonstrates all available placeholders
+
+## Testing Checklist
+
+Before saving a template:
+- [ ] Template name is unique
+- [ ] SVG dimensions match Avery template
+- [ ] All critical placeholders mapped
+- [ ] QR Code placeholder present
+- [ ] Logos placed correctly
+- [ ] Test with 2-3 sample records
+- [ ] Verify print preview at 100% scale
+- [ ] Check for cut-off content
+- [ ] Validate QR code scannability
+
+## Performance Considerations
+
+- SVG files cached in browser after first load
+- Column mappings stored as JSON in database
+- Template list lazy-loaded on page load
+- Debounced search/filter for large template lists

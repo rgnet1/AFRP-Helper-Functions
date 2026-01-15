@@ -1,5 +1,9 @@
-from flask import Flask, render_template, request, send_file, jsonify, Response
+from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response, flash, redirect, url_for
 from werkzeug.utils import secure_filename
+from flask_login import LoginManager, login_required, current_user, login_user, logout_user
+from flask_bcrypt import Bcrypt
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import qrcode
 from io import BytesIO, StringIO
 from PIL import Image
@@ -16,14 +20,18 @@ import shutil
 import tempfile
 import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
+from utils.auth import validate_password, validate_username, validate_email
 from utils.magazine.download_latest_magazine import main as magazine_main
-from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager
+from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate, User, PreprocessingTemplate
 from utils.badges.pre_processing_module import PreprocessingBase
-from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
+from utils.badges.event_preprocessing import preprocessing_implementations
+from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
+from utils.badges.badge_generator import BadgeGenerator
 from utils.dynamics_crm import DynamicsCRMClient
 import os
+import json
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
 from typing import Dict, Type
@@ -40,10 +48,35 @@ IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
 BASE_PATH = '/app' if IN_DOCKER else '.'
 
 # Ensure required directories exist with proper permissions
-for dir_path in ['data', 'temp', 'downloads']:
+for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos']:
     full_path = os.path.join(BASE_PATH, dir_path)
     os.makedirs(full_path, exist_ok=True)
     os.chmod(full_path, 0o777)
+
+# Helper function to create a preprocessor class from a database template
+def create_preprocessor_from_template(template):
+    """Create a dynamic preprocessor class from a database template."""
+    from utils.badges.pre_processing_module import PreprocessingBase, PreprocessingConfig
+    import pandas as pd
+    
+    class DynamicPreprocessor(PreprocessingBase):
+        """Dynamically created preprocessor from database template."""
+        
+        def __init__(self, config=None):
+            self.config = config
+            self._value_mappings = template.value_mappings if isinstance(template.value_mappings, dict) else json.loads(template.value_mappings or '{}')
+            self._contains_mappings = template.contains_mappings if isinstance(template.contains_mappings, dict) else json.loads(template.contains_mappings or '{}')
+        
+        def get_value_mappings(self):
+            return self._value_mappings
+        
+        def get_contains_mappings(self):
+            return self._contains_mappings
+        
+        def preprocess_dataframe(self, df):
+            return super().preprocess_dataframe(df)
+    
+    return DynamicPreprocessor
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -63,10 +96,55 @@ else:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Load SECRET_KEY from environment
+# Note: Environment variables are loaded from config/.env via docker-compose
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', '')
+
+# Validate SECRET_KEY is configured
+if not app.config.get('SECRET_KEY') or app.config['SECRET_KEY'] == '':
+    raise RuntimeError(
+        "SECRET_KEY is not set! "
+        "Please set SECRET_KEY in config/.env file. "
+        "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
+# Session configuration for security
+app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS only
+app.config['SESSION_COOKIE_HTTPONLY'] = True  # No JavaScript access
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+from datetime import timedelta
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)  # Session timeout
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)  # Remember me duration
+app.config['REMEMBER_COOKIE_SECURE'] = True  # HTTPS only
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # No JavaScript access
+
 logger.info(f"Database URI configured: {db_uri}")
 
 # Initialize extensions
 db.init_app(app)
+
+# Initialize authentication extensions
+bcrypt = Bcrypt(app)
+# Store bcrypt in app.extensions so User model can access it
+app.extensions['bcrypt'] = bcrypt
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.session_protection = 'strong'
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user for Flask-Login."""
+    from utils.magazine.scheduler import User
+    return User.query.get(int(user_id))
 
 # Create database tables
 with app.app_context():
@@ -105,18 +183,305 @@ app.config['UPLOAD_FOLDER'] = create_persistent_temp_dir()
 # Register cleanup function to run when the server shuts down
 atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 
-# Register available preprocessing implementations
-PREPROCESSING_IMPLEMENTATIONS: Dict[str, Type[PreprocessingBase]] = {
-    "Convention 2025": Convention2025Preprocessing,
-    "Convention 2025 - San Francisco": Convention2025Preprocessing
-}
+# Configure badge generation directories
+app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates')
+app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
+# AFRP logo path from environment variable (defaults to PNG in static folder)
+afrp_logo_relative = os.environ.get('AFRP_LOGO_PATH', 'static/afrp_logo.png')
+app.config['AFRP_LOGO_PATH'] = os.path.join(BASE_PATH, afrp_logo_relative)
+
+# Ensure badge folders exist
+os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
+os.makedirs(app.config['BADGE_LOGOS_FOLDER'], mode=0o777, exist_ok=True)
+
+# Log registered preprocessors at startup
+logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
+
+# ========================================
+# Authentication Routes
+# ========================================
+
+def is_safe_url(target):
+    """Validate redirect URL to prevent open redirects."""
+    from urllib.parse import urlparse, urljoin
+    ref_url = urlparse(request.host_url)
+    test_url = urlparse(urljoin(request.host_url, target))
+    return test_url.scheme in ('http', 'https') and ref_url.netloc == test_url.netloc
+
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    """First-time setup wizard - only accessible if no users exist."""
+    # Check if users already exist
+    if User.query.first() is not None:
+        flash('Setup already completed', 'info')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        email = request.form.get('email', '').strip()
+        
+        # Validate username
+        valid, error = validate_username(username)
+        if not valid:
+            flash(error, 'error')
+            return render_template('setup.html')
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'error')
+            return render_template('setup.html')
+        
+        # Validate email if provided
+        if email:
+            valid, error = validate_email(email)
+            if not valid:
+                flash(error, 'error')
+                return render_template('setup.html')
+            
+            # Check if email already exists
+            if User.query.filter_by(email=email).first():
+                flash('Email already exists', 'error')
+                return render_template('setup.html')
+        
+        # Validate password
+        valid, error = validate_password(password)
+        if not valid:
+            flash(error, 'error')
+            return render_template('setup.html')
+        
+        # Check password confirmation
+        if password != password_confirm:
+            flash('Passwords do not match', 'error')
+            return render_template('setup.html')
+        
+        # Create admin user
+        try:
+            user = User(
+                username=username,
+                email=email if email else None,
+                is_admin=True,
+                is_active=True
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            
+            logger.info(f"Admin user created: {username}")
+            flash('Admin account created successfully! Please log in.', 'success')
+            return redirect(url_for('login'))
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error creating admin user")
+            flash(f'Error creating account: {str(e)}', 'error')
+    
+    return render_template('setup.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per 15 minutes")
+def login():
+    """User login."""
+    # Check if setup is needed
+    if User.query.first() is None:
+        return redirect(url_for('setup'))
+    
+    # Already logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember = request.form.get('remember', False) == 'on'
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password):
+            if not user.is_active:
+                flash('Account is disabled', 'error')
+                return render_template('login.html')
+            
+            # Log in user
+            login_user(user, remember=remember)
+            user.last_login = datetime.utcnow()
+            db.session.commit()
+            
+            logger.info(f"User logged in: {username}")
+            
+            # Redirect to next page or home
+            next_page = request.args.get('next')
+            if next_page and is_safe_url(next_page):
+                return redirect(next_page)
+            return redirect(url_for('home'))
+        else:
+            flash('Invalid username or password', 'error')
+            logger.warning(f"Failed login attempt for username: {username}")
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """User logout."""
+    username = current_user.username
+    logout_user()
+    logger.info(f"User logged out: {username}")
+    flash('You have been logged out', 'info')
+    return redirect(url_for('login'))
+
+# ========================================
+# User Management Routes (Admin Only)
+# ========================================
+
+@app.route('/users')
+@login_required
+def list_users():
+    """List all users (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+    
+    users = User.query.order_by(User.created_at.desc()).all()
+    return render_template('users.html', users=users)
+
+@app.route('/users/create', methods=['GET', 'POST'])
+@login_required
+def create_user():
+    """Create new user (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        password_confirm = request.form.get('password_confirm', '')
+        email = request.form.get('email', '').strip()
+        is_admin = request.form.get('is_admin') == 'on'
+        
+        # Validate username
+        valid, error = validate_username(username)
+        if not valid:
+            flash(error, 'error')
+            return render_template('create_user.html')
+        
+        # Check if username already exists
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'error')
+            return render_template('create_user.html')
+        
+        # Validate email if provided
+        if email:
+            valid, error = validate_email(email)
+            if not valid:
+                flash(error, 'error')
+                return render_template('create_user.html')
+            
+            # Check if email already exists
+            if User.query.filter_by(email=email).first():
+                flash('Email already exists', 'error')
+                return render_template('create_user.html')
+        
+        # Validate password
+        valid, error = validate_password(password)
+        if not valid:
+            flash(error, 'error')
+            return render_template('create_user.html')
+        
+        # Check password confirmation
+        if password != password_confirm:
+            flash('Passwords do not match', 'error')
+            return render_template('create_user.html')
+        
+        # Create user
+        try:
+            user = User(
+                username=username,
+                email=email if email else None,
+                is_admin=is_admin,
+                is_active=True
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            
+            logger.info(f"User created: {username} by {current_user.username}")
+            flash(f'User {username} created successfully', 'success')
+            return redirect(url_for('list_users'))
+            
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error creating user")
+            flash(f'Error creating user: {str(e)}', 'error')
+    
+    return render_template('create_user.html')
+
+@app.route('/users/<int:user_id>/toggle-active', methods=['POST'])
+@login_required
+def toggle_user_active(user_id):
+    """Toggle user active status (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Prevent deactivating yourself
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot deactivate your own account'}), 400
+    
+    try:
+        user.is_active = not user.is_active
+        db.session.commit()
+        status = 'activated' if user.is_active else 'deactivated'
+        logger.info(f"User {user.username} {status} by {current_user.username}")
+        return jsonify({'success': True, 'is_active': user.is_active})
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error toggling user status")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    """Delete user (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Prevent deleting yourself
+    if user.id == current_user.id:
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    
+    try:
+        username = user.username
+        db.session.delete(user)
+        db.session.commit()
+        logger.info(f"User deleted: {username} by {current_user.username}")
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        logger.exception("Error deleting user")
+        return jsonify({'error': str(e)}), 500
+
+# ========================================
+# Main Application Routes
+# ========================================
 
 @app.route('/', methods=['GET'])
+@login_required
 def home():
     # This route displays the home page with tiles
     return render_template('home.html')
 
 @app.route('/qr', methods=['GET', 'POST'])
+@login_required
 def qr():
     if request.method == 'POST':
         data = request.form.get('data')
@@ -210,11 +575,13 @@ def qr():
     return render_template('qr.html')
 
 @app.route('/magazine')
+@login_required
 def magazine():
     schedules = Schedule.query.all()
     return render_template('magazine.html', schedules=schedules)
 
 @app.route('/event', methods=['GET', 'POST'])
+@login_required
 def event_page():
     if request.method == 'POST':
         crm_url = request.form.get('crmUrl')
@@ -242,6 +609,7 @@ def validate_time_format(time_str):
         return False
 
 @app.route('/api/schedules', methods=['GET', 'POST', 'DELETE'])
+@login_required
 def manage_schedules():
     if request.method == 'GET':
         schedules = Schedule.query.all()
@@ -334,6 +702,7 @@ def manage_schedules():
             return jsonify({'error': f'Failed to delete schedule: {str(e)}'}), 500
 
 @app.route('/run-magazine-download')
+@login_required
 def run_magazine_download():
     def generate():
         logging.info("Starting magazine download process")
@@ -417,256 +786,219 @@ def run_magazine_download():
 
 # Badge Generator Routes
 @app.route('/badges')
+@login_required
 def badges():
-    # Pass empty events list initially - will be populated via AJAX after file upload
-    return render_template('badges.html', events=[])
+    """Badge Generator page with automated CRM integration."""
+    return render_template('badges.html')
 
-@app.route('/api/pull-crm-data', methods=['POST'])
-def pull_crm_data():
-    """Pull data directly from Dynamics CRM."""
+# Badge Mapping & Preprocessing Designer Routes
+
+
+@app.route('/badge-mapping')
+@login_required
+def badge_mapping():
+    """Badge template mapping configuration page."""
+    return render_template('badge_mapping.html')
+
+@app.route('/preprocessing-designer')
+@login_required
+def preprocessing_designer():
+    """Preprocessing template designer page."""
+    return render_template('preprocessing_designer.html')
+
+@app.route('/badge_templates/<path:filename>')
+@login_required
+def serve_badge_template(filename):
+    """Serve badge template SVG files."""
+    return send_from_directory(app.config['BADGE_TEMPLATES_FOLDER'], filename)
+
+
+@app.route('/api/campaigns/open', methods=['GET'])
+@login_required
+def get_open_campaigns():
+    """Get list of open campaigns from Dynamics CRM."""
     try:
-        data = request.get_json()
-        view_id = data.get('view_id')
-        data_type = data.get('data_type')
-        
-        if not view_id or not data_type:
-            return jsonify({'error': 'View ID and data type are required'}), 400
-            
-        # Initialize the CRM client
         crm_client = DynamicsCRMClient()
+        campaigns = crm_client.get_open_campaigns()
         
-        # Download the specific data type
-        df = crm_client.download_data_by_type(data_type, view_id)
-        
-        # Map CRM data types to file types
-        data_type_mapping = {
-            'event_guests': FileTypes.REGISTRATION,
-            'qr_codes': FileTypes.QR_CODES,
-            'table_reservations': FileTypes.SEATING,
-            'form_responses': FileTypes.FORM_RESPONSES
-        }
-        
-        file_type = data_type_mapping.get(data_type, data_type)
-        
-        # Remove any existing file of the same type
-        existing_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
-                         if f.startswith(f"{file_type}_")]
-        for existing_file in existing_files:
-            try:
-                existing_path = os.path.join(app.config['UPLOAD_FOLDER'], existing_file)
-                if os.path.exists(existing_path):
-                    os.remove(existing_path)
-                    logger.debug(f"Removed existing file: {existing_file}")
-            except Exception as e:
-                logger.warning(f"Could not remove existing file {existing_file}: {e}")
-        
-        # Save to a temporary Excel file with proper file type prefix
-        temp_file = os.path.join(app.config['UPLOAD_FOLDER'], f"{file_type}_crm_data.xlsx")
-        df.to_excel(temp_file, index=False)
-        
-        return jsonify({
-            'message': f'Successfully pulled {data_type} data from CRM',
-            'file': temp_file,
-            'type': file_type
-        })
+        logger.info(f"Retrieved {len(campaigns)} open campaigns")
+        return jsonify({'campaigns': campaigns})
         
     except Exception as e:
-        logger.error(f"Error pulling CRM data: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error fetching open campaigns: {str(e)}")
+        return jsonify({'error': f'Failed to fetch open campaigns: {str(e)}'}), 500
 
-@app.route('/api/upload', methods=['POST'])
-def upload_file():
-    """Handle file upload."""
-    logger.debug("Starting file upload handler")
-    save_path = None
-    
+@app.route('/api/campaigns/<campaign_id>/sub-events', methods=['GET'])
+@login_required
+def get_campaign_sub_events(campaign_id):
+    """Get list of sub-events for a specific campaign from Dynamics CRM."""
     try:
-        # Verify upload folder exists and is writable
-        upload_folder = app.config['UPLOAD_FOLDER']
-        if not os.path.exists(upload_folder):
-            logger.warning(f"Upload folder does not exist, recreating: {upload_folder}")
-            os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        crm_client = DynamicsCRMClient()
+        sub_events = crm_client.get_sub_events(campaign_id)
         
-        if not os.access(upload_folder, os.W_OK):
-            logger.warning(f"Upload folder not writable, fixing permissions: {upload_folder}")
-            os.chmod(upload_folder, 0o777)
-        
-        logger.debug(f"Upload folder ready: {upload_folder}")
-        
-        if 'file' not in request.files:
-            logger.error("No file part in request")
-            return jsonify({'error': 'No file part'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            logger.error("No selected file")
-            return jsonify({'error': 'No selected file'}), 400
-        
-        logger.debug(f"Processing file: {file.filename}")
-        
-        if not FileValidator.is_valid_excel(file.filename):
-            logger.error(f"Invalid file type: {file.filename}")
-            return jsonify({'error': 'Invalid file type - must be .xlsx'}), 400
-        
-        filename = secure_filename(file.filename)
-        logger.debug(f"Secured filename: {filename}")
-        
-        file_type = FileValidator.get_file_type(filename)
-        logger.debug(f"Detected file type: {file_type}")
-        
-        if file_type is None:
-            logger.error(f"Unable to determine file type for: {filename}")
-            logger.error("Expected file name patterns:")
-            logger.error("  - Registration List: '*Registration List*.xlsx'")
-            logger.error("  - Seating Chart: '*Seating Chart*.xlsx'")
-            logger.error("  - QR Codes: '*QR Codes*.xlsx'")
-            logger.error("  - Form Responses: '*(Form|From) Responses*.xlsx'")
-            return jsonify({
-                'error': 'Unable to determine file type. File name must contain one of: "Registration List", "Seating Chart", "QR Codes", or "Form Responses"'
-            }), 400
-        
-        try:
-            # Remove any existing file of the same type
-            existing_files = [f for f in os.listdir(upload_folder) 
-                            if f.startswith(f"{file_type}_")]
-            for existing_file in existing_files:
-                try:
-                    existing_path = os.path.join(upload_folder, existing_file)
-                    if os.path.exists(existing_path):
-                        os.chmod(existing_path, 0o666)  # Make file writable
-                        os.remove(existing_path)
-                        logger.debug(f"Removed existing file: {existing_file}")
-                except Exception as e:
-                    logger.warning(f"Could not remove existing file {existing_file}: {e}")
-            
-            # Save new file with type prefix
-            save_path = os.path.join(upload_folder, f"{file_type}_{filename}")
-            logger.debug(f"Saving file to: {save_path}")
-            
-            # Create a temporary file first
-            temp_fd, temp_path = tempfile.mkstemp(dir=upload_folder)
-            os.close(temp_fd)
-            
-            logger.debug(f"Created temporary file: {temp_path}")
-            
-            # Save to temporary file first
-            file.save(temp_path)
-            os.chmod(temp_path, 0o666)
-            
-            # Move to final location
-            shutil.move(temp_path, save_path)
-            os.chmod(save_path, 0o666)
-            
-            logger.debug(f"File saved successfully: {save_path}")
-            
-            # Verify file was saved and is readable
-            if not os.path.exists(save_path):
-                raise FileNotFoundError(f"File was not saved: {save_path}")
-            
-            # Try to read the file to verify it's accessible
-            with open(save_path, 'rb') as f:
-                f.read(1)
-            
-            return jsonify({
-                'message': 'File uploaded successfully',
-                'type': file_type,
-                'path': save_path
-            })
-            
-        except Exception as e:
-            logger.exception(f"Error saving file to {save_path if save_path else 'unknown path'}")
-            return jsonify({'error': f'Error saving file: {str(e)}'}), 500
-            
-    except Exception as e:
-        logger.exception("Error in upload handler")
-        return jsonify({'error': f'Upload error: {str(e)}'}), 500
-
-@app.route('/api/get_sub_events', methods=['POST'])
-def get_sub_events():
-    """Get available sub-events from registration file."""
-    logger.debug("Starting sub-events retrieval")
-    try:
-        # Ensure upload folder exists
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-        
-        # Find registration file
-        reg_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
-                    if f.startswith(f"{FileTypes.REGISTRATION}_")]
-        
-        if not reg_files:
-            logger.error("Registration file not uploaded")
-            return jsonify({'error': 'Registration file not uploaded'}), 400
-            
-        # Read registration data
-        reg_file = os.path.join(app.config['UPLOAD_FOLDER'], reg_files[0])
-        logger.debug(f"Reading registration file: {reg_file}")
-        df = pd.read_excel(reg_file)
-        
-        # Clean column names
-        df.columns = df.columns.str.strip()
-        
-        # Handle both 'Event' and 'Event ' column names
-        event_col = 'Event' if 'Event' in df.columns else 'Event '
-        status_col = 'Status Reason' if 'Status Reason' in df.columns else 'Status'
-        
-        logger.debug(f"Using event column: {event_col}")
-        logger.debug(f"Using status column: {status_col}")
-        logger.debug(f"Available columns: {df.columns.tolist()}")
-        
-        # Get unique events from paid registrations
-        paid_df = df[df[status_col] == 'Paid']
-        events = sorted(paid_df[event_col].unique().tolist())
-        logger.debug(f"Found sub-events: {events}")
-        
-        return jsonify({'events': events})
+        logger.info(f"Retrieved {len(sub_events)} sub-events for campaign {campaign_id}")
+        return jsonify({'sub_events': sub_events})
         
     except Exception as e:
-        logger.exception("Error retrieving sub-events")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/process', methods=['POST'])
-def process_files():
-    """Process uploaded files and generate mail merge."""
-    logger.debug("Starting file processing")
+        logger.error(f"Error fetching sub-events for campaign {campaign_id}: {str(e)}")
+        return jsonify({'error': f'Failed to fetch sub-events: {str(e)}'}), 500
+@app.route('/api/badges/pull-and-process', methods=['POST'])
+@login_required
+def badges_pull_and_process():
+    """One-click endpoint to pull all data from CRM and process it."""
+    logger.debug("Starting Badge Generator V2 pull and process")
     try:
         data = request.get_json()
         if not data:
             logger.error("No JSON data received")
             return jsonify({'error': 'No data received'}), 400
-            
+        
+        # Get parameters
+        campaign_id = data.get('campaign_id')
+        campaign_name = data.get('campaign_name')
         event_name = data.get('event')
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
         created_on_filter = data.get('createdOnFilter')
+        preprocessing_template_id = data.get('preprocessingTemplateId')
         
-        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}, inclusion list: {inclusion_list}, date filter: {created_on_filter}")
+        if not campaign_id and not campaign_name:
+            logger.error("No campaign ID or name provided")
+            return jsonify({'error': 'Campaign ID or name is required'}), 400
+        
+        logger.debug(f"Processing request: campaign_id={campaign_id}, campaign_name={campaign_name}, event={event_name}")
+        
+        # Initialize CRM client
+        try:
+            crm_client = DynamicsCRMClient()
+        except Exception as e:
+            logger.error(f"Failed to initialize CRM client: {str(e)}")
+            return jsonify({'error': f'Failed to connect to Dynamics CRM: {str(e)}'}), 500
+        
+        # Campaign-based approach
+        logger.info("Using campaign-based filtering")
+        
+        # Get campaign ID if only name was provided
+        if campaign_name and not campaign_id:
+            campaign_info = crm_client.get_campaign_by_name(campaign_name)
+            if not campaign_info:
+                return jsonify({'error': f'Campaign "{campaign_name}" not found'}), 404
+            campaign_id = campaign_info['id']
+            logger.info(f"Found campaign: {campaign_info['name']} (ID: {campaign_id})")
+        
+        # Verify campaign exists
+        campaign_info = crm_client.get_campaign_by_id(campaign_id)
+        if not campaign_info:
+            return jsonify({'error': 'Campaign not found'}), 404
+        
+        logger.info(f"Using campaign: {campaign_info['name']} (ID: {campaign_id})")
+        
+        # Create temporary directory for processing
+        upload_folder = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        
+        # Map data types to file types
+        data_type_mapping = {
+            'event_guests': {
+                'file_type': FileTypes.REGISTRATION,
+                'display_name': 'Event Guests'
+            },
+            'qr_codes': {
+                'file_type': FileTypes.QR_CODES,
+                'display_name': 'QR Codes'
+            },
+            'table_reservations': {
+                'file_type': FileTypes.SEATING,
+                'display_name': 'Table Reservations'
+            },
+            'form_responses': {
+                'file_type': FileTypes.FORM_RESPONSES,
+                'display_name': 'Form Responses'
+            }
+        }
+        
+        # Pull all 4 data types from CRM
+        for data_type, info in data_type_mapping.items():
+            try:
+                logger.info(f"Pulling {info['display_name']} from CRM...")
+                
+                # Use campaign-based filtering (main + sub-events)
+                df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
+                
+                logger.info(f"Pulled {len(df)} records for {info['display_name']}")
+                
+                # Remove existing file of the same type
+                existing_files = [f for f in os.listdir(upload_folder) 
+                                if f.startswith(f"{info['file_type']}_")]
+                for existing_file in existing_files:
+                    try:
+                        existing_path = os.path.join(upload_folder, existing_file)
+                        if os.path.exists(existing_path):
+                            os.remove(existing_path)
+                            logger.debug(f"Removed existing file: {existing_file}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove existing file {existing_file}: {e}")
+                
+                # Additional cleanup for seating data to prevent type issues
+                if data_type == 'table_reservations' and 'Event' in df.columns:
+                    import numpy as np
+                    # Ensure Event column is fully string type before saving
+                    df['Event'] = df['Event'].replace({np.nan: '', None: ''})
+                    df['Event'] = df['Event'].astype(str).replace('nan', '').replace('None', '')
+                    logger.debug(f"Cleaned Event column in seating data. Types: {df['Event'].apply(type).unique()}")
+                
+                # Save to Excel file with proper naming
+                temp_file = os.path.join(upload_folder, f"{info['file_type']}_crm_data.xlsx")
+                df.to_excel(temp_file, index=False)
+                logger.debug(f"Saved {info['display_name']} data to: {temp_file}")
+                
+            except Exception as e:
+                logger.error(f"Error pulling {info['display_name']}: {str(e)}")
+                return jsonify({'error': f'Failed to pull {info["display_name"]}: {str(e)}'}), 500
+        
+        # Now process the files using existing logic
+        logger.info("All data pulled successfully, starting processing...")
         
         if not event_name:
-            logger.error("No event name provided")
+            logger.error("No event name provided for processing")
             return jsonify({'error': 'Event name is required'}), 400
-            
-        if event_name not in PREPROCESSING_IMPLEMENTATIONS:
-            logger.error(f"Invalid event selected: {event_name}")
-            return jsonify({'error': 'Invalid event selected'}), 400
         
-        # Get the preprocessing implementation for the selected event
-        preprocessor_class = PREPROCESSING_IMPLEMENTATIONS[event_name]
+        # Get the preprocessing implementation from database templates
+        preprocessor_class = None
+        
+        # Check if user selected a database template
+        if preprocessing_template_id:
+            try:
+                from utils.magazine.scheduler import PreprocessingTemplate
+                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+                if template:
+                    logger.info(f"Using database preprocessing template: {template.name}")
+                    # Create a dynamic preprocessor class from the database template
+                    preprocessor_class = create_preprocessor_from_template(template)
+                else:
+                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
+            except Exception as e:
+                logger.error(f"Error loading preprocessing template: {str(e)}")
+        
+        # Use default preprocessing (no custom mappings) if no template selected
+        if not preprocessor_class:
+            logger.info("No preprocessing template selected, using default (no custom transformations)")
+            preprocessor_class = DefaultPreprocessing
         
         # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
             logger.debug(f"Created temporary directory: {temp_dir}")
             os.makedirs(temp_dir, mode=0o777, exist_ok=True)
             
-            # Copy uploaded files to temp directory with correct names
+            # Copy uploaded files to temp directory
             files = {}
             for file_type in FileValidator.get_required_file_types():
-                matching_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
+                matching_files = [f for f in os.listdir(upload_folder) 
                                 if f.startswith(f"{file_type}_")]
                 if not matching_files:
                     logger.error(f"Missing required file: {file_type}")
                     return jsonify({'error': f'Missing required file: {file_type}'}), 400
-                source = os.path.join(app.config['UPLOAD_FOLDER'], matching_files[0])
+                source = os.path.join(upload_folder, matching_files[0])
                 dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
                 logger.debug(f"Copying {file_type} file from {source} to {dest}")
                 shutil.copy2(source, dest)
@@ -679,17 +1011,17 @@ def process_files():
             
             try:
                 # Create preprocessing config
-                config = PreprocessingConfig(
+                config_obj = PreprocessingConfig(
                     main_event=event_name,
                     sub_event=sub_event if sub_event else None,
                     inclusion_list=inclusion_list if inclusion_list else None,
                     created_on_filter=created_on_filter if created_on_filter else None
                 )
-                logger.debug(f"Created preprocessing config: {config.__dict__}")
+                logger.debug(f"Created preprocessing config: {config_obj.__dict__}")
                 
-                # Initialize processor with config and selected preprocessor class
+                # Initialize processor
                 processor = EventRegistrationProcessorV3(
-                    config=config,
+                    config=config_obj,
                     preprocessor_class=preprocessor_class
                 )
                 
@@ -719,5 +1051,695 @@ def process_files():
                 os.chdir(original_dir)
                 logger.debug(f"Changed working directory back to: {original_dir}")
     except Exception as e:
-        logger.exception("Error in process_files handler")
+        logger.exception("Error in badges_v2_pull_and_process handler")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+# ============================================================================
+# Badge Generation API Endpoints
+# ============================================================================
+
+@app.route('/api/badge-templates', methods=['GET'])
+@login_required
+def get_badge_templates():
+    """Get list of saved badge templates."""
+    try:
+        templates = BadgeTemplate.query.all()
+        return jsonify({
+            'templates': [t.to_dict() for t in templates]
+        })
+    except Exception as e:
+        logger.exception("Error fetching badge templates")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates', methods=['POST'])
+@login_required
+def create_badge_template():
+    """Save a new badge template configuration."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name'):
+            return jsonify({'error': 'Template name is required'}), 400
+        if not data.get('svg_filename'):
+            return jsonify({'error': 'SVG filename is required'}), 400
+        if not data.get('column_mappings'):
+            return jsonify({'error': 'Column mappings are required'}), 400
+        
+        # Check if template with this name already exists
+        existing = BadgeTemplate.query.filter_by(name=data['name']).first()
+        if existing:
+            return jsonify({'error': 'Template with this name already exists'}), 400
+        
+        # Create new template
+        template = BadgeTemplate(
+            name=data['name'],
+            svg_filename=data['svg_filename'],
+            club_logo_filename=data.get('club_logo_filename'),
+            club_logo_width=data.get('club_logo_width'),
+            club_logo_height=data.get('club_logo_height'),
+            column_mappings=json.dumps(data['column_mappings']),
+            avery_template=data.get('avery_template', '5392')
+        )
+        
+        db.session.add(template)
+        db.session.commit()
+        
+        logger.info(f"Created badge template: {template.name}")
+        return jsonify(template.to_dict()), 201
+        
+    except Exception as e:
+        logger.exception("Error creating badge template")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['GET'])
+@login_required
+def get_badge_template(template_id):
+    """Get a specific badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify(template.to_dict())
+    except Exception as e:
+        logger.exception(f"Error fetching badge template {template_id}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['PUT'])
+@login_required
+def update_badge_template(template_id):
+    """Update an existing badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        data = request.get_json()
+        
+        # Update fields if provided
+        if 'name' in data:
+            # Check if new name conflicts with another template
+            existing = BadgeTemplate.query.filter(
+                BadgeTemplate.name == data['name'],
+                BadgeTemplate.id != template_id
+            ).first()
+            if existing:
+                return jsonify({'error': 'Template with this name already exists'}), 400
+            template.name = data['name']
+        
+        if 'svg_filename' in data:
+            template.svg_filename = data['svg_filename']
+        if 'club_logo_filename' in data:
+            template.club_logo_filename = data['club_logo_filename']
+        if 'club_logo_width' in data:
+            template.club_logo_width = data['club_logo_width']
+        if 'club_logo_height' in data:
+            template.club_logo_height = data['club_logo_height']
+        if 'column_mappings' in data:
+            template.column_mappings = json.dumps(data['column_mappings'])
+        if 'avery_template' in data:
+            template.avery_template = data['avery_template']
+        
+        template.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Updated badge template: {template.name}")
+        return jsonify(template.to_dict())
+        
+    except Exception as e:
+        logger.exception(f"Error updating badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_badge_template(template_id):
+    """Delete a badge template."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        template_name = template.name
+        db.session.delete(template)
+        db.session.commit()
+        
+        logger.info(f"Deleted badge template: {template_name}")
+        return jsonify({'message': 'Template deleted successfully'})
+        
+    except Exception as e:
+        logger.exception(f"Error deleting badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/<int:template_id>/duplicate', methods=['POST'])
+@login_required
+def duplicate_badge_template(template_id):
+    """Duplicate a badge template with auto-incremented name."""
+    try:
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Generate new name with auto-increment
+        base_name = template.name
+        new_name = base_name
+        counter = 1
+        
+        while BadgeTemplate.query.filter_by(name=new_name).first():
+            new_name = f"{base_name} ({counter})"
+            counter += 1
+        
+        # Create duplicate
+        new_template = BadgeTemplate(
+            name=new_name,
+            svg_filename=template.svg_filename,
+            club_logo_filename=template.club_logo_filename,
+            column_mappings=template.column_mappings,
+            avery_template=template.avery_template
+        )
+        
+        db.session.add(new_template)
+        db.session.commit()
+        
+        logger.info(f"Duplicated badge template '{template.name}' as '{new_name}'")
+        return jsonify({
+            'success': True,
+            'message': 'Template duplicated successfully',
+            'template': new_template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception(f"Error duplicating badge template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-templates/upload-svg', methods=['POST'])
+@login_required
+def upload_svg_template():
+    """Upload SVG template file."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.endswith('.svg'):
+            return jsonify({'error': 'File must be an SVG'}), 400
+        
+        # Save file with secure filename
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Extract placeholders from SVG
+        placeholders = BadgeGenerator.extract_placeholders_from_svg(filepath)
+        
+        logger.info(f"Uploaded SVG template: {filename}")
+        return jsonify({
+            'filename': filename,
+            'placeholders': placeholders
+        })
+        
+    except Exception as e:
+        logger.exception("Error uploading SVG template")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badge-logos/upload', methods=['POST'])
+@login_required
+def upload_club_logo():
+    """Upload club logo for badge generation."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type
+        allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, GIF, SVG'}), 400
+        
+        # Save file
+        filename = secure_filename(file.filename)
+        # Add timestamp to avoid conflicts
+        timestamp = int(datetime.utcnow().timestamp())
+        filename = f"{timestamp}_{filename}"
+        filepath = os.path.join(app.config['BADGE_LOGOS_FOLDER'], filename)
+        file.save(filepath)
+        
+        # Calculate image dimensions for aspect ratio
+        width, height = None, None
+        try:
+            from PIL import Image
+            with Image.open(filepath) as img:
+                width, height = img.size
+                logger.info(f"Club logo dimensions: {width}x{height}")
+        except Exception as e:
+            logger.warning(f"Could not determine logo dimensions: {e}")
+        
+        logger.info(f"Uploaded club logo: {filename}")
+        return jsonify({
+            'filename': filename,
+            'path': filepath,
+            'width': width,
+            'height': height
+        })
+        
+    except Exception as e:
+        logger.exception("Error uploading club logo")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/avery-templates', methods=['GET'])
+@login_required
+def get_avery_templates():
+    """Get list of available Avery templates."""
+    try:
+        templates = BadgeGenerator.get_available_templates()
+        return jsonify({'templates': templates})
+    except Exception as e:
+        logger.exception("Error fetching Avery templates")
+        return jsonify({'error': str(e)}), 500
+
+# ============================================
+# Preprocessing Template Endpoints
+# ============================================
+
+@app.route('/api/preprocessing-templates', methods=['GET'])
+@login_required
+def get_preprocessing_templates():
+    """Get list of saved preprocessing templates."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        templates = PreprocessingTemplate.query.all()
+        return jsonify({
+            'success': True,
+            'templates': [t.to_dict() for t in templates]
+        })
+    except Exception as e:
+        logger.exception("Error fetching preprocessing templates")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates', methods=['POST'])
+@login_required
+def create_preprocessing_template():
+    """Create a new preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('name'):
+            return jsonify({'error': 'Template name is required'}), 400
+        
+        # Check if template with same name exists
+        existing = PreprocessingTemplate.query.filter_by(name=data['name']).first()
+        if existing:
+            return jsonify({'error': 'Template with this name already exists'}), 400
+        
+        # Create new template
+        template = PreprocessingTemplate(
+            name=data['name'],
+            description=data.get('description', ''),
+            value_mappings=json.dumps(data.get('value_mappings', {})),
+            contains_mappings=json.dumps(data.get('contains_mappings', {}))
+        )
+        
+        db.session.add(template)
+        db.session.commit()
+        
+        logger.info(f"Created preprocessing template: {template.name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template created successfully',
+            'template': template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception("Error creating preprocessing template")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['GET'])
+@login_required
+def get_preprocessing_template(template_id):
+    """Get a specific preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        return jsonify({
+            'success': True,
+            'template': template.to_dict()
+        })
+    except Exception as e:
+        logger.exception(f"Error fetching preprocessing template {template_id}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['PUT'])
+@login_required
+def update_preprocessing_template(template_id):
+    """Update an existing preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        data = request.get_json()
+        
+        # Update fields if provided
+        if 'name' in data:
+            # Check if new name conflicts with another template
+            existing = PreprocessingTemplate.query.filter(
+                PreprocessingTemplate.name == data['name'],
+                PreprocessingTemplate.id != template_id
+            ).first()
+            if existing:
+                return jsonify({'error': 'Template with this name already exists'}), 400
+            template.name = data['name']
+        
+        if 'description' in data:
+            template.description = data['description']
+        if 'value_mappings' in data:
+            template.value_mappings = json.dumps(data['value_mappings'])
+        if 'contains_mappings' in data:
+            template.contains_mappings = json.dumps(data['contains_mappings'])
+        
+        template.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        logger.info(f"Updated preprocessing template: {template.name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template updated successfully',
+            'template': template.to_dict()
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error updating preprocessing template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_preprocessing_template(template_id):
+    """Delete a preprocessing template."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        template_name = template.name
+        db.session.delete(template)
+        db.session.commit()
+        
+        logger.info(f"Deleted preprocessing template: {template_name}")
+        return jsonify({
+            'success': True,
+            'message': 'Template deleted successfully'
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error deleting preprocessing template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/preprocessing-templates/<int:template_id>/duplicate', methods=['POST'])
+@login_required
+def duplicate_preprocessing_template(template_id):
+    """Duplicate a preprocessing template with auto-incremented name."""
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        template = PreprocessingTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Generate new name with auto-increment
+        base_name = template.name
+        new_name = base_name
+        counter = 1
+        
+        while PreprocessingTemplate.query.filter_by(name=new_name).first():
+            new_name = f"{base_name} ({counter})"
+            counter += 1
+        
+        # Create duplicate
+        new_template = PreprocessingTemplate(
+            name=new_name,
+            description=template.description,
+            value_mappings=template.value_mappings,
+            contains_mappings=template.contains_mappings
+        )
+        
+        db.session.add(new_template)
+        db.session.commit()
+        
+        logger.info(f"Duplicated preprocessing template '{template.name}' as '{new_name}'")
+        return jsonify({
+            'success': True,
+            'message': 'Template duplicated successfully',
+            'template': new_template.to_dict()
+        }), 201
+        
+    except Exception as e:
+        logger.exception(f"Error duplicating preprocessing template {template_id}")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badges/generate', methods=['POST'])
+@login_required
+def generate_badges():
+    """Generate PDF badges from processed Excel file."""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        excel_file = data.get('excel_file')
+        template_id = data.get('template_id')
+        
+        if not excel_file:
+            return jsonify({'error': 'Excel file path is required'}), 400
+        if not template_id:
+            return jsonify({'error': 'Template ID is required'}), 400
+        
+        # Check if Excel file exists
+        if not os.path.exists(excel_file):
+            return jsonify({'error': 'Excel file not found'}), 404
+        
+        # Load template configuration
+        template = BadgeTemplate.query.get(template_id)
+        if not template:
+            return jsonify({'error': 'Template not found'}), 404
+        
+        # Get SVG template path
+        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+        if not os.path.exists(svg_path):
+            return jsonify({'error': 'SVG template file not found'}), 404
+        
+        # Get club logo path from template (optional)
+        club_logo_path = None
+        if template.club_logo_filename:
+            club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
+            if not os.path.exists(club_logo_path):
+                logger.warning(f"Club logo not found: {club_logo_path}")
+                club_logo_path = None
+            else:
+                logger.info(f"Using club logo: {club_logo_path}")
+        
+        # Get Avery template from badge template
+        avery_template = template.avery_template
+        
+        # Parse column mappings
+        column_mappings = json.loads(template.column_mappings)
+        
+        # Create badge generator
+        generator = BadgeGenerator(
+            excel_file=excel_file,
+            svg_template_path=svg_path,
+            column_mappings=column_mappings,
+            afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+            club_logo_path=club_logo_path,
+            club_logo_width=template.club_logo_width,
+            club_logo_height=template.club_logo_height,
+            avery_template=avery_template
+        )
+        
+        # Generate PDF
+        output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')
+        generator.generate_pdf(output_pdf)
+        
+        logger.info(f"Generated badges PDF: {output_pdf}")
+        
+        # Send file
+        return send_file(
+            output_pdf,
+            as_attachment=True,
+            download_name='badges.pdf',
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        logger.exception("Error generating badges")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/badges/pull-process-generate', methods=['POST'])
+@login_required
+def badges_pull_process_generate():
+    """Combined endpoint: pull data, process, and generate badges."""
+    try:
+        data = request.get_json()
+        
+        # First, pull and process data (reuse existing logic)
+        # This will save the processed Excel file
+        campaign_id = data.get('campaign_id')
+        campaign_name = data.get('campaign_name')
+        event_name = data.get('event', 'Default')
+        sub_event = data.get('subEvent')
+        inclusion_list = data.get('inclusionList')
+        created_on_filter = data.get('createdOnFilter')
+        preprocessing_template_id = data.get('preprocessingTemplateId')
+        
+        if not campaign_id and not campaign_name:
+            return jsonify({'error': 'Campaign ID or name is required'}), 400
+        
+        # Initialize CRM client
+        crm_client = DynamicsCRMClient()
+        
+        # Get campaign ID if only name provided
+        if campaign_name and not campaign_id:
+            campaign_info = crm_client.get_campaign_by_name(campaign_name)
+            if not campaign_info:
+                return jsonify({'error': f'Campaign {campaign_name} not found'}), 404
+            campaign_id = campaign_info['id']
+        
+        # Pull and process data
+        upload_folder = app.config['UPLOAD_FOLDER']
+        os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+        
+        # Pull all 4 data types
+        data_type_mapping = {
+            'event_guests': FileTypes.REGISTRATION,
+            'qr_codes': FileTypes.QR_CODES,
+            'table_reservations': FileTypes.SEATING,
+            'form_responses': FileTypes.FORM_RESPONSES
+        }
+        
+        for data_type, file_type in data_type_mapping.items():
+            df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
+            temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
+            df.to_excel(temp_file, index=False)
+        
+        # Get the preprocessing implementation from database templates
+        preprocessor_class = None
+        
+        # Check if user selected a database template
+        if preprocessing_template_id:
+            try:
+                from utils.magazine.scheduler import PreprocessingTemplate
+                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+                if template:
+                    logger.info(f"Using database preprocessing template: {template.name}")
+                    # Create a dynamic preprocessor class from the database template
+                    preprocessor_class = create_preprocessor_from_template(template)
+                else:
+                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
+            except Exception as e:
+                logger.error(f"Error loading preprocessing template: {str(e)}")
+        
+        # Use default preprocessing (no custom mappings) if no template selected
+        if not preprocessor_class:
+            logger.info("No preprocessing template selected, using default (no custom transformations)")
+            preprocessor_class = DefaultPreprocessing
+        
+        config_obj = PreprocessingConfig(
+            main_event=event_name,
+            sub_event=sub_event,
+            inclusion_list=inclusion_list,
+            created_on_filter=created_on_filter
+        )
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Copy files to temp directory
+            for file_type in FileValidator.get_required_file_types():
+                matching_files = [f for f in os.listdir(upload_folder) if f.startswith(f"{file_type}_")]
+                if matching_files:
+                    source = os.path.join(upload_folder, matching_files[0])
+                    dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
+                    shutil.copy2(source, dest)
+            
+            original_dir = os.getcwd()
+            os.chdir(temp_dir)
+            
+            try:
+                processor = EventRegistrationProcessorV3(config=config_obj, preprocessor_class=preprocessor_class)
+                result_df = processor.transform_and_merge()
+                
+                # Save processed Excel file
+                processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
+                result_df.to_excel(processed_excel, index=False)
+                
+                # Now generate badges if template specified
+                template_id = data.get('template_id')
+                if template_id:
+                    template = BadgeTemplate.query.get(template_id)
+                    if not template:
+                        return jsonify({'error': 'Badge template not found'}), 404
+                    
+                    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+                    
+                    # Get club logo path from template (optional)
+                    club_logo_path = None
+                    if template.club_logo_filename:
+                        club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
+                        if not os.path.exists(club_logo_path):
+                            logger.warning(f"Club logo not found: {club_logo_path}")
+                            club_logo_path = None
+                        else:
+                            logger.info(f"Using club logo: {club_logo_path}")
+                    
+                    avery_template = template.avery_template
+                    column_mappings = json.loads(template.column_mappings)
+                    
+                    generator = BadgeGenerator(
+                        excel_file=processed_excel,
+                        svg_template_path=svg_path,
+                        column_mappings=column_mappings,
+                        afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+                        club_logo_path=club_logo_path,
+                        club_logo_width=template.club_logo_width,
+                        club_logo_height=template.club_logo_height,
+                        avery_template=avery_template
+                    )
+                    
+                    output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')
+                    generator.generate_pdf(output_pdf)
+                    
+                    return send_file(
+                        output_pdf,
+                        as_attachment=True,
+                        download_name=f'badges_{campaign_name.replace(" ", "_")}.pdf',
+                        mimetype='application/pdf'
+                    )
+                else:
+                    # If no template specified, just return the processed Excel
+                    return send_file(
+                        processed_excel,
+                        as_attachment=True,
+                        download_name=f'MAIL_MERGE_{campaign_name.replace(" ", "_")}.xlsx',
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+                    
+            finally:
+                os.chdir(original_dir)
+                
+    except Exception as e:
+        logger.exception("Error in combined pull-process-generate")
+        return jsonify({'error': str(e)}), 500

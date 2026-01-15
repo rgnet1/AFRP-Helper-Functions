@@ -1,0 +1,670 @@
+---
+globs: utils/dynamics_crm.py,app.py
+description: Dynamics 365 CRM integration troubleshooting, API quirks, and column mapping solutions
+---
+
+# Dynamics 365 CRM Integration Troubleshooting
+
+## Overview
+This rule documents common issues, solutions, and best practices when integrating with Dynamics 365 CRM Web API.
+
+## Critical Concepts
+
+### 1. Lookup Fields
+
+#### What is a Lookup Field?
+A reference to another entity (like a foreign key):
+- Examples: `aha_localclub2`, `_aha_parentcampaign_value`
+- Stored internally as GUID
+- Has formatted display name
+
+#### How Lookup Fields Work in API
+
+**Direct Entity Query:**
+```python
+# Can select the GUID
+/contacts?$select=_aha_localclub2_value
+
+# Response includes:
+{
+    "_aha_localclub2_value": "98cd4706-00c4-ed11-83ff-6045bd0069e2",
+    "_aha_localclub2_value@OData.Community.Display.V1.FormattedValue": "Detroit"
+}
+```
+
+**In $expand Queries:**
+```python
+# ❌ WRONG: Cannot explicitly select lookup fields
+$expand=crca7_ExistingContact($select=contactid,aha_localclub2)
+# Results in: 400 Bad Request
+
+# ✅ CORRECT: Lookups come automatically
+$expand=crca7_ExistingContact
+# Lookup fields included automatically with formatted values
+```
+
+#### Critical Rules for Lookups
+
+1. **DON'T** include lookup field names in `$select` within `$expand`
+2. **DON'T** use `$select` at all if you need lookup fields
+3. **DO** expand without `$select` to get all fields including lookups
+4. **DO** use Prefer header to get formatted values
+
+```python
+headers = {
+    "Prefer": 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"'
+}
+```
+
+### 2. Using $select in $expand
+
+#### The Problem
+When you use `$select` within `$expand`, you get ONLY the fields you explicitly select. Lookup fields are excluded even though they're stored as `_fieldname_value`.
+
+#### Examples
+
+**With $select (lookups excluded):**
+```python
+$expand=crca7_ExistingContact($select=contactid,firstname)
+# Result: Only contactid and firstname
+# Missing: _aha_localclub2_value and other lookups
+```
+
+**Without $select (all fields included):**
+```python
+$expand=crca7_ExistingContact
+# Result: ALL fields including _aha_localclub2_value
+# Trade-off: More data transferred, but complete
+```
+
+### 3. Formatted Values
+
+#### Using Prefer Header
+```python
+headers = {
+    "Prefer": 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"'
+}
+```
+
+#### What It Does
+Returns both raw and formatted values:
+- **Option Sets**: `statuscode: 1` + `statuscode@...FormattedValue: "Paid"`
+- **Lookups**: GUID + `_aha_localclub2_value@...FormattedValue: "Detroit"`
+- **Dates**: ISO string + formatted date
+
+#### Processing Formatted Values
+```python
+def _process_response(self, response):
+    formatted_suffix = "@OData.Community.Display.V1.FormattedValue"
+    
+    for key, value in record.items():
+        if key.endswith(formatted_suffix):
+            continue  # Skip the annotation itself
+        
+        formatted_key = f"{key}{formatted_suffix}"
+        if formatted_key in record:
+            processed_record[key] = record[formatted_key]  # Use formatted value
+        else:
+            processed_record[key] = value  # Use raw value
+```
+
+## Common Errors and Solutions
+
+### Error 1: 400 Bad Request - Lookup Field in $select
+
+**Error Message:**
+```
+400 Client Error: Bad Request for url: 
+.../crca7_eventguests?$expand=crca7_ExistingContact($select=...,aha_localclub2,...)
+```
+
+**Cause:** Attempted to select lookup field explicitly in $expand
+
+**Solution:** Remove lookup fields from $select or remove $select entirely
+```python
+# Before (ERROR):
+expand_query = "$expand=crca7_ExistingContact($select=firstname,aha_localclub2)"
+
+# After (FIXED):
+expand_query = "$expand=crca7_ExistingContact"
+```
+
+### Error 2: Missing Required Columns
+
+**Error Message:**
+```
+Processing error: Missing required columns in registration data: Local Club
+```
+
+**Cause:** Using `$select` in `$expand` excludes lookup fields
+
+**Solution:** Remove `$select` from $expand to include all fields
+```python
+# Before (lookups excluded):
+expand_query = "$expand=crca7_ExistingContact($select=firstname,lastname)"
+
+# After (lookups included):
+expand_query = "$expand=crca7_ExistingContact"
+```
+
+### Error 3: Gender Shows Integer Instead of Text
+
+**Error Message:** Gender column shows "1" instead of "Male"
+
+**Cause:** Not using formatted values for option sets
+
+**Solution:** Add Prefer header and process formatted values
+```python
+headers = {
+    "Prefer": 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"'
+}
+
+# In processing:
+formatted_key = f"{key}@OData.Community.Display.V1.FormattedValue"
+if formatted_key in record:
+    value = record[formatted_key]  # "Male" instead of 1
+```
+
+### Error 4: Column Name Mismatch
+
+**Error Message:** Expected column not found in DataFrame
+
+**Cause:** API field names differ from Excel export names
+
+**Solution:** Map API names to expected Excel names
+```python
+column_mapping = {
+    # API name → Excel name
+    'contact_firstname': 'First Name (Existing Contact) (Contact)',
+    'contact__aha_localclub2_value': 'Local Club (Existing Contact) (Contact)',
+    'contact_gendercode': 'Gender (Existing Contact) (Contact)',
+}
+
+df.rename(columns=column_mapping, inplace=True)
+```
+
+## Field Discovery Process
+
+### Step 1: Create Debug Endpoint
+```python
+@app.route('/api/debug/contact-fields', methods=['GET'])
+def debug_contact_fields():
+    """Debug endpoint to discover contact fields"""
+    crm_client = DynamicsCRMClient()
+    endpoint = "contacts?$top=10"
+    response = crm_client._make_request(endpoint)
+    
+    # Extract all field names
+    fields = {}
+    for record in response.get('value', []):
+        for key, value in record.items():
+            if not key.startswith('@'):
+                fields[key] = str(value)[:100] if value else None
+    
+    return jsonify({'fields': fields})
+```
+
+### Step 2: Query for Field
+```bash
+curl -s http://localhost:5066/api/debug/contact-fields | python3 -m json.tool | grep -i "keyword"
+```
+
+### Step 3: Add to Data Extraction
+Update `$expand` query to include new field (if not a lookup):
+```python
+expand_query = "$expand=crca7_ExistingContact($select=contactid,firstname,NEW_FIELD)"
+```
+
+Or remove `$select` to get all fields:
+```python
+expand_query = "$expand=crca7_ExistingContact"  # Includes NEW_FIELD automatically
+```
+
+### Step 4: Add Column Mapping
+```python
+column_mapping = {
+    'contact_newfield': 'New Field (Existing Contact) (Contact)',
+    # ...
+}
+```
+
+### Step 5: Add to Processing
+```python
+class RegistrationColumns:
+    NEW_FIELD = "New Field (Existing Contact) (Contact)"
+    
+    MAPPINGS = {
+        'New Field': [NEW_FIELD, 'NewField', 'new_field'],
+    }
+```
+
+## Key Field Mappings
+
+### Contact Fields
+```python
+'contact_firstname' → 'First Name (Existing Contact) (Contact)'
+'contact_lastname' → 'Last Name (Existing Contact) (Contact)'
+'contact_aha_memberid' → 'Member ID (Existing Contact) (Contact)'
+'contact__aha_localclub2_value' → 'Local Club (Existing Contact) (Contact)'
+'contact_gendercode' → 'Gender (Existing Contact) (Contact)'
+'contact_salutation' → 'Title (Existing Contact) (Contact)'
+'contact_crca7_age' → 'Age (Existing Contact) (Contact)'
+```
+
+### Event Guest Fields
+```python
+'statuscode' → 'Status Reason'  # With formatted value: "Paid"
+'createdon' → 'Created On'
+'event_name' → 'Event'
+```
+
+### QR Code Fields
+```python
+'_aha_mainevent_value' → Main Event GUID (for filtering)
+'aha_qrcodevalue' → QR code string
+'contact_contactid' → Contact ID (from expanded contact)
+```
+
+## Best Practices
+
+### 1. Always Use Prefer Header
+```python
+headers = {
+    "Prefer": 'odata.include-annotations="OData.Community.Display.V1.FormattedValue"',
+    "Authorization": f"Bearer {token}"
+}
+```
+
+### 2. Expand Without $select When You Need Lookups
+```python
+# Good for complete data (includes lookups)
+expand_query = "$expand=crca7_ExistingContact"
+
+# Only use $select if you DON'T need lookup fields
+expand_query = "$expand=crca7_ExistingContact($select=contactid,firstname)"
+```
+
+### 3. Process Formatted Values
+Always check for formatted value annotations:
+```python
+formatted_suffix = "@OData.Community.Display.V1.FormattedValue"
+if f"{key}{formatted_suffix}" in record:
+    value = record[f"{key}{formatted_suffix}"]
+```
+
+### 4. Flatten Expanded Columns
+When using `$expand`, flatten nested JSON:
+```python
+def _flatten_expanded_columns(df):
+    for col in df.columns:
+        if df[col].apply(lambda x: isinstance(x, dict)).any():
+            # Expand nested dict into separate columns
+            expanded = df[col].apply(pd.Series)
+            expanded.columns = [f"{col}_{subcol}" for subcol in expanded.columns]
+            df = pd.concat([df.drop(col, axis=1), expanded], axis=1)
+    return df
+```
+
+### 5. Map Column Names
+Always map API names to Excel-expected names:
+```python
+df.rename(columns=column_mapping, inplace=True)
+```
+
+## Gender Field Normalization
+
+### Problem
+Gender field may appear as:
+- Integer: 1 (Male), 2 (Female)
+- Formatted: "Male", "Female"
+- Blank/None
+
+### Solution
+```python
+def normalize_gender(value):
+    if pd.isna(value) or value == '' or value is None:
+        return 'Female'  # Default
+    
+    value_str = str(value).strip().lower()
+    
+    # Handle numeric codes
+    if value_str == '1':
+        return 'Male'
+    elif value_str == '2':
+        return 'Female'
+    
+    # Handle text values
+    if 'male' in value_str and 'female' not in value_str:
+        return 'Male'
+    elif 'female' in value_str:
+        return 'Female'
+    
+    return 'Female'  # Default fallback
+```
+
+## Member ID Formatting
+
+### Field Discovery
+```bash
+curl -s http://localhost:5066/api/debug/contact-fields | grep -i "member"
+# Found: "aha_memberid": "ID-02100"
+```
+
+### Extraction
+```python
+# In $expand (if using $select):
+expand_query = "$expand=crca7_ExistingContact($select=...,aha_memberid)"
+
+# Or expand all:
+expand_query = "$expand=crca7_ExistingContact"  # Includes aha_memberid
+```
+
+### Mapping
+```python
+column_mapping = {
+    'contact_aha_memberid': 'Member ID (Existing Contact) (Contact)',
+}
+```
+
+### Filtering by Member ID
+Support filtering by both format:
+```python
+def filter_by_ids(df, id_list):
+    # Support both "ID-####" and GUID formats
+    contact_id_filter = df['Contact ID'].isin(id_list)
+    member_id_filter = df['Member ID'].isin(id_list)
+    return df[contact_id_filter | member_id_filter]
+```
+
+## QR Code Main Event Filtering
+
+### Problem
+QR codes pulled for all events, not just the main event.
+
+### Discovery Process
+```python
+@app.route('/api/debug/qr-code-fields', methods=['GET'])
+def debug_qr_code_fields():
+    crm_client = DynamicsCRMClient()
+    endpoint = "aha_eventguestqrcodeses?$top=5"
+    response = crm_client._make_request(endpoint)
+    # Found: "_aha_mainevent_value" field
+    return jsonify({'fields': response})
+```
+
+### Solution
+Filter QR codes by main event:
+```python
+def get_qr_codes(self, campaign_id: str):
+    filter_query = f"$filter=_aha_mainevent_value eq {campaign_id}"
+    expand_query = "$expand=aha_EventGuestContactId($select=contactid)"
+    endpoint = f"aha_eventguestqrcodeses?{filter_query}&{expand_query}"
+    # Now only returns QR codes for the main event
+```
+
+## Empty DataFrame Handling
+
+### Problem
+Not all events have form responses, seating, or QR codes.
+
+### Solution
+Check for empty DataFrames before processing:
+```python
+def add_form_responses(self, result_df, forms_df):
+    if forms_df is None or forms_df.empty:
+        logger.info("No form responses data to merge")
+        return result_df
+    
+    # Check for required columns
+    required_columns = ['Contact ID', 'Event', 'Question', 'Response']
+    if not all(col in forms_df.columns for col in required_columns):
+        logger.warning("Form responses missing required columns, skipping")
+        return result_df
+    
+    # Process normally
+    # ...
+```
+
+## Authentication
+
+### OAuth 2.0 Client Credentials Flow
+```python
+import msal
+
+app = msal.ConfidentialClientApplication(
+    client_id=config.DYNAMICS_CLIENT_ID,
+    client_credential=config.DYNAMICS_CLIENT_SECRET,
+    authority=f"https://login.microsoftonline.com/{config.DYNAMICS_TENANT_ID}"
+)
+
+result = app.acquire_token_for_client(
+    scopes=[f"{config.DYNAMICS_CRM_URL}/.default"]
+)
+
+token = result['access_token']
+```
+
+### Application User Setup
+1. Register app in Azure AD
+2. Create Application User in Dynamics 365
+3. Assign security roles to Application User
+4. Use client credentials (not user credentials)
+
+## Debugging Tips
+
+### 1. Log Column Names
+```python
+logger.info(f"Columns before mapping: {df.columns.tolist()}")
+logger.info(f"Columns after mapping: {df.columns.tolist()}")
+```
+
+### 2. Log Sample Data
+```python
+logger.info(f"First row: {df.iloc[0].to_dict()}")
+```
+
+### 3. Check for Formatted Values
+```python
+for key in record.keys():
+    if '@OData' in key:
+        logger.debug(f"Formatted value found: {key}")
+```
+
+### 4. Verify Expansion
+```python
+for col in df.columns:
+    if df[col].apply(lambda x: isinstance(x, dict)).any():
+        logger.warning(f"Column {col} still contains nested dicts - needs flattening")
+```
+
+## Testing Checklist
+
+Before deploying CRM integration changes:
+- [ ] Test with real data (not just test accounts)
+- [ ] Check all 4 entities pull successfully
+- [ ] Verify formatted values appear correctly
+- [ ] Confirm lookup fields have display names (not GUIDs)
+- [ ] Test with empty result sets
+- [ ] Validate column names match processing expectations
+- [ ] Check Gender shows "Male"/"Female" not numbers
+- [ ] Verify Member ID format is "ID-####"
+- [ ] Test filtering by Contact ID and Member ID
+- [ ] Confirm QR codes are for correct main event
+
+## Error 5: 403 Forbidden - Authentication/Authorization
+
+**Error Message:**
+```
+Failed to pull Event Guests: 403 Client Error: Forbidden for url: 
+https://afrp.crm.dynamics.com/api/data/v9.2/crca7_eventguests
+```
+
+**Cause:** The Azure AD application is not registered as an **Application User** in Dynamics 365, or doesn't have necessary security roles assigned.
+
+**Solution:** Create and configure Application User in Dynamics 365
+
+### Step 1: Register Application User in Dynamics 365
+
+You MUST create an Application User in Dynamics 365 and assign it security roles:
+
+1. **Go to Dynamics 365** (https://afrp.crm.dynamics.com)
+2. Navigate to **Settings** → **Security** → **Users**
+3. Change view to **Application Users**
+4. Click **+ New**
+5. Fill in the form:
+   - **User Name**: Something like `badge-generator@afrp.onmicrosoft.com`
+   - **Application ID**: Your Client ID from Azure AD
+   - **Full Name**: Badge Generator Service
+   - **Primary Email**: admin email address
+6. Click **Save**
+7. **Assign Security Roles**: Click "Manage Roles" and assign:
+   - **System Administrator** (for testing - can narrow down later)
+   - Or at minimum: roles that have Read access to:
+     - Event Guests (crca7_eventguest)
+     - QR Codes (aha_eventguestqrcodes)
+     - Seating Tables (aha_seatingtable)
+     - Form Responses (aha_eventformresponses)
+
+### Step 2: Verify Azure AD App Registration
+
+1. Go to Azure Portal (https://portal.azure.com)
+2. Navigate to **Azure Active Directory** → **App Registrations**
+3. Find your app by Client ID
+4. Go to **API Permissions**
+5. Ensure you have:
+   - **Dynamics CRM / Dataverse** → API permissions
+   - NOT needed: `user_impersonation` (for service principal)
+6. Click **"Grant admin consent"** for your tenant
+7. Wait 5-10 minutes for changes to propagate
+
+### Step 3: Verify Client Secret is Valid
+
+1. In the same App Registration
+2. Go to **Certificates & secrets**
+3. Check that your client secret hasn't expired
+4. If expired, create a new one and update `config/.env`
+
+### Important: Application User vs User Authentication
+
+Your app uses **Service Principal** (application) authentication, which requires:
+- ✅ Application User created in Dynamics 365
+- ✅ Security roles assigned to that Application User
+- ✅ Valid OAuth token with correct scope
+
+**This is NOT the same as** user delegation - you don't need a real user to sign in.
+
+## Error 6: 404 Not Found - Wrong Entity Names
+
+**Error Message:**
+```
+404 Client Error: Not Found for url: 
+https://afrp.crm.dynamics.com/api/data/v9.2/crca7_eventguest
+```
+
+**Cause:** Using wrong entity name. Dynamics 365 Web API uses **EntitySetName** (collection name), not **LogicalName**.
+
+**Solution:** Use correct EntitySetName
+
+### Entity Name Discovery Script
+
+Save as `discover_entities.py` and run to find correct entity names:
+
+```python
+import os
+import msal
+import requests
+from dotenv import load_dotenv
+
+# Load config
+load_dotenv('config/.env')
+
+tenant_id = os.getenv('DYNAMICS_TENANT_ID')
+client_id = os.getenv('DYNAMICS_CLIENT_ID')
+client_secret = os.getenv('DYNAMICS_CLIENT_SECRET')
+crm_url = os.getenv('DYNAMICS_CRM_URL')
+
+# Get token
+app = msal.ConfidentialClientApplication(
+    client_id=client_id,
+    authority=f"https://login.microsoftonline.com/{tenant_id}",
+    client_credential=client_secret
+)
+result = app.acquire_token_for_client(scopes=[f"{crm_url}/.default"])
+token = result["access_token"]
+
+# Query EntityDefinitions for EntitySetName
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Accept": "application/json"
+}
+
+url = f"{crm_url}/api/data/v9.2/EntityDefinitions?$select=LogicalName,EntitySetName&$filter=IsCustomEntity eq true"
+response = requests.get(url, headers=headers)
+
+entities = response.json().get('value', [])
+for entity in entities:
+    if 'qr' in entity['LogicalName'] or 'form' in entity['LogicalName']:
+        print(f"{entity['LogicalName']} → {entity['EntitySetName']}")
+```
+
+### Correct Entity Names
+
+| Display Name | Logical Name | EntitySetName (USE THIS!) |
+|--------------|--------------|---------------------------|
+| Event Guests | crca7_eventguest | **crca7_eventguests** |
+| QR Codes | aha_eventguestqrcodes | **aha_eventguestqrcodeses** |
+| Seating Tables | aha_seatingtable | **aha_seatingtables** |
+| Form Responses | aha_eventformresponses | **aha_eventformresponseses** |
+
+**Note**: Some entities have unusual pluralization (e.g., `qrcodeses` with double 'es'). Always use EntitySetName from the API!
+
+## Testing Authentication
+
+### Test Basic Access
+```bash
+# From inside the container
+docker exec -it container_name python3 << 'EOF'
+from utils.dynamics_crm import DynamicsCRMClient
+client = DynamicsCRMClient()
+df = client.get_event_guests("")
+print(f"Fetched {len(df)} event guests")
+print(df.columns.tolist())
+EOF
+```
+
+### Check OAuth Token
+```bash
+# Verify token is being obtained
+docker logs container_name 2>&1 | grep -i "dynamics\|auth\|token"
+```
+
+### Test from Badge Generator
+1. Go to http://localhost:5066/badges
+2. Select a campaign
+3. Click "Pull All & Process"
+4. Check browser console for error details
+
+## Alternative: Use FetchXML with SavedQuery
+
+If you need to respect saved query filters:
+
+### Step 1: Fetch SavedQuery Definition
+```python
+endpoint = f"savedqueries({view_id})?$select=fetchxml"
+response = self._make_request(endpoint)
+fetchxml = response['fetchxml']
+```
+
+### Step 2: Execute FetchXML
+```python
+import urllib.parse
+endpoint = f"crca7_eventguests?fetchXml={urllib.parse.quote(fetchxml)}"
+response = self._make_request(endpoint)
+```
+
+**Note**: This requires additional OAuth permissions for accessing `savedqueries` entity.
+
+## Documentation Reference
+
+For more details on discovering new columns, see:
+`.cursor/skills/dynamics-column-discovery/SKILL.md`

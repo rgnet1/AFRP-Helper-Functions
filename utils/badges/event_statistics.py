@@ -42,7 +42,7 @@ class EventStatisticsReport:
         # Process each column that represents an event
         for col in df.columns:
             if '~' not in col:  # Main event columns
-                if col not in ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club']:
+                if col not in ['Contact ID', 'Member ID', 'First Name', 'Last Name', 'Title', 'Local Club']:
                     self._process_event_column(df, col)
             else:  # Form response columns
                 self._process_form_response(df, col)

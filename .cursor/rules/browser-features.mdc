@@ -1,0 +1,372 @@
+---
+globs: templates/badges.html
+description: Browser-level caching and user preference persistence using localStorage
+---
+
+# Browser-Level Caching with localStorage
+
+## Overview
+The Badge Generator uses localStorage to persist user selections across browser sessions. This allows users to leave the page and return to find all their previous selections intact.
+
+## Cached Preferences
+
+### Data Stored
+1. **Campaign ID** - Selected main event
+2. **Preprocessing Template ID** - Selected data transformation template
+3. **Sub-Event ID** - Selected sub-event filter
+4. **Contact IDs Filter** - Text input for filtering specific contacts
+5. **Registration Date Filter** - Date filter for registration cutoff
+6. **Badge Template ID** - Selected badge design template
+7. **Avery Template** - Selected label sheet size
+
+### Storage Key
+```javascript
+const CACHE_KEY = 'badgeGenerator_preferences';
+```
+
+All preferences stored as single JSON object.
+
+## Implementation
+
+### Core Functions
+
+#### saveToCache()
+Collects current form values and saves to localStorage:
+```javascript
+function saveToCache() {
+    try {
+        const preferences = {
+            campaignId: document.getElementById('campaignSelect')?.value || '',
+            preprocessingTemplateId: document.getElementById('preprocessingSelect')?.value || '',
+            subEventId: document.getElementById('subEventSelect')?.value || '',
+            contactIdsFilter: document.getElementById('inclusionList')?.value || '',
+            dateFilter: document.getElementById('createdOnFilter')?.value || '',
+            badgeTemplateId: document.getElementById('badgeTemplateSelect')?.value || '',
+            averyTemplate: document.getElementById('averyTemplateSelect')?.value || ''
+        };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(preferences));
+        console.log('Saved preferences to cache:', preferences);
+    } catch (error) {
+        console.error('Error saving to cache:', error);
+    }
+}
+```
+
+#### loadFromCache()
+Retrieves saved preferences from localStorage:
+```javascript
+function loadFromCache() {
+    try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+            return JSON.parse(cached);
+        }
+    } catch (error) {
+        console.error('Error loading from cache:', error);
+    }
+    return null;
+}
+```
+
+#### restorePreferences(preferences)
+Applies saved values to form fields:
+```javascript
+function restorePreferences(preferences) {
+    if (!preferences) return;
+    
+    try {
+        // Restore campaign (triggers sub-event load)
+        if (preferences.campaignId) {
+            const campaignSelect = document.getElementById('campaignSelect');
+            if (campaignSelect.querySelector(`option[value="${preferences.campaignId}"]`)) {
+                campaignSelect.value = preferences.campaignId;
+                campaignSelect.dispatchEvent(new Event('change'));
+            }
+        }
+        
+        // Restore preprocessing template
+        if (preferences.preprocessingTemplateId) {
+            const preprocessingSelect = document.getElementById('preprocessingSelect');
+            if (preprocessingSelect.querySelector(`option[value="${preferences.preprocessingTemplateId}"]`)) {
+                preprocessingSelect.value = preferences.preprocessingTemplateId;
+            }
+        }
+        
+        // Restore sub-event (delayed to allow loading)
+        if (preferences.subEventId) {
+            setTimeout(() => {
+                const subEventSelect = document.getElementById('subEventSelect');
+                if (subEventSelect.querySelector(`option[value="${preferences.subEventId}"]`)) {
+                    subEventSelect.value = preferences.subEventId;
+                }
+            }, 1000);  // Wait for sub-events to load
+        }
+        
+        // Restore filters
+        if (preferences.contactIdsFilter) {
+            document.getElementById('inclusionList').value = preferences.contactIdsFilter;
+        }
+        if (preferences.dateFilter) {
+            document.getElementById('createdOnFilter').value = preferences.dateFilter;
+        }
+        
+        // Restore badge template
+        if (preferences.badgeTemplateId) {
+            const badgeTemplateSelect = document.getElementById('badgeTemplateSelect');
+            if (badgeTemplateSelect.querySelector(`option[value="${preferences.badgeTemplateId}"]`)) {
+                badgeTemplateSelect.value = preferences.badgeTemplateId;
+                updateBadgeButtons();
+            }
+        }
+        
+        // Restore Avery template
+        if (preferences.averyTemplate) {
+            document.getElementById('averyTemplateSelect').value = preferences.averyTemplate;
+        }
+        
+        // Update UI states
+        updateProcessButton();
+        updateBadgeButtons();
+        
+        console.log('Restored user preferences from cache');
+    } catch (error) {
+        console.error('Error restoring preferences:', error);
+    }
+}
+```
+
+## Save Triggers
+
+### Immediate Save Events
+These trigger `saveToCache()` directly:
+- **Campaign change**: `campaignSelect.addEventListener('change', ...)`
+- **Preprocessing template change**: `preprocessingSelect.addEventListener('change', ...)`
+- **Sub-event change**: `subEventSelect.addEventListener('change', ...)`
+- **Badge template change**: `badgeTemplateSelect.addEventListener('change', ...)`
+- **Avery template change**: `averyTemplateSelect.addEventListener('change', ...)`
+
+### Debounced Save Events
+Text inputs use 500ms debounce to avoid excessive saves:
+```javascript
+let filterSaveTimeout;
+const saveFiltersDebounced = () => {
+    clearTimeout(filterSaveTimeout);
+    filterSaveTimeout = setTimeout(saveToCache, 500);
+};
+
+document.getElementById('inclusionList').addEventListener('input', saveFiltersDebounced);
+document.getElementById('createdOnFilter').addEventListener('input', saveFiltersDebounced);
+```
+
+## Restore Timing
+
+### Page Load Sequence
+```javascript
+// Wait for all dropdowns to populate from API
+setTimeout(() => {
+    const preferences = loadFromCache();
+    if (preferences) {
+        restorePreferences(preferences);
+    }
+}, 1500);  // 1.5 second delay
+```
+
+### Why 1.5 Seconds?
+- Campaigns load from API (~500ms)
+- Preprocessing templates load from API (~300ms)
+- Badge templates load from API (~300ms)
+- Sub-events load after campaign selection (~1000ms)
+- Buffer ensures all options available before restoration
+
+### Restoration Order
+1. **Campaign** → Triggers sub-event loading
+2. **Preprocessing Template**
+3. **Sub-Event** → Additional 1s delay
+4. **Filters**
+5. **Badge Template** → Triggers button state updates
+6. **Avery Template**
+7. **Update button states**
+
+## Validation
+
+### Before Setting Values
+Each field is validated before restoration:
+```javascript
+// Check element exists
+if (document.getElementById('campaignSelect')) {
+    // Check option exists in dropdown
+    if (campaignSelect.querySelector(`option[value="${value}"]`)) {
+        // Safe to set value
+        campaignSelect.value = value;
+    }
+}
+```
+
+### Fallback Behavior
+If validation fails:
+- Field remains at default value
+- No error shown to user
+- Other fields continue to restore
+- Logs error to console for debugging
+
+## Error Handling
+
+### Try-Catch Blocks
+All cache operations wrapped in error handlers:
+```javascript
+try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(preferences));
+} catch (error) {
+    console.error('Error saving to cache:', error);
+    // Gracefully continue without crashing
+}
+```
+
+### Common Errors
+1. **localStorage not available**: Private browsing mode
+2. **QuotaExceededError**: Storage limit reached (unlikely with our small data)
+3. **JSON parse error**: Corrupted cache data
+4. **Missing DOM elements**: Page structure changed
+
+All handled gracefully without breaking functionality.
+
+## Browser Compatibility
+
+### Supported Browsers
+- Chrome 4+
+- Firefox 3.5+
+- Safari 4+
+- Edge (all versions)
+- IE 8+
+
+### Features Used
+- `localStorage.setItem()` / `getItem()`
+- `JSON.stringify()` / `JSON.parse()`
+- `setTimeout()` with callbacks
+- Event listeners with arrow functions
+
+All widely supported in modern browsers.
+
+## Data Persistence
+
+### When Data Persists
+- ✅ Across page refreshes
+- ✅ Across browser sessions
+- ✅ Across browser restarts
+- ✅ Across different tabs (same domain)
+
+### When Data is Cleared
+- ❌ User clears browser data/cache
+- ❌ User uses private/incognito mode
+- ❌ localStorage manually cleared via DevTools
+- ❌ Different browser or device (localStorage is local)
+
+## Security Considerations
+
+### Data Stored
+- No sensitive information (only IDs and filters)
+- No authentication tokens
+- No personal data
+- Public data only (campaign/template selections)
+
+### Privacy
+- Data never leaves user's browser
+- Not transmitted to server
+- Not shared between users
+- User can clear anytime via browser settings
+
+## Developer Tools
+
+### Inspect Cache
+View stored preferences in browser DevTools:
+```javascript
+// Console command
+JSON.parse(localStorage.getItem('badgeGenerator_preferences'))
+```
+
+### Manual Clear
+Clear cache programmatically:
+```javascript
+// Console command
+localStorage.removeItem('badgeGenerator_preferences')
+```
+
+### Debug Logging
+Console logs provided for debugging:
+- "Saved preferences to cache: {data}"
+- "Loaded preferences from cache: {data}"
+- "Restored user preferences from cache"
+
+## User Experience
+
+### Before Cache Feature
+1. User selects campaign
+2. User configures all options
+3. User generates badges
+4. User navigates away
+5. **User returns → All selections lost** ❌
+6. User must reconfigure everything
+
+### After Cache Feature
+1. User selects campaign
+2. User configures all options
+3. User generates badges
+4. User navigates away
+5. **User returns → All selections restored** ✅
+6. User continues immediately
+
+## Benefits
+
+1. **Time Savings**: No need to re-select options
+2. **Error Prevention**: Reduces risk of selecting wrong campaign
+3. **Better UX**: Seamless workflow continuation
+4. **Production Ready**: Works across sessions reliably
+5. **Non-Intrusive**: Silent operation, no UI clutter
+
+## Testing
+
+### Manual Test Procedure
+1. **Configure**: Select all options on Badge Generator page
+2. **Verify Save**: Check console for "Saved preferences" logs
+3. **Refresh**: Press F5 to reload page
+4. **Wait**: 1.5 seconds for restoration
+5. **Verify Restore**: All selections should be restored
+6. **Check Console**: Look for "Restored preferences" log
+
+### Test Cases
+- [ ] Campaign restored correctly
+- [ ] Preprocessing template restored
+- [ ] Sub-event restored (after campaign)
+- [ ] Contact IDs filter restored
+- [ ] Date filter restored
+- [ ] Badge template restored
+- [ ] Avery template restored
+- [ ] Button states updated correctly
+- [ ] Sub-events load for restored campaign
+- [ ] Works after browser restart
+- [ ] Works in different tabs
+
+## Maintenance
+
+### Adding New Cached Field
+1. Add field to `preferences` object in `saveToCache()`
+2. Add restoration logic in `restorePreferences()`
+3. Add event listener with `saveToCache()` or debounced version
+4. Test restoration works correctly
+
+### Removing Cached Field
+1. Remove from `preferences` object
+2. Remove from `restorePreferences()`
+3. Remove event listener
+4. Consider migration for existing cached data (or let it fail gracefully)
+
+## Future Enhancements
+
+Potential additions:
+- [ ] "Clear Preferences" button in UI
+- [ ] Export/import preferences as JSON
+- [ ] Multiple saved profiles
+- [ ] Last used timestamp
+- [ ] Cache expiration (auto-clear after X days)
+- [ ] Sync across devices (requires backend)
+- [ ] Preference presets for common workflows

@@ -1,11 +1,7 @@
-import os
-import sys
-# Add parent directory to path to allow imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pre_processing_module import PreprocessingBase, PreprocessingConfig
+import logging
 from typing import Dict, Optional
 import pandas as pd
-import logging
+from utils.badges.pre_processing_module import PreprocessingBase, PreprocessingConfig
 
 logger = logging.getLogger(__name__)
 

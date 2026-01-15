@@ -8,7 +8,7 @@ import pytz
 import logging
 from typing import Dict, List, Tuple, Optional, Type
 from utils.badges.event_statistics import EventStatisticsReport
-from utils.badges.event_preprocessing.convention2025 import Convention2025Preprocessing
+from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.pre_processing_module import PreprocessingConfig, PreprocessingBase
 from utils.badges.file_validator import FileValidator, FileTypes
 from openpyxl import load_workbook
@@ -27,6 +27,7 @@ warnings.simplefilter("ignore", UserWarning)
 
 class RegistrationColumns:
     CONTACT_ID = "Contact ID (Existing Contact) (Contact)"
+    MEMBER_ID = "Member ID (Existing Contact) (Contact)"
     FIRST_NAME = "First Name (Existing Contact) (Contact)"
     LAST_NAME = "Last Name (Existing Contact) (Contact)"
     TITLE = "Title (Existing Contact) (Contact)"
@@ -40,6 +41,7 @@ class RegistrationColumns:
     # Map of standardized names to possible column names in file
     MAPPINGS = {
         'Contact ID': [CONTACT_ID, 'Contact ID', 'Contact'],
+        'Member ID': [MEMBER_ID, 'Member ID', 'ID'],
         'First Name': [FIRST_NAME],
         'Last Name': [LAST_NAME],
         'Title': [TITLE],
@@ -94,12 +96,12 @@ class EventRegistrationProcessorV3:
         
         Args:
             config: Optional configuration for preprocessing
-            preprocessor_class: Optional class to use for preprocessing. If not provided, defaults to Convention2025Preprocessing
+            preprocessor_class: Optional class to use for preprocessing. If not provided, defaults to DefaultPreprocessing
         """
         self.config = config
         if preprocessor_class is None:
-            logger.debug("No preprocessor class provided, defaulting to Convention2025Preprocessing")
-            preprocessor_class = Convention2025Preprocessing
+            logger.debug("No preprocessor class provided, defaulting to DefaultPreprocessing")
+            preprocessor_class = DefaultPreprocessing
         
         logger.debug(f"Initializing preprocessor with class: {preprocessor_class.__name__}")
         self.preprocessor = preprocessor_class(config)
@@ -119,8 +121,8 @@ class EventRegistrationProcessorV3:
 
     def _standardize_columns(self, df: pd.DataFrame, column_mappings: Dict[str, List[str]]) -> Tuple[pd.DataFrame, List[str]]:
         """Standardize column names based on mappings and return missing columns."""
-        # Clean column names
-        df.columns = df.columns.str.strip()
+        # Clean column names - ensure all are strings first
+        df.columns = df.columns.astype(str).str.strip()
         
         # Create reverse mapping
         column_mapping = {}
@@ -163,7 +165,7 @@ class EventRegistrationProcessorV3:
             logger.info(f"  - {event}")
         
         # Create base DataFrame with unique contacts using only the key identifying columns
-        unique_columns = ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age']
+        unique_columns = ['Contact ID', 'Member ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age']
         transformed_df = paid_df[unique_columns].drop_duplicates(subset=['Contact ID']).reset_index(drop=True)
         
         logger.info(f"\nFound {len(transformed_df)} unique contacts")
@@ -172,6 +174,35 @@ class EventRegistrationProcessorV3:
         logger.info("Formatting names to proper case...")
         transformed_df['First Name'] = transformed_df['First Name'].apply(lambda x: str(x).strip().title() if pd.notna(x) else x)
         transformed_df['Last Name'] = transformed_df['Last Name'].apply(lambda x: str(x).strip().title() if pd.notna(x) else x)
+        
+        # Normalize Gender values - handle cases where formatted values didn't come through
+        logger.info("Normalizing Gender values...")
+        def normalize_gender(value):
+            if pd.isna(value) or value == '' or str(value).strip() == '':
+                # Blank/null in CRM typically means Female (option value 2 with no label)
+                return 'Female'
+            value_str = str(value).strip()
+            # Handle numeric codes from CRM option sets
+            if value_str == '1':
+                return 'Male'
+            elif value_str == '2':
+                return 'Female'
+            # Handle text values (already formatted or from old data)
+            elif value_str.lower() in ['male', 'm']:
+                return 'Male'
+            elif value_str.lower() in ['female', 'f']:
+                return 'Female'
+            # If already properly formatted, keep it
+            elif value_str in ['Male', 'Female']:
+                return value_str
+            # Log unknown values but default to blank to avoid incorrect data
+            else:
+                logger.warning(f"Unknown gender value: '{value}', leaving blank")
+                return ''
+        
+        transformed_df['Gender'] = transformed_df['Gender'].apply(normalize_gender)
+        gender_counts = transformed_df['Gender'].value_counts().to_dict()
+        logger.info(f"Gender distribution after normalization: {gender_counts}")
         
         # Add each event as a new column
         for event in unique_events:
@@ -187,18 +218,24 @@ class EventRegistrationProcessorV3:
 
     def add_seating_info(self, df: pd.DataFrame, seating_df: pd.DataFrame) -> pd.DataFrame:
         """Add seating information for each event."""
+        # Check if seating_df is empty - some events may not have seating assignments
+        if seating_df.empty or len(seating_df) == 0:
+            logger.info("No seating data found - skipping table assignment columns")
+            return df
+        
         logger.debug("Seating file columns:")
         logger.debug(seating_df.columns.tolist())
         
-        # Clean column names
-        seating_df.columns = seating_df.columns.str.strip()
+        # Clean column names - ensure all are strings first
+        seating_df.columns = seating_df.columns.astype(str).str.strip()
         
         # Standardize column names
         seating_df, missing_columns = self._standardize_columns(seating_df, SeatingColumns.MAPPINGS)
         if missing_columns:
-            logger.debug("Available columns:")
-            logger.debug(seating_df.columns.tolist())
-            raise ValueError(f"Missing required columns in seating data: {', '.join(missing_columns)}")
+            logger.warning("Missing required columns in seating data!")
+            logger.warning(f"Missing columns: {missing_columns}")
+            logger.warning("This event may not have seating assignments. Skipping table columns.")
+            return df
         
         # Group seating by Contact ID and Event, handling duplicates
         logger.info("Processing seating assignments...")
@@ -207,7 +244,8 @@ class EventRegistrationProcessorV3:
         logger.debug(f"Found {len(seating_info)} unique seating assignments")
         
         # Get unique events and initialize table columns with empty strings
-        events_with_seating = sorted(seating_df['Event'].unique())
+        # Filter out NaN/None values before sorting to avoid type comparison errors
+        events_with_seating = sorted([e for e in seating_df['Event'].unique() if pd.notna(e) and str(e).strip() != ''])
         logger.info("Initializing table columns...")
         for event in events_with_seating:
             column_name = f"{event} ~ Table"
@@ -238,15 +276,23 @@ class EventRegistrationProcessorV3:
 
     def add_form_responses(self, df: pd.DataFrame, forms_df: pd.DataFrame) -> pd.DataFrame:
         """Add form responses for each event."""
-        logger.debug("Form responses file columns:")
-        logger.debug(forms_df.columns.tolist())
+        # Check if forms_df is empty - some events may not have form responses
+        if forms_df.empty or len(forms_df) == 0:
+            logger.info("No form responses data found - skipping form response columns")
+            return df
+        
+        logger.info("Form responses file columns BEFORE standardization:")
+        logger.info(forms_df.columns.tolist())
         
         # Standardize column names
         forms_df, missing_columns = self._standardize_columns(forms_df, FormResponseColumns.MAPPINGS)
         if missing_columns:
-            logger.debug("Available columns:")
-            logger.debug(forms_df.columns.tolist())
-            raise ValueError(f"Missing required columns in form responses data: {', '.join(missing_columns)}")
+            logger.warning("Missing required columns in form responses data!")
+            logger.warning(f"Missing columns: {missing_columns}")
+            logger.warning("Available columns AFTER standardization:")
+            logger.warning(forms_df.columns.tolist())
+            logger.warning("\nThis event may not have form responses. Skipping form response columns.")
+            return df
         
         # Ensure Created On is properly parsed as datetime
         try:
@@ -302,15 +348,23 @@ class EventRegistrationProcessorV3:
 
     def add_qr_codes(self, df: pd.DataFrame, qr_df: pd.DataFrame) -> pd.DataFrame:
         """Add QR code information."""
+        # Check if qr_df is empty - some events may not have QR codes yet
+        if qr_df.empty or len(qr_df) == 0:
+            logger.info("No QR code data found - skipping QR code column")
+            df['QR Code'] = ''  # Add empty QR Code column for consistency
+            return df
+        
         logger.debug("QR codes file columns:")
         logger.debug(qr_df.columns.tolist())
         
         # Standardize column names
         qr_df, missing_columns = self._standardize_columns(qr_df, QRCodeColumns.MAPPINGS)
         if missing_columns:
-            logger.debug("Available columns:")
-            logger.debug(qr_df.columns.tolist())
-            raise ValueError(f"Missing required columns in QR codes data: {', '.join(missing_columns)}")
+            logger.warning("Missing required columns in QR codes data!")
+            logger.warning(f"Missing columns: {missing_columns}")
+            logger.warning("This event may not have QR codes. Skipping QR code column.")
+            df['QR Code'] = ''  # Add empty QR Code column
+            return df
         
         # Ensure Created On is properly parsed as datetime
         try:
@@ -426,10 +480,21 @@ class EventRegistrationProcessorV3:
                 original_count = len(result_df)
                 filter_conditions = []
                 
-                # Add Contact ID filter condition
+                # Add Contact ID filter condition (supports both GUID Contact ID and Member ID format)
                 if has_inclusion_list:
                     logger.info(f"Adding Contact ID filter for {len(self.config.inclusion_list)} specified IDs")
+                    
+                    # Check if filtering by Contact ID (GUID) or Member ID (ID-####)
+                    # Support both formats by checking both columns
                     contact_id_condition = result_df['Contact ID'].isin(self.config.inclusion_list)
+                    
+                    # Also check Member ID column if it exists (for ID-#### format)
+                    if 'Member ID' in result_df.columns:
+                        member_id_condition = result_df['Member ID'].isin(self.config.inclusion_list)
+                        # Combine with OR - match either Contact ID or Member ID
+                        contact_id_condition = contact_id_condition | member_id_condition
+                        logger.info("Filtering by both Contact ID (GUID) and Member ID (ID-####) formats")
+                    
                     filter_conditions.append(contact_id_condition)
                 
                 # Add date filter condition (need to get this from original registration data)
@@ -439,7 +504,7 @@ class EventRegistrationProcessorV3:
                     # Re-load registration data to get Created On column for filtering
                     files = self.find_latest_files()
                     reg_df_for_date = pd.read_excel(files[FileTypes.REGISTRATION])
-                    reg_df_for_date.columns = reg_df_for_date.columns.str.strip()
+                    reg_df_for_date.columns = reg_df_for_date.columns.astype(str).str.strip()
                     
                     # Standardize columns to find Created On
                     reg_df_for_date, _ = self._standardize_columns(reg_df_for_date, RegistrationColumns.MAPPINGS)
@@ -489,11 +554,23 @@ class EventRegistrationProcessorV3:
                     
                     # Log details for Contact ID filtering
                     if has_inclusion_list:
-                        found_ids = set(result_df['Contact ID'].unique()) & set(self.config.inclusion_list)
+                        # Check matches in both Contact ID and Member ID columns
+                        found_contact_ids = set(result_df['Contact ID'].unique()) & set(self.config.inclusion_list)
+                        found_member_ids = set()
+                        if 'Member ID' in result_df.columns:
+                            found_member_ids = set(result_df['Member ID'].unique()) & set(self.config.inclusion_list)
+                        
+                        found_ids = found_contact_ids | found_member_ids
                         missing_ids = set(self.config.inclusion_list) - found_ids
-                        logger.info(f"Contact ID filter matched {len(found_ids)} of {len(self.config.inclusion_list)} requested IDs")
+                        
+                        logger.info(f"ID filter matched {len(found_ids)} of {len(self.config.inclusion_list)} requested IDs")
+                        if found_contact_ids:
+                            logger.info(f"  - {len(found_contact_ids)} matched by Contact ID (GUID)")
+                        if found_member_ids:
+                            logger.info(f"  - {len(found_member_ids)} matched by Member ID (ID-####)")
+                        
                         if missing_ids:
-                            logger.warning(f"Could not find data for {len(missing_ids)} contact IDs:")
+                            logger.warning(f"Could not find data for {len(missing_ids)} IDs:")
                             for missing_id in list(missing_ids)[:10]:  # Show first 10 to avoid spam
                                 logger.warning(f"  - {missing_id}")
                             if len(missing_ids) > 10:

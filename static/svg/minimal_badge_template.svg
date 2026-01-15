@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- 
+  MINIMAL Badge Template for Avery 5392 (3" × 3.5")
+  Dimensions: 288px × 336px
+  
+  A simple, clean badge design with just the essentials:
+  - Name
+  - Member ID
+  - Local Club
+  - QR Code
+-->
+
+<svg xmlns="http://www.w3.org/2000/svg" 
+     width="288" 
+     height="336" 
+     viewBox="0 0 288 336">
+  
+  <!-- White Background -->
+  <rect width="288" height="336" fill="#FFFFFF"/>
+  
+  <!-- Simple Border -->
+  <rect x="10" y="10" width="268" height="316" 
+        fill="none" 
+        stroke="#333333" 
+        stroke-width="1" 
+        rx="5"/>
+  
+  <!-- AFRP Logo (Top Left) - Aspect ratio 2.25:1 -->
+  <image x="20" y="20" 
+         width="95" 
+         height="42" 
+         preserveAspectRatio="xMidYMid meet"
+         href="{{AFRP_LOGO}}"/>
+  
+  <!-- Club Logo (Top Right) - Aspect ratio 1.46:1 -->
+  <image x="195" y="20" 
+         width="73" 
+         height="50" 
+         preserveAspectRatio="xMidYMid meet"
+         href="{{CLUB_LOGO}}"/>
+  
+  <!-- Full Name on One Line -->
+  <text x="144" y="140" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="28" 
+        font-weight="bold"
+        fill="#000000">{{FIRST_NAME}} {{LAST_NAME}}</text>
+  
+  <!-- Local Club -->
+  <text x="144" y="180" 
+        text-anchor="middle" 
+        font-family="Arial" 
+        font-size="16" 
+        fill="#4b904b">{{LOCAL_CLUB}}</text>
+  
+  <!-- Member ID (Above QR Code, Bottom Right) -->
+  <text x="243" y="255" 
+        text-anchor="end" 
+        font-family="Arial" 
+        font-size="12" 
+        fill="#666666">{{MEMBER_ID}}</text>
+  
+  <!-- QR Code (Bottom Right) -->
+  <image x="208" y="260" 
+         width="60" 
+         height="60" 
+         href="{{QR_CODE}}"/>
+
+</svg>

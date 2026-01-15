@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Badge Template Mapping | AFRP</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #4b904b 0%, #3c723c 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 28px;
+        }
+
+        .back-btn {
+            background: #4b904b;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .back-btn:hover {
+            background: #3c723c;
+            transform: translateY(-2px);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 20px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .sidebar {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+
+        .sidebar h2 {
+            color: #333;
+            font-size: 18px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-templates-list {
+            list-style: none;
+            margin-bottom: 0;
+            max-height: calc(100vh - 250px);
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-thumb {
+            background: #4b904b;
+            border-radius: 3px;
+        }
+
+        .sidebar-templates-list::-webkit-scrollbar-thumb:hover {
+            background: #3c723c;
+        }
+
+        .sidebar-template-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .sidebar-template-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
+        }
+
+        .sidebar-template-item.active {
+            background: #4b904b;
+            color: white;
+        }
+
+        .sidebar-template-item .delete-btn {
+            background: transparent;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            padding: 5px;
+            display: none;
+        }
+
+        .sidebar-template-item.active .delete-btn {
+            color: white;
+        }
+
+        .sidebar-template-item:hover .delete-btn {
+            display: block;
+        }
+
+        .new-template-btn {
+            width: 100%;
+            padding: 12px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .new-template-btn:hover {
+            background: #218838;
+        }
+
+        @media (max-width: 1400px) {
+            .main-content {
+                grid-template-columns: 250px 1fr;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 900px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                top: 0;
+            }
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-title {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4b904b;
+        }
+
+        .upload-area {
+            border: 2px dashed #4b904b;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover {
+            border-color: #3c723c;
+            background: #f8f9ff;
+        }
+
+        .upload-area.dragover {
+            background: #e8ecff;
+            border-color: #3c723c;
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            color: #4b904b;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .placeholders-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .placeholder-item {
+            background: #f8f9ff;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-left: 4px solid #4b904b;
+        }
+
+        .placeholder-name {
+            font-weight: 600;
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .mapping-select {
+            width: 250px;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .mapping-select:focus {
+            outline: none;
+            border-color: #4b904b;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #4b904b;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            background: white;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #4b904b;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #3c723c;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .actions-row {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .template-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .template-card {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .template-card:hover {
+            border-color: #4b904b;
+            transform: translateX(5px);
+        }
+
+        .template-card.selected {
+            border-color: #4b904b;
+            background: #e8ecff;
+        }
+
+        .template-card-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .template-card-details {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast.show {
+            display: flex;
+        }
+
+        .toast.success {
+            border-left: 4px solid #10b981;
+        }
+
+        .toast.error {
+            border-left: 4px solid #ef4444;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .help-text {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+            font-style: italic;
+        }
+
+        .current-file {
+            background: #e8ecff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .current-file i {
+            color: #4b904b;
+        }
+
+        .current-file-name {
+            color: #333;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .remove-file {
+            color: #ef4444;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        .remove-file:hover {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-id-card"></i> Badge Template Mapping</h1>
+            <a href="/badges" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Badge Generator
+            </a>
+        </div>
+
+        <div class="main-content">
+            <!-- Left Sidebar: Saved Templates -->
+            <div class="sidebar">
+                <h2><i class="fas fa-list"></i> Saved Templates</h2>
+                <ul class="sidebar-templates-list" id="sidebarTemplatesList">
+                    <li style="color: #999; text-align: center; padding: 20px; font-size: 13px;">No templates yet</li>
+                </ul>
+                <button class="new-template-btn" id="sidebarNewTemplateBtn">
+                    <i class="fas fa-plus"></i> New Template
+                </button>
+            </div>
+
+            <!-- Main Grid: Template Configuration & Column Mapping -->
+            <div class="main-grid">
+                <!-- Template Configuration -->
+                <div class="card">
+                <h2 class="card-title"><i class="fas fa-cog"></i> Template Configuration</h2>
+                
+                <!-- Template Name -->
+                <div class="form-group">
+                    <label class="form-label" for="templateName">Template Name</label>
+                    <input type="text" id="templateName" class="form-input" placeholder="e.g., Convention 2025">
+                    <p class="help-text">Give this template a unique name for future use</p>
+                </div>
+
+                <!-- SVG Template Upload -->
+                <div class="form-group">
+                    <label class="form-label" for="svgFileInput">SVG Template File</label>
+                    <div id="currentSvgFile"></div>
+                    <div class="upload-area" id="svgUploadArea">
+                        <div class="upload-icon"><i class="fas fa-file-code"></i></div>
+                        <div class="upload-text">
+                            <strong>Click or drag SVG file here</strong><br>
+                            SVG template with placeholders like {{FIRST_NAME}}
+                        </div>
+                    </div>
+                    <input type="file" id="svgFileInput" class="file-input" accept=".svg">
+                </div>
+
+                <!-- Club Logo Upload -->
+                <div class="form-group">
+                    <label class="form-label" for="logoFileInput">Club Logo (Optional)</label>
+                    <div id="currentLogoFile"></div>
+                    <div class="upload-area" id="logoUploadArea">
+                        <div class="upload-icon"><i class="fas fa-image"></i></div>
+                        <div class="upload-text">
+                            <strong>Click or drag logo file here</strong><br>
+                            PNG, JPG, or SVG format
+                        </div>
+                    </div>
+                    <input type="file" id="logoFileInput" class="file-input" accept=".png,.jpg,.jpeg,.svg,.gif">
+                </div>
+
+                <!-- Avery Template Selector -->
+                <div class="form-group">
+                    <label class="form-label" for="averyTemplate">Avery Template Size</label>
+                    <select id="averyTemplate" class="form-select">
+                        <option value="">Loading templates...</option>
+                    </select>
+                    <p class="help-text">Select the Avery label sheet size you'll be printing on</p>
+                </div>
+            </div>
+
+            <!-- Right Column: Column Mapping -->
+            <div class="card">
+                <h2 class="card-title"><i class="fas fa-link"></i> Column Mapping</h2>
+                
+                <div id="mappingArea">
+                    <div class="empty-state">
+                        <i class="fas fa-upload"></i>
+                        <p>Upload an SVG template to see placeholders</p>
+                    </div>
+                </div>
+
+                <div class="actions-row">
+                    <button class="btn btn-secondary" id="addSubEventBtn">
+                        <i class="fas fa-plus"></i> Add Sub-Event Mapping
+                    </button>
+                    <button class="btn btn-secondary" id="newTemplateBtn">
+                        <i class="fas fa-file"></i> New Template
+                    </button>
+                    <button class="btn btn-secondary" id="duplicateBtn" style="display: none;">
+                        <i class="fas fa-copy"></i> Duplicate
+                    </button>
+                    <button class="btn btn-secondary" id="clearMappingsBtn">
+                        <i class="fas fa-eraser"></i> Clear Mappings
+                    </button>
+                    <button class="btn btn-success" id="saveTemplateBtn">
+                        <i class="fas fa-save"></i> Save Template
+                    </button>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toastMessage"></span>
+    </div>
+
+    <script>
+    {% raw %}
+        let currentSvgFilename = null;
+        let currentLogoFilename = null;
+        let currentLogoWidth = null;
+        let currentLogoHeight = null;
+        let extractedPlaceholders = [];
+        let sampleExcelColumns = []; // Will be loaded from a sample file or defined
+        let currentTemplateId = null; // Track if we're editing an existing template
+        let subEventCounter = 0; // Track how many sub-event mappings exist
+
+        // Sample Excel columns (these should match your actual output columns)
+        const defaultExcelColumns = [
+            'First Name',
+            'Last Name',
+            'Member ID',
+            'Local Club',
+            'QR Code',
+            'Gender',
+            'Age',
+            'Title',
+            'Contact ID',
+            'Meal Preference',
+            'Grand Banquet',
+            'Ahla w Sahla Night',
+            'Mid-Year Meeting 2026 - Lexington',
+            'Grand Banquet ~ Table',
+            'Convention 2025 ~ Table',
+            '-- Custom Event Columns Below --',
+            'Sub-Event 1',
+            'Sub-Event 2',
+            'Sub-Event 3'
+        ];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAveryTemplates();
+            loadSavedTemplates();
+            loadSampleExcelColumns();
+            setupUploadAreas();
+            setupEventListeners();
+        });
+
+        function setupUploadAreas() {
+            // SVG Upload
+            const svgArea = document.getElementById('svgUploadArea');
+            const svgInput = document.getElementById('svgFileInput');
+
+            svgArea.addEventListener('click', () => svgInput.click());
+            svgInput.addEventListener('change', handleSvgUpload);
+
+            svgArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                svgArea.classList.add('dragover');
+            });
+
+            svgArea.addEventListener('dragleave', () => {
+                svgArea.classList.remove('dragover');
+            });
+
+            svgArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                svgArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    svgInput.files = e.dataTransfer.files;
+                    handleSvgUpload();
+                }
+            });
+
+            // Logo Upload (similar setup)
+            const logoArea = document.getElementById('logoUploadArea');
+            const logoInput = document.getElementById('logoFileInput');
+
+            logoArea.addEventListener('click', () => logoInput.click());
+            logoInput.addEventListener('change', handleLogoUpload);
+
+            logoArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                logoArea.classList.add('dragover');
+            });
+
+            logoArea.addEventListener('dragleave', () => {
+                logoArea.classList.remove('dragover');
+            });
+
+            logoArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                logoArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    logoInput.files = e.dataTransfer.files;
+                    handleLogoUpload();
+                }
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('saveTemplateBtn').addEventListener('click', saveTemplate);
+            document.getElementById('clearMappingsBtn').addEventListener('click', clearMappings);
+            document.getElementById('newTemplateBtn').addEventListener('click', resetForm);
+            document.getElementById('sidebarNewTemplateBtn').addEventListener('click', resetForm);
+            document.getElementById('duplicateBtn').addEventListener('click', duplicateTemplate);
+            document.getElementById('addSubEventBtn').addEventListener('click', addSubEventMapping);
+        }
+
+        async function handleSvgUpload() {
+            const fileInput = document.getElementById('svgFileInput');
+            if (!fileInput.files || !fileInput.files[0]) return;
+
+            const file = fileInput.files[0];
+            if (!file.name.endsWith('.svg')) {
+                showToast('Please upload an SVG file', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/badge-templates/upload-svg', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Upload failed');
+                }
+
+                const data = await response.json();
+                currentSvgFilename = data.filename;
+                extractedPlaceholders = data.placeholders;
+
+                // Show current file
+                document.getElementById('currentSvgFile').innerHTML = `
+                    <div class="current-file">
+                        <i class="fas fa-file-code"></i>
+                        <span class="current-file-name">${data.filename}</span>
+                        <i class="fas fa-times remove-file" onclick="removeSvgFile()"></i>
+                    </div>
+                `;
+
+                // Render mapping interface
+                renderMappingInterface();
+
+                showToast('SVG template uploaded successfully', 'success');
+            } catch (error) {
+                showToast('Error uploading SVG: ' + error.message, 'error');
+            }
+        }
+
+        async function handleLogoUpload() {
+            const fileInput = document.getElementById('logoFileInput');
+            if (!fileInput.files || !fileInput.files[0]) return;
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/badge-logos/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Upload failed');
+                }
+
+                const data = await response.json();
+                currentLogoFilename = data.filename;
+                currentLogoWidth = data.width;
+                currentLogoHeight = data.height;
+
+                // Show current file
+                document.getElementById('currentLogoFile').innerHTML = `
+                    <div class="current-file">
+                        <i class="fas fa-image"></i>
+                        <span class="current-file-name">${data.filename} (${data.width}x${data.height})</span>
+                        <i class="fas fa-times remove-file" onclick="removeLogoFile()"></i>
+                    </div>
+                `;
+
+                showToast('Logo uploaded successfully', 'success');
+            } catch (error) {
+                showToast('Error uploading logo: ' + error.message, 'error');
+            }
+        }
+
+        function removeSvgFile() {
+            currentSvgFilename = null;
+            extractedPlaceholders = [];
+            document.getElementById('currentSvgFile').innerHTML = '';
+            document.getElementById('svgFileInput').value = '';
+            document.getElementById('mappingArea').innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-upload"></i>
+                    <p>Upload an SVG template to see placeholders</p>
+                </div>
+            `;
+        }
+
+        function removeLogoFile() {
+            currentLogoFilename = null;
+            currentLogoWidth = null;
+            currentLogoHeight = null;
+            document.getElementById('currentLogoFile').innerHTML = '';
+            document.getElementById('logoFileInput').value = '';
+        }
+
+        function renderMappingInterface(savedMappings = {}) {
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:renderMappingInterface:entry',message:'renderMappingInterface called',data:{savedMappingsCount:Object.keys(savedMappings).length,savedMappings:savedMappings,extractedPlaceholdersCount:extractedPlaceholders.length,sampleExcelColumnsCount:sampleExcelColumns.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            
+            console.log('renderMappingInterface called with savedMappings:', savedMappings);
+            console.log('extractedPlaceholders:', extractedPlaceholders);
+            
+            if (extractedPlaceholders.length === 0 && Object.keys(savedMappings).length === 0) {
+                document.getElementById('mappingArea').innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-upload"></i>
+                        <p>Upload an SVG template to see placeholders</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Separate regular placeholders and sub-event placeholders
+            const regularPlaceholders = extractedPlaceholders.filter(p => !p.includes('SUBEVENT'));
+            const subEventPlaceholders = extractedPlaceholders.filter(p => p.includes('SUBEVENT'));
+            
+            console.log('Regular placeholders:', regularPlaceholders);
+            console.log('Sub-event placeholders:', subEventPlaceholders);
+            
+            // Also check saved mappings for sub-events
+            const savedSubEvents = Object.keys(savedMappings).filter(p => p.includes('SUBEVENT'));
+            
+            // Update counter based only on saved sub-events (not SVG placeholders)
+            // User can add more via "Add Sub-Event Mapping" button
+            subEventCounter = savedSubEvents.length;
+            
+            console.log('subEventCounter:', subEventCounter);
+
+            let html = '<div class="placeholders-list">';
+            
+            // Render regular placeholders
+            regularPlaceholders.forEach(placeholder => {
+                const savedValue = savedMappings[placeholder];
+                console.log(`Rendering ${placeholder}, savedValue:`, savedValue);
+                html += `
+                    <div class="placeholder-item">
+                        <span class="placeholder-name">${placeholder}</span>
+                        <select class="mapping-select" data-placeholder="${placeholder}">
+                            <option value="">-- Select Column --</option>
+                            ${sampleExcelColumns.map(col => `
+                                <option value="${col}" ${savedValue === col ? 'selected' : ''}>${col}</option>
+                            `).join('')}
+                        </select>
+                    </div>
+                `;
+            });
+            
+            // Add section header for sub-events if any exist
+            if (subEventCounter > 0 || subEventPlaceholders.length > 0) {
+                html += `
+                    <div style="margin-top: 20px; padding: 10px; background: #f8f9ff; border-left: 4px solid #4b904b;">
+                        <strong style="color: #4b904b;"><i class="fas fa-calendar-alt"></i> Sub-Event Mappings</strong>
+                        <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Map each sub-event placeholder to a column. Click the + button to add more.</p>
+                    </div>
+                `;
+            }
+            
+            // Only render sub-event placeholders that are actually saved in mappings
+            // Do NOT render all sub-events from SVG - only the ones user has mapped
+            savedSubEvents.forEach(placeholder => {
+                const savedValue = savedMappings[placeholder];
+                html += renderSubEventMapping(placeholder, savedValue);
+            });
+            
+            html += '</div>';
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:renderMappingInterface:before_dom_insert',message:'About to insert HTML into DOM',data:{htmlLength:html.length,htmlPreview:html.substring(0,500),regularPlaceholdersCount:extractedPlaceholders.filter(p => !p.includes('SUBEVENT')).length,subEventCount:subEventCounter},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            
+            document.getElementById('mappingArea').innerHTML = html;
+        }
+
+        function renderSubEventMapping(placeholder, savedValue) {
+            return `
+                <div class="placeholder-item" data-subevent-placeholder="${placeholder}">
+                    <span class="placeholder-name">${placeholder}</span>
+                    <div style="display: flex; gap: 8px; align-items: center; flex: 1;">
+                        <select class="mapping-select" data-placeholder="${placeholder}" style="flex: 1;">
+                            <option value="">-- Select Column --</option>
+                            ${sampleExcelColumns.map(col => {
+                                const isSelected = savedValue === col;
+                                return `<option value="${col}" ${isSelected ? 'selected' : ''}>${col}</option>`;
+                            }).join('')}
+                        </select>
+                        <button onclick="removeSubEventMapping('${placeholder}')" style="background: #ef4444; color: white; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 14px; flex-shrink: 0;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function addSubEventMapping() {
+            subEventCounter++;
+            const placeholder = '{{SUBEVENT_' + subEventCounter + '}}';
+            
+            // Add to extracted placeholders if not already there
+            if (!extractedPlaceholders.includes(placeholder)) {
+                extractedPlaceholders.push(placeholder);
+            }
+            
+            // Re-render the interface
+            const currentMappings = getMappings();
+            renderMappingInterface(currentMappings);
+            
+            showToast('Added ' + placeholder + ' mapping', 'success');
+        }
+
+        function removeSubEventMapping(placeholder) {
+            // Remove from extractedPlaceholders
+            const index = extractedPlaceholders.indexOf(placeholder);
+            if (index > -1) {
+                extractedPlaceholders.splice(index, 1);
+            }
+            
+            // Re-render
+            const currentMappings = getMappings();
+            delete currentMappings[placeholder];
+            renderMappingInterface(currentMappings);
+            
+            showToast('Removed ' + placeholder + ' mapping', 'success');
+        }
+
+        function getMappings() {
+            const mappings = {};
+            const selects = document.querySelectorAll('.mapping-select');
+            
+            selects.forEach(select => {
+                const placeholder = select.dataset.placeholder;
+                const column = select.value;
+                if (column) {
+                    mappings[placeholder] = column;
+                }
+            });
+
+            return mappings;
+        }
+
+        function clearMappings() {
+            const selects = document.querySelectorAll('.mapping-select');
+            selects.forEach(select => select.value = '');
+        }
+
+        async function saveTemplate() {
+            const templateName = document.getElementById('templateName').value.trim();
+            const averyTemplate = document.getElementById('averyTemplate').value;
+            const mappings = getMappings();
+
+            // Validation
+            if (!templateName) {
+                showToast('Please enter a template name', 'error');
+                return;
+            }
+
+            if (!currentSvgFilename) {
+                showToast('Please upload an SVG template', 'error');
+                return;
+            }
+
+            if (Object.keys(mappings).length === 0) {
+                showToast('Please map at least one placeholder', 'error');
+                return;
+            }
+
+            try {
+                const payload = {
+                    name: templateName,
+                    svg_filename: currentSvgFilename,
+                    club_logo_filename: currentLogoFilename,
+                    club_logo_width: currentLogoWidth,
+                    club_logo_height: currentLogoHeight,
+                    column_mappings: mappings,
+                    avery_template: averyTemplate || '5392'
+                };
+
+                let response;
+                if (currentTemplateId) {
+                    // Update existing template
+                    response = await fetch(`/api/badge-templates/${currentTemplateId}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                } else {
+                    // Create new template
+                    response = await fetch('/api/badge-templates', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(payload)
+                    });
+                }
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Save failed');
+                }
+
+                showToast(currentTemplateId ? 'Template updated successfully' : 'Template saved successfully', 'success');
+                loadSavedTemplates();
+
+                // Clear form
+                resetForm();
+            } catch (error) {
+                showToast('Error saving template: ' + error.message, 'error');
+            }
+        }
+
+        function resetForm() {
+            currentTemplateId = null;
+            subEventCounter = 0;
+            document.getElementById('templateName').value = '';
+            document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
+            document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
+            clearMappings();
+            removeSvgFile();
+            removeLogoFile();
+        }
+
+        async function loadAveryTemplates() {
+            try {
+                const response = await fetch('/api/avery-templates');
+                if (!response.ok) throw new Error('Failed to load templates');
+
+                const data = await response.json();
+                const select = document.getElementById('averyTemplate');
+                
+                select.innerHTML = data.templates.map(t => `
+                    <option value="${t.code}" ${t.code === '5392' ? 'selected' : ''}>
+                        ${t.name} (${t.size}) - ${t.layout}
+                    </option>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading Avery templates:', error);
+            }
+        }
+
+        async function loadSavedTemplates() {
+            try {
+                const response = await fetch('/api/badge-templates');
+                if (!response.ok) throw new Error('Failed to load templates');
+
+                const data = await response.json();
+                const container = document.getElementById('sidebarTemplatesList');
+
+                if (data.templates.length === 0) {
+                    container.innerHTML = '<li style="color: #999; text-align: center; padding: 20px; font-size: 13px;">No templates yet</li>';
+                    return;
+                }
+
+                container.innerHTML = data.templates.map(t => `
+                    <li class="sidebar-template-item ${currentTemplateId === t.id ? 'active' : ''}" onclick="loadTemplate(${t.id})">
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.name}</span>
+                        <button class="delete-btn" onclick="event.stopPropagation(); deleteTemplate(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </li>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading saved templates:', error);
+            }
+        }
+
+        async function loadTemplate(templateId) {
+            try {
+                const response = await fetch(`/api/badge-templates/${templateId}`);
+                if (!response.ok) throw new Error('Failed to load template');
+
+                const template = await response.json();
+                
+                // #region agent log
+                fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:entry',message:'Template loaded from API',data:{templateId:templateId,hasColumnMappings:!!template.column_mappings,columnMappingsType:typeof template.column_mappings,columnMappingsKeys:template.column_mappings ? Object.keys(template.column_mappings).length : 0,rawColumnMappings:template.column_mappings},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+
+                // Set current template ID for updating
+                currentTemplateId = template.id;
+
+                // Populate form
+                document.getElementById('templateName').value = template.name;
+                document.getElementById('averyTemplate').value = template.avery_template;
+
+                // Change button text to indicate update mode
+                document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Update Template';
+
+                // Load SVG file and extract placeholders
+                if (template.svg_filename) {
+                    currentSvgFilename = template.svg_filename;
+                    document.getElementById('currentSvgFile').innerHTML = `
+                        <div class="current-file">
+                            <i class="fas fa-file-code"></i>
+                            <span class="current-file-name">${template.svg_filename}</span>
+                            <i class="fas fa-times remove-file" onclick="removeSvgFile()"></i>
+                        </div>
+                    `;
+
+                    // Fetch the SVG file to extract placeholders
+                    try {
+                        const svgResponse = await fetch(`/badge_templates/${template.svg_filename}`);
+                        if (svgResponse.ok) {
+                            const svgContent = await svgResponse.text();
+                            // Extract placeholders using regex
+                            const placeholderPattern = /\{\{([A-Z_0-9]+)\}\}/g;
+                            const matches = svgContent.matchAll(placeholderPattern);
+                            extractedPlaceholders = [...new Set([...matches].map(m => '{{' + m[1] + '}}'))].sort();
+                            
+                            // #region agent log
+                            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:svg_extracted',message:'Placeholders extracted from SVG',data:{extractedCount:extractedPlaceholders.length,extractedPlaceholders:extractedPlaceholders,svgContentLength:svgContent.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+                            // #endregion
+                            
+                            // Parse saved column mappings
+                            console.log('Raw template.column_mappings:', template.column_mappings);
+                            console.log('Type:', typeof template.column_mappings);
+                            
+                            const columnMappings = typeof template.column_mappings === 'string' 
+                                ? JSON.parse(template.column_mappings) 
+                                : (template.column_mappings || {});
+                            
+                            console.log('Parsed columnMappings:', columnMappings);
+                            console.log('Number of mappings:', Object.keys(columnMappings).length);
+                            
+                            // Also add any placeholders from saved mappings that might not be in the SVG anymore
+                            const savedPlaceholders = Object.keys(columnMappings);
+                            savedPlaceholders.forEach(ph => {
+                                if (!extractedPlaceholders.includes(ph)) {
+                                    extractedPlaceholders.push(ph);
+                                }
+                            });
+                            extractedPlaceholders.sort();
+                            
+                            console.log('Extracted placeholders:', extractedPlaceholders);
+                            console.log('Saved mappings:', columnMappings);
+                            console.log('Sample columns available:', sampleExcelColumns.length);
+                            
+                            // #region agent log
+                            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:before_render',message:'About to call renderMappingInterface',data:{extractedPlaceholdersCount:extractedPlaceholders.length,extractedPlaceholders:extractedPlaceholders,columnMappingsCount:Object.keys(columnMappings).length,columnMappings:columnMappings,sampleExcelColumnsCount:sampleExcelColumns.length,sampleExcelColumns:sampleExcelColumns},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,D,E'})}).catch(()=>{});
+                            // #endregion
+                            
+                            // Render mapping interface with saved mappings
+                            renderMappingInterface(columnMappings);
+                        }
+                    } catch (svgError) {
+                        console.error('Error loading SVG content:', svgError);
+                        showToast('Loaded template but could not extract placeholders', 'error');
+                    }
+                }
+
+                // Load club logo if exists
+                if (template.club_logo_filename) {
+                    currentLogoFilename = template.club_logo_filename;
+                    currentLogoWidth = template.club_logo_width;
+                    currentLogoHeight = template.club_logo_height;
+                    const dimensionText = (template.club_logo_width && template.club_logo_height) 
+                        ? ` (${template.club_logo_width}x${template.club_logo_height})` 
+                        : '';
+                    document.getElementById('currentLogoFile').innerHTML = `
+                        <div class="current-file">
+                            <i class="fas fa-image"></i>
+                            <span class="current-file-name">${template.club_logo_filename}${dimensionText}</span>
+                            <i class="fas fa-times remove-file" onclick="removeLogoFile()"></i>
+                        </div>
+                    `;
+                }
+
+                document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
+                showToast('Template loaded for editing', 'success');
+            } catch (error) {
+                showToast('Error loading template: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteTemplate(templateId, templateName) {
+            if (!confirm(`Are you sure you want to delete the template "${templateName}"?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/badge-templates/${templateId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Delete failed');
+                }
+
+                showToast('Template deleted successfully', 'success');
+                loadSavedTemplates();
+
+                // If we're currently editing this template, reset the form
+                if (currentTemplateId === templateId) {
+                    resetForm();
+                }
+            } catch (error) {
+                showToast('Error deleting template: ' + error.message, 'error');
+            }
+        }
+
+        async function duplicateTemplate() {
+            if (!currentTemplateId) {
+                showToast('No template selected to duplicate', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/badge-templates/${currentTemplateId}/duplicate`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to duplicate template');
+                }
+                
+                const result = await response.json();
+                showToast(result.message || 'Template duplicated successfully!', 'success');
+                
+                await loadSavedTemplates();
+                // Load the newly created template
+                await loadTemplate(result.template.id);
+            } catch (error) {
+                showToast('Error duplicating template: ' + error.message, 'error');
+            }
+        }
+
+        function loadSampleExcelColumns() {
+            // For now, use default columns
+            // In a real app, you might fetch these from a sample file
+            sampleExcelColumns = defaultExcelColumns;
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMessage = document.getElementById('toastMessage');
+            const icon = toast.querySelector('i');
+
+            toastMessage.textContent = message;
+            toast.className = `toast ${type} show`;
+
+            if (type === 'success') {
+                icon.className = 'fas fa-check-circle';
+            } else {
+                icon.className = 'fas fa-exclamation-circle';
+            }
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 5000);
+        }
+    {% endraw %}
+    </script>
+</body>
+</html>
