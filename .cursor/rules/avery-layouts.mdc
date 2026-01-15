@@ -1,0 +1,317 @@
+---
+globs: utils/badges/badge_generator.py
+description: Avery label specifications, PDF layout calculations, and badge spacing requirements
+---
+
+# Avery Label Layout Specifications
+
+## Overview
+This rule defines the precise dimensions and layouts for Avery label sheets used in badge generation. Accurate specifications are critical for proper alignment when printing.
+
+## Standard Page Size
+All Avery templates fit on **Letter size** paper:
+- Width: 8.5 inches
+- Height: 11.0 inches
+- Orientation: Portrait
+
+## Avery 5392 Specifications (Most Common)
+
+### Label Dimensions
+- **Label Width**: 4.0 inches
+- **Label Height**: 3.0 inches
+- **Orientation**: Portrait
+
+### Page Layout
+- **Columns**: 2
+- **Rows**: 3
+- **Total Badges per Sheet**: 6
+
+### Margins and Gaps
+- **Left Margin**: 0.25 inches
+- **Top Margin**: 1.0 inches (measured from top of sheet)
+- **Horizontal Gap**: 0.0 inches (no gap between columns)
+- **Vertical Gap**: 0.0 inches (no gap between rows)
+
+### Critical Calculations
+```
+Total Width = Left Margin + (Columns × Width) + ((Columns-1) × H-Gap)
+            = 0.25 + (2 × 4.0) + (1 × 0.0)
+            = 8.25 inches ✓ (fits in 8.5")
+
+Total Height = Top Margin + (Rows × Height) + ((Rows-1) × V-Gap)
+             = 1.0 + (3 × 3.0) + (2 × 0.0)
+             = 10.0 inches ✓ (fits in 11.0")
+```
+
+### Visual Layout
+```
+┌─────────────────────────────────────┐
+│ Top Margin: 1.0"                    │
+│ ┌─────────┐        ┌─────────┐     │  ← Row 1
+│ │ 4.0"×3.0│        │ 4.0"×3.0│     │
+│ └─────────┘        └─────────┘     │
+│ ┌─────────┐        ┌─────────┐     │  ← Row 2
+│ │ 4.0"×3.0│        │ 4.0"×3.0│     │
+│ └─────────┘        └─────────┘     │
+│ ┌─────────┐        ┌─────────┐     │  ← Row 3
+│ │ 4.0"×3.0│        │ 4.0"×3.0│     │
+│ └─────────┘        └─────────┘     │
+│ Left: 0.25"                         │
+└─────────────────────────────────────┘
+```
+
+### Code Implementation
+```python
+'5392': {
+    'name': 'Avery 5392 - Name Badge Insert Refills',
+    'width': 4.0,
+    'height': 3.0,
+    'cols': 2,
+    'rows': 3,
+    'margin_left': 0.25,
+    'margin_top': 1.0,
+    'gap_horizontal': 0.0,
+    'gap_vertical': 0.0,
+    'orientation': 'portrait'
+}
+```
+
+## Other Supported Avery Templates
+
+### Avery 5395 (Name Badge Insert Refills)
+- **Size**: 2.625" × 3.625"
+- **Layout**: 2 columns × 2 rows = 8 per sheet
+- **Margins**: Left 1.125", Top 1.0"
+- **Gaps**: Horizontal 0.5", Vertical 0.0"
+
+### Avery 8395 (Name Badge Labels)
+- **Size**: 2.625" × 3.625"
+- **Layout**: 2 columns × 2 rows = 8 per sheet
+- **Margins**: Left 1.125", Top 1.0"
+- **Gaps**: Horizontal 0.5", Vertical 0.0"
+
+### Avery 74459 (Removable Name Badge Labels)
+- **Size**: 2.25" × 3.5"
+- **Layout**: 3 columns × 2 rows = 12 per sheet
+- **Margins**: Left 0.625", Top 1.5"
+- **Gaps**: Horizontal 0.25", Vertical 0.5"
+
+## SVG Template Dimensions
+
+### Conversion Formula
+At 96 DPI (standard web resolution):
+```
+Pixels = Inches × 96
+```
+
+### Avery 5392 SVG
+- Width: 4.0" × 96 = **384 pixels**
+- Height: 3.0" × 96 = **288 pixels**
+- ViewBox: `"0 0 384 288"`
+
+### SVG Example
+```xml
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="384" height="288"
+     viewBox="0 0 384 288">
+  <!-- Badge content here -->
+</svg>
+```
+
+## Common Layout Issues and Fixes
+
+### Issue 1: Bottom Row Cut Off
+**Cause**: Total height exceeds 11 inches
+**Solution**: Reduce badge height or adjust margins
+**Example**: 3 rows × 4.0" = 12" (too tall!)
+**Fix**: Reduce to 3 rows × 3.5" = 10.5" ✓
+
+### Issue 2: Gaps Between Rows
+**Cause**: Incorrect vertical gap or margin calculations
+**Solution**: Verify `gap_vertical` is set correctly
+**Check**: Ensure (margin_top + rows × height + (rows-1) × gap) ≤ 11.0"
+
+### Issue 3: Badges Not Centered
+**Cause**: Incorrect left margin
+**Solution**: Calculate: (8.5 - (cols × width + (cols-1) × h_gap)) / 2
+**Avery 5392**: (8.5 - 8.0) / 2 = 0.25" ✓
+
+### Issue 4: Alignment Off After Printing
+**Causes**:
+1. **Print Settings**: Not using "Actual Size" or "100%"
+2. **Printer Margins**: Printer adding its own margins
+3. **Paper Feed**: Slight paper misalignment
+
+**Solutions**:
+1. Always print at **100% scale** (not "Fit to Page")
+2. Use **high-quality print mode**
+3. **Test print** one sheet first
+4. **Measure** printed output against ruler
+5. **Adjust margins** in code if consistently off
+
+## Testing Procedure
+
+### Before Mass Printing
+1. **Generate 6 badges** (one sheet)
+2. **Print on plain paper** first
+3. **Overlay** on actual Avery sheet
+4. **Check alignment** with light box
+5. **Measure** with ruler:
+   - Distance from left edge to first badge
+   - Distance from top edge to first badge
+   - Space between badges
+6. **Adjust margins** if needed
+7. **Print final test** on actual Avery sheet
+8. **Verify QR codes** scan properly
+9. **Scale to full event** if perfect
+
+### Measurement Checklist
+- [ ] Left margin matches spec (±0.1")
+- [ ] Top margin matches spec (±0.1")
+- [ ] Badge width matches Avery pocket (±0.1")
+- [ ] Badge height matches Avery pocket (±0.1")
+- [ ] All 6 badges fit on page
+- [ ] No content cut off
+- [ ] QR codes scannable
+- [ ] Text readable
+
+## Printer Settings
+
+### Recommended Settings
+- **Scale**: 100% / Actual Size
+- **Paper Size**: Letter (8.5" × 11")
+- **Orientation**: Portrait
+- **Quality**: High / Best
+- **Color**: Color (for logos)
+- **Duplex**: Off (single-sided)
+
+### Settings to Avoid
+- ❌ "Fit to Page" or "Scale to Fit"
+- ❌ "Auto-rotate"
+- ❌ Custom paper sizes
+- ❌ Draft quality
+
+## Code Structure
+
+### AVERY_TEMPLATES Dictionary
+Located in [utils/badges/badge_generator.py](mdc:utils/badges/badge_generator.py):
+
+```python
+AVERY_TEMPLATES = {
+    '5392': {
+        'name': 'Avery 5392 - Name Badge Insert Refills',
+        'width': 4.0,           # inches
+        'height': 3.0,          # inches
+        'cols': 2,              # number of columns
+        'rows': 3,              # number of rows
+        'margin_left': 0.25,    # inches from left edge
+        'margin_top': 1.0,      # inches from top edge
+        'gap_horizontal': 0.0,  # inches between columns
+        'gap_vertical': 0.0,    # inches between rows
+        'orientation': 'portrait'
+    },
+    # ... other templates
+}
+```
+
+### PDF Generation Logic
+```python
+def generate_pdf(self, attendee_data, template_id, avery_template_code):
+    # Get Avery specs
+    spec = AVERY_TEMPLATES[avery_template_code]
+    
+    # Calculate badge dimensions
+    badge_width = spec['width'] * inch
+    badge_height = spec['height'] * inch
+    
+    # Calculate positions
+    margin_left = spec['margin_left'] * inch
+    margin_top = spec['margin_top'] * inch
+    gap_h = spec['gap_horizontal'] * inch
+    gap_v = spec['gap_vertical'] * inch
+    
+    # Position each badge
+    for idx, row_data in enumerate(attendee_data):
+        row = idx // spec['cols']
+        col = idx % spec['cols']
+        
+        x = margin_left + col * (badge_width + gap_h)
+        y = page_height - margin_top - (row + 1) * badge_height - row * gap_v
+        
+        # Render badge at (x, y)
+```
+
+## Adding New Avery Templates
+
+### Step 1: Find Specifications
+Look up on Avery website or measure physical sheet:
+- Label dimensions (width × height)
+- Number of columns and rows
+- Margins from edges
+- Gaps between labels
+
+### Step 2: Verify Math
+```
+Total Width = margin_left + (cols × width) + ((cols-1) × h_gap)
+Total Height = margin_top + (rows × height) + ((rows-1) × v_gap)
+
+Must be: Total Width ≤ 8.5" and Total Height ≤ 11.0"
+```
+
+### Step 3: Add to Dictionary
+```python
+'NEW_CODE': {
+    'name': 'Avery NEW_CODE - Description',
+    'width': X.XX,
+    'height': Y.YY,
+    'cols': N,
+    'rows': M,
+    'margin_left': L,
+    'margin_top': T,
+    'gap_horizontal': GH,
+    'gap_vertical': GV,
+    'orientation': 'portrait'
+}
+```
+
+### Step 4: Create Matching SVG
+- Width: `width * 96` pixels
+- Height: `height * 96` pixels
+- ViewBox: `"0 0 {width*96} {height*96}"`
+
+### Step 5: Test Print
+Follow testing procedure above to verify alignment.
+
+## Troubleshooting
+
+### PDF Pages Blank
+- Check SVG file exists in `badge_templates/` folder
+- Verify SVG has valid content (not just placeholders)
+- Check badge_generator.py logs for errors
+
+### Spacing Inconsistent
+- Verify `gap_horizontal` and `gap_vertical` are correct
+- Check for rounding errors in calculations
+- Ensure using `inch` constant from reportlab
+
+### Content Cut Off
+- Reduce font sizes or content
+- Check SVG viewBox matches rendered size
+- Leave 0.25" margin from badge edges
+
+### QR Codes Not Scanning
+- Minimum size: 0.75" × 0.75"
+- High contrast (black on white)
+- Print quality: High/Best
+- Check QR code data is valid
+
+## Best Practices
+
+1. **Always test print** on plain paper first
+2. **Use high-quality mode** for final printing
+3. **Check alignment** with overlay method
+4. **Keep margins** ≥0.25" for print safety
+5. **Verify math** before adding new templates
+6. **Document changes** to standard templates
+7. **Test QR codes** with real scanner
+8. **Measure printed output** with ruler

@@ -192,6 +192,8 @@ class BadgeTemplate(db.Model):
     name = db.Column(db.String(200), nullable=False, unique=True)
     svg_filename = db.Column(db.String(255), nullable=False)
     club_logo_filename = db.Column(db.String(255), nullable=True)
+    club_logo_width = db.Column(db.Integer, nullable=True)  # Original width in pixels
+    club_logo_height = db.Column(db.Integer, nullable=True)  # Original height in pixels
     column_mappings = db.Column(db.Text, nullable=False)  # JSON string
     avery_template = db.Column(db.String(50), default='5392')  # Avery template number
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -205,6 +207,8 @@ class BadgeTemplate(db.Model):
             'name': self.name,
             'svg_filename': self.svg_filename,
             'club_logo_filename': self.club_logo_filename,
+            'club_logo_width': self.club_logo_width,
+            'club_logo_height': self.club_logo_height,
             'column_mappings': json.loads(self.column_mappings) if self.column_mappings else {},
             'avery_template': self.avery_template,
             'created_at': self.created_at.isoformat() if self.created_at else None,

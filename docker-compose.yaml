@@ -17,8 +17,8 @@ services:
       - ./badge_logos:/app/badge_logos
       # Mount static folder for easy access to logos and SVG samples
       - ./static:/app/static
-    environment:
-      - PYTHONUNBUFFERED=1  # Ensure Python output is sent to container logs without buffering
+    env_file:
+      - ./config/.env
     dns:
       - 8.8.8.8
       - 8.8.4.4

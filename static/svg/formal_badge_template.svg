@@ -39,16 +39,18 @@
   <!-- HEADER SECTION         -->
   <!-- ====================== -->
   
-  <!-- AFRP Logo (Small, Top Left) -->
+  <!-- AFRP Logo (Small, Top Left) - Aspect ratio 2.25:1 -->
   <image x="25" y="30" 
-         width="40" 
-         height="40" 
+         width="85" 
+         height="38" 
+         preserveAspectRatio="xMidYMid meet"
          href="{{AFRP_LOGO}}"/>
   
-  <!-- Club Logo (Small, Top Right) -->
-  <image x="223" y="30" 
-         width="40" 
-         height="40" 
+  <!-- Club Logo (Small, Top Right) - Aspect ratio 1.46:1 -->
+  <image x="213" y="30" 
+         width="55" 
+         height="38" 
+         preserveAspectRatio="xMidYMid meet"
          href="{{CLUB_LOGO}}"/>
   
   <!-- Horizontal Divider -->

@@ -1,0 +1,380 @@
+---
+globs: templates/preprocessing_designer.html,utils/badges/pre_processing_module.py,app.py
+description: Data preprocessing system for transforming CRM data with user-configurable templates
+---
+
+# Data Preprocessing System
+
+## Overview
+The preprocessing system allows users to create custom data transformation rules without writing code. Templates are stored in the database and applied dynamically during data processing.
+
+## System Architecture
+
+### Evolution from Code to Database
+**Old System (Deprecated)**:
+- Hard-coded Python classes in `utils/badges/event_preprocessing/`
+- Required code changes and container rebuilds
+- Classes: `Convention2025Preprocessing`, `Lex2026Preprocessing`, etc.
+
+**New System (Current)**:
+- Database-driven templates (`PreprocessingTemplate` model)
+- User-configurable via web UI
+- No code changes or rebuilds needed
+- Dynamic class creation at runtime
+
+### Data Flow
+```
+User creates template → Saved to database → Selected in UI → 
+Applied during processing → Transformed data output
+```
+
+## Database Model
+
+### PreprocessingTemplate
+```python
+id: Integer (Primary Key)
+name: String (200, Unique)
+description: Text (Optional) - What the template does
+value_mappings: Text (JSON) - Exact match replacements
+contains_mappings: Text (JSON) - Substring removals
+created_at: DateTime
+updated_at: DateTime
+```
+
+### Example Data
+```json
+{
+  "id": 1,
+  "name": "Lexington 2026",
+  "description": "Preprocessing for Lex2026 convention",
+  "value_mappings": {
+    "Steak": "S",
+    "Chicken": "C",
+    "Vegetarian": "V",
+    "No Club Affiliation": " "
+  },
+  "contains_mappings": {
+    "- Reserved": "",
+    "Ramallah Federation in ": "",
+    "(Ages 13-17)": ""
+  }
+}
+```
+
+## Transformation Types
+
+### Value Mappings (Exact Match)
+Replace entire field values:
+- **Use case**: Shortening text, standardizing values
+- **Examples**:
+  - "Steak" → "S" (meal preference abbreviation)
+  - "No Club Affiliation" → " " (remove text)
+  - "Mid-Year Meeting 2026 - Lexington" → "Lexington 2026"
+
+### Contains Mappings (Substring Match)
+Remove text that appears anywhere in a field:
+- **Use case**: Cleaning up excess text, removing notes
+- **Examples**:
+  - "- Reserved" → "" (remove reservation note)
+  - "Ramallah Federation in " → "" (remove prefix)
+  - "(Ages 13-17)" → "" (remove age restriction)
+
+### Processing Order
+1. **Contains mappings** applied first (substring removal)
+2. **Value mappings** applied second (exact replacement)
+
+## Preprocessing Designer UI
+
+### Page Layout
+```
++----------+----------------------------------+
+| Saved    | Template Configuration           |
+| Templates|                                  |
+| (Sidebar)| - Name, Description              |
+|          | - Value Mappings (key-value)     |
+|          | - Contains Mappings (key-value)  |
+|          | - Action Buttons                 |
++----------+----------------------------------+
+```
+
+### Sidebar Features
+- **Template List**: Click to edit
+- **Active Indicator**: Green highlight for current template
+- **New Template Button**: Create from scratch
+- **Delete Icons**: Remove templates (with confirmation)
+
+### Main Panel Components
+
+#### Template Information
+- **Name**: Required, unique identifier
+- **Description**: Optional context about what it does
+
+#### Value Mappings Section
+- **Add Mapping Button**: Add new key-value pair
+- **Remove Button**: Delete individual mapping
+- **Free Text Input**: Both key and value are editable
+- **Example Box**: Shows real-world use cases
+
+#### Contains Mappings Section
+- **Add Mapping Button**: Add new key-value pair
+- **Remove Button**: Delete individual mapping
+- **Free Text Input**: Both key and value are editable
+- **Example Box**: Shows substring removal examples
+
+#### Action Buttons
+- **Save/Update**: Create or update template
+- **Duplicate**: Copy with auto-incremented name
+- **Clear**: Reset form
+- **Delete**: Remove template from database
+
+## JavaScript Functions
+
+### Template Management
+```javascript
+loadTemplates()              // Populate sidebar
+newTemplate()                // Clear form for new
+loadTemplate(id)             // Load for editing
+saveTemplate()               // Create or update
+deleteTemplate(id)           // Remove with confirmation
+duplicateTemplate()          // Copy with new name
+```
+
+### Mapping Management
+```javascript
+addValueMapping()            // Add value mapping row
+removeValueMapping(index)    // Remove value mapping
+addContainsMapping()         // Add contains mapping row
+removeContainsMapping(index) // Remove contains mapping
+collectMappings()            // Extract all mappings from form
+populateMappings(data)       // Fill form with saved mappings
+```
+
+### UI Helpers
+```javascript
+showToast(message, type)     // Success/error notifications
+updateTemplatesList()        // Refresh sidebar
+clearForm()                  // Reset all inputs
+```
+
+## Backend Integration
+
+### Dynamic Class Creation
+```python
+def create_preprocessor_from_template(template_id):
+    """Create a preprocessor class from database template"""
+    template = PreprocessingTemplate.query.get(template_id)
+    if not template:
+        return DefaultPreprocessing
+    
+    # Parse JSON mappings
+    value_mappings = json.loads(template.value_mappings)
+    contains_mappings = json.loads(template.contains_mappings)
+    
+    # Create dynamic class
+    class DynamicPreprocessor(PreprocessingBase):
+        def __init__(self):
+            super().__init__(
+                value_mappings=value_mappings,
+                contains_mappings=contains_mappings
+            )
+    
+    return DynamicPreprocessor()
+```
+
+### Usage in Processing
+```python
+@app.route('/api/badges/pull-and-process', methods=['POST'])
+def badges_pull_and_process():
+    data = request.json
+    preprocessing_template_id = data.get('preprocessingTemplateId')
+    
+    # Get or create preprocessor
+    if preprocessing_template_id:
+        preprocessor = create_preprocessor_from_template(preprocessing_template_id)
+    else:
+        preprocessor = DefaultPreprocessing()  # No custom transformations
+    
+    # Apply preprocessing during data transformation
+    processor = DataProcessor(preprocessor=preprocessor)
+    result_df = processor.transform_and_merge()
+```
+
+## API Endpoints
+
+### Template CRUD
+- `GET /api/preprocessing-templates` - List all templates
+- `POST /api/preprocessing-templates` - Create new template
+- `GET /api/preprocessing-templates/<id>` - Get specific template
+- `PUT /api/preprocessing-templates/<id>` - Update template
+- `DELETE /api/preprocessing-templates/<id>` - Delete template
+- `POST /api/preprocessing-templates/<id>/duplicate` - Duplicate template
+
+### Route
+- `/preprocessing-designer` - Template designer UI page
+
+## Default Preprocessor
+
+### Empty Mappings Fallback
+When no template is selected, the system uses `DefaultPreprocessing`:
+```python
+class DefaultPreprocessing(PreprocessingBase):
+    def __init__(self):
+        super().__init__(
+            value_mappings={},      # No exact replacements
+            contains_mappings={}    # No substring removals
+        )
+```
+
+This ensures data flows through unchanged when no custom processing is needed.
+
+## Integration with Badge Generator
+
+### UI Integration
+In [templates/badges.html](mdc:templates/badges.html):
+1. **Preprocessing Template Dropdown**: Shows all saved templates
+2. **Designer Button**: Opens preprocessing designer in new tab
+3. **Default Option**: "No preprocessing" uses empty mappings
+4. **Position**: Above Sub-Event selector
+
+### Selection Flow
+1. User selects campaign
+2. User selects preprocessing template (or leaves as default)
+3. Click "Pull All & Process"
+4. System applies selected preprocessing to CRM data
+5. Transformed data saved to Excel
+
+## Visual Design
+
+### Color Theme
+- Primary: `#4b904b` (green)
+- Hover: `#5ca05c` (lighter green)
+- Active: `rgba(75, 144, 75, 0.1)` (light green background)
+- Delete: `#dc3545` (red)
+- Info: `#d4edda` (light green info banner)
+
+### Layout
+- Sticky sidebar for easy template access
+- Scrollable mapping sections
+- Responsive grid for key-value pairs
+- Toast notifications for feedback
+
+## Use Cases
+
+### Convention Event
+**Problem**: Long event names don't fit on badges
+**Solution**: Value mapping
+```json
+{
+  "Mid-Year Meeting 2026 - Lexington, KY": "Lexington 2026",
+  "Annual Convention 2025 - Detroit, MI": "Detroit 2025"
+}
+```
+
+### Meal Preferences
+**Problem**: Full meal names too long
+**Solution**: Value mapping
+```json
+{
+  "Steak": "S",
+  "Chicken": "C",
+  "Fish": "F",
+  "Vegetarian": "V",
+  "Vegan": "VG"
+}
+```
+
+### Club Names
+**Problem**: Inconsistent prefix "Ramallah Federation in "
+**Solution**: Contains mapping
+```json
+{
+  "Ramallah Federation in ": ""
+}
+```
+Result: "Ramallah Federation in Detroit" → "Detroit"
+
+### Reservation Notes
+**Problem**: "- Reserved" appears in table numbers
+**Solution**: Contains mapping
+```json
+{
+  "- Reserved": ""
+}
+```
+Result: "Table 5 - Reserved" → "Table 5"
+
+## Testing
+
+### Test Template Creation
+1. Create a test template with known mappings
+2. Process sample data
+3. Verify transformations in output Excel
+4. Check both value and contains mappings applied
+
+### Test Cases
+- Empty template (no transformations)
+- Only value mappings
+- Only contains mappings
+- Both mapping types
+- Mappings with special characters
+- Mappings with numbers
+
+## Error Handling
+
+### Validation
+- Template name required and unique
+- At least one mapping required (value or contains)
+- Valid JSON structure for mappings
+- No circular replacements
+
+### Common Errors
+1. **Duplicate name**: Template already exists
+2. **Invalid JSON**: Malformed mapping data
+3. **Empty mappings**: At least one mapping required
+4. **Template not found**: Invalid template ID
+
+## Benefits Over Code-Based System
+
+1. **No Code Required**: Business users can create rules
+2. **Instant Updates**: No container rebuild needed
+3. **Version Control**: Database tracks created/updated timestamps
+4. **Reusability**: Templates work across multiple events
+5. **User-Friendly**: Visual interface with examples
+6. **Safe Defaults**: Falls back to no preprocessing if template missing
+7. **Flexible**: Both exact and substring matching supported
+
+## Migration from Old System
+
+### Legacy Classes (Keep as Reference)
+Located in `utils/badges/event_preprocessing/`:
+- `convention2025.py` - Reference for Convention 2025 rules
+- `lex2026.py` - Reference for Lex2026 rules
+- `default.py` - Empty mappings template
+
+These are **not used** by the system but kept for reference when creating new database templates.
+
+### Converting Legacy to Database
+1. Open legacy Python file
+2. Extract `value_mappings` dictionary
+3. Extract `contains_mappings` dictionary
+4. Create new template in preprocessing designer
+5. Copy mappings to UI
+6. Save and test
+
+## Performance
+
+- Templates cached after first load
+- JSON parsing minimal overhead
+- No performance impact vs code-based classes
+- Supports hundreds of mappings per template
+
+## Future Enhancements
+
+Potential additions:
+- [ ] Template import/export (JSON)
+- [ ] Regex support for advanced patterns
+- [ ] Template categories/tags
+- [ ] Bulk template operations
+- [ ] Mapping preview before applying
+- [ ] Template versioning/history
+- [ ] Shared templates between users

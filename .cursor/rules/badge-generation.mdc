@@ -1,0 +1,172 @@
+---
+globs: utils/badges/*.py,templates/badges*.html,app.py
+description: Badge generation system architecture, workflow, and implementation details
+---
+
+# Badge Generation System
+
+## Overview
+The Badge Generator is a comprehensive system that pulls attendee data from Dynamics 365 CRM, processes it according to user-defined rules, and generates print-ready PDF badges on Avery label sheets.
+
+## Architecture
+
+### Core Components
+1. **Frontend UI** ([templates/badges.html](mdc:templates/badges.html)) - Main user interface
+2. **Badge Template Designer** ([templates/badge_mapping.html](mdc:templates/badge_mapping.html)) - SVG template configuration
+3. **Badge Generator Module** ([utils/badges/badge_generator.py](mdc:utils/badges/badge_generator.py)) - PDF generation engine
+4. **Data Processing** ([utils/badges/convert_to_mail_merge_v3.py](mdc:utils/badges/convert_to_mail_merge_v3.py)) - CRM data transformation
+
+### Data Flow
+```
+Dynamics CRM → Pull Data → Process & Merge → Generate Badges → PDF Download
+```
+
+## Key Features
+
+### 1. Automated CRM Integration
+- Automatically pulls from 4 Dynamics entities:
+  - Event Guests (`crca7_eventguests`)
+  - QR Codes (`aha_eventguestqrcodeses`)
+  - Seating Tables (`aha_seatingtables`)
+  - Form Responses (`aha_eventformresponseses`)
+- OAuth 2.0 authentication with client credentials flow
+- Formatted values extraction for option sets and lookups
+
+### 2. SVG Template System
+- Templates stored in `badge_templates/` folder
+- Placeholders use double-brace syntax: `{{FIRST_NAME}}`
+- Column mapping UI for flexible field assignments
+- Support for QR codes and logo images
+- Templates persist in SQLite database
+
+### 3. Multi-Sheet Support
+Available Avery templates:
+- **5392**: 3" × 3.5" (2×3 = 6 per sheet) - Most common
+- **5395**: 2.625" × 3.625" (2×2 = 8 per sheet)
+- **8395**: 2.625" × 3.625" (2×2 = 8 per sheet)
+- **74459**: 2.25" × 3.5" (3×2 = 12 per sheet)
+
+## Workflows
+
+### Two-Step Workflow (Testing)
+1. Pull All & Process - Downloads Excel with merged data
+2. Generate Badges from Processed Data - Creates PDF from Excel
+
+### One-Click Workflow (Production)
+1. Pull, Process & Generate Badges - Complete automation
+
+## Database Models
+
+### BadgeTemplate Model
+```python
+id: Integer (Primary Key)
+name: String (200, Unique)
+svg_filename: String (255)
+club_logo_filename: String (255, Nullable)
+column_mappings: Text (JSON)
+avery_template: String (50)
+created_at: DateTime
+updated_at: DateTime
+```
+
+## API Endpoints
+
+### Template Management
+- `GET /api/badge-templates` - List all templates
+- `POST /api/badge-templates` - Create new template
+- `GET /api/badge-templates/<id>` - Get specific template
+- `PUT /api/badge-templates/<id>` - Update template
+- `DELETE /api/badge-templates/<id>` - Delete template
+- `POST /api/badge-templates/<id>/duplicate` - Duplicate template
+
+### Badge Generation
+- `POST /api/badges/pull-and-process` - Pull data and process
+- `POST /api/badges/generate` - Generate PDF from processed Excel
+- `POST /api/badges/pull-process-generate` - Complete workflow
+
+### File Serving
+- `GET /badge_templates/<filename>` - Serve SVG templates
+- `POST /api/badge-templates/upload-svg` - Upload SVG file
+- `POST /api/club-logos/upload` - Upload club logo
+
+## Common Placeholders
+
+### Required Fields
+- `{{FIRST_NAME}}` - First name
+- `{{LAST_NAME}}` - Last name
+- `{{LOCAL_CLUB}}` - Local club name
+- `{{MEMBER_ID}}` - Member ID (ID-####)
+- `{{QR_CODE}}` - QR code image
+
+### Optional Fields
+- `{{TITLE}}` - Honorific (Mr./Mrs./Dr.)
+- `{{TABLE_NUMBER}}` - Table assignment
+- `{{SUBEVENT_1}}`, `{{SUBEVENT_2}}`, etc. - Sub-event registrations
+- `{{AFRP_LOGO}}` - Organization logo
+- `{{CLUB_LOGO}}` - Local club logo
+- `{{GENDER}}` - Gender (Male/Female)
+- `{{AGE}}` - Age
+
+## Performance
+
+### Expected Generation Times
+- ~1 second per badge
+- 100 badges: ~2 minutes
+- 500 badges: ~8 minutes
+- Memory: ~500MB for large batches
+
+## Security
+
+- `secure_filename()` prevents directory traversal
+- SVG templates are parsed, not executed
+- Logo files validated by extension
+- SQLAlchemy ORM prevents SQL injection
+- OAuth tokens stored securely in config/.env
+
+## Design Guidelines
+
+### SVG Template Best Practices
+1. **Fonts**: Use web-safe fonts (Arial, Helvetica, Times New Roman)
+2. **Simplicity**: Gradients and effects may not render perfectly
+3. **Testing**: Generate badges for 2-3 attendees first
+4. **Margins**: Leave ~0.25" margin from edges
+5. **Contrast**: Dark text on light background
+6. **QR Code Size**: Minimum 0.75" × 0.75" for reliable scanning
+
+### SVG Dimensions
+- Set canvas size to match Avery template
+- For 3" × 3.5": width="288" height="336" (96 DPI)
+- Use viewBox matching width and height
+
+## Troubleshooting
+
+### Common Issues
+1. **"No templates found"**: Create and save at least one template via `/badge-mapping`
+2. **PDF doesn't download**: Check browser's download settings and pop-up blockers
+3. **Badges look wrong**: Verify SVG dimensions match selected Avery template
+4. **QR codes don't scan**: Ensure QR code placeholder is at least 0.75" × 0.75"
+5. **Blank badges**: Check that column mappings reference correct Excel columns
+
+### Debug Logging
+The system logs to console during generation:
+- Template loading
+- Placeholder extraction
+- Column mapping application
+- QR code generation
+- PDF creation progress
+
+## File Locations
+
+### Templates
+- SVG templates: `badge_templates/`
+- Club logos: `badge_logos/`
+- Sample templates: `static/svg/`
+
+### Python Modules
+- Badge generation: `utils/badges/badge_generator.py`
+- Data processing: `utils/badges/convert_to_mail_merge_v3.py`
+- File validation: `utils/badges/file_validator.py`
+
+### UI Files
+- Main UI: `templates/badges.html`
+- Template designer: `templates/badge_mapping.html`

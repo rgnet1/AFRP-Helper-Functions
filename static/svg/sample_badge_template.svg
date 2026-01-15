@@ -52,17 +52,17 @@
   <!-- LOGOS SECTION (TOP)    -->
   <!-- ====================== -->
   
-  <!-- AFRP Logo (Top Left) -->
+  <!-- AFRP Logo (Top Left) - Aspect ratio 2.25:1 -->
   <image x="15" y="12" 
-         width="50" 
-         height="50" 
+         width="95" 
+         height="42" 
          href="{{AFRP_LOGO}}"
          preserveAspectRatio="xMidYMid meet"/>
   
-  <!-- Club Logo (Top Right) -->
-  <image x="223" y="12" 
-         width="50" 
-         height="50" 
+  <!-- Club Logo (Top Right) - Aspect ratio 1.46:1 -->
+  <image x="210" y="12" 
+         width="63" 
+         height="43" 
          href="{{CLUB_LOGO}}"
          preserveAspectRatio="xMidYMid meet"/>
   

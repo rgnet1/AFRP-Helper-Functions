@@ -136,7 +136,9 @@ atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 # Configure badge generation directories
 app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates')
 app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
-app.config['AFRP_LOGO_PATH'] = os.path.join(BASE_PATH, 'static', 'afrp_logo.svg')
+# AFRP logo path from environment variable (defaults to PNG in static folder)
+afrp_logo_relative = os.environ.get('AFRP_LOGO_PATH', 'static/afrp_logo.png')
+app.config['AFRP_LOGO_PATH'] = os.path.join(BASE_PATH, afrp_logo_relative)
 
 # Ensure badge folders exist
 os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
@@ -367,17 +369,6 @@ def manage_schedules():
             db.session.rollback()
             return jsonify({'error': f'Failed to delete schedule: {str(e)}'}), 500
 
-@app.route('/api/available-events', methods=['GET'])
-def get_available_events():
-    """Endpoint to fetch dynamically discovered event preprocessors."""
-    logger.debug("Fetching available events")
-    try:
-        events = list(preprocessing_implementations.keys())
-        return jsonify({'events': events})
-    except Exception as e:
-        logger.exception("Failed to fetch available events")
-        return jsonify({'error': f'Failed to fetch events: {str(e)}'}), 500
-
 @app.route('/run-magazine-download')
 def run_magazine_download():
     def generate():
@@ -463,314 +454,11 @@ def run_magazine_download():
 # Badge Generator Routes
 @app.route('/badges')
 def badges():
-    # Pass empty events list initially - will be populated via AJAX after file upload
-    return render_template('badges.html', events=[])
+    """Badge Generator page with automated CRM integration."""
+    return render_template('badges.html')
 
-@app.route('/api/pull-crm-data', methods=['POST'])
-def pull_crm_data():
-    """Pull data directly from Dynamics CRM."""
-    try:
-        data = request.get_json()
-        view_id = data.get('view_id')
-        data_type = data.get('data_type')
-        
-        if not view_id or not data_type:
-            return jsonify({'error': 'View ID and data type are required'}), 400
-            
-        # Initialize the CRM client
-        crm_client = DynamicsCRMClient()
-        
-        # Download the specific data type
-        df = crm_client.download_data_by_type(data_type, view_id)
-        
-        # Map CRM data types to file types
-        data_type_mapping = {
-            'event_guests': FileTypes.REGISTRATION,
-            'qr_codes': FileTypes.QR_CODES,
-            'table_reservations': FileTypes.SEATING,
-            'form_responses': FileTypes.FORM_RESPONSES
-        }
-        
-        file_type = data_type_mapping.get(data_type, data_type)
-        
-        # Remove any existing file of the same type
-        existing_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
-                         if f.startswith(f"{file_type}_")]
-        for existing_file in existing_files:
-            try:
-                existing_path = os.path.join(app.config['UPLOAD_FOLDER'], existing_file)
-                if os.path.exists(existing_path):
-                    os.remove(existing_path)
-                    logger.debug(f"Removed existing file: {existing_file}")
-            except Exception as e:
-                logger.warning(f"Could not remove existing file {existing_file}: {e}")
-        
-        # Save to a temporary Excel file with proper file type prefix
-        temp_file = os.path.join(app.config['UPLOAD_FOLDER'], f"{file_type}_crm_data.xlsx")
-        df.to_excel(temp_file, index=False)
-        
-        return jsonify({
-            'message': f'Successfully pulled {data_type} data from CRM',
-            'file': temp_file,
-            'type': file_type
-        })
-        
-    except Exception as e:
-        logger.error(f"Error pulling CRM data: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+# Badge Mapping & Preprocessing Designer Routes
 
-@app.route('/api/upload', methods=['POST'])
-def upload_file():
-    """Handle file upload."""
-    logger.debug("Starting file upload handler")
-    save_path = None
-    
-    try:
-        # Verify upload folder exists and is writable
-        upload_folder = app.config['UPLOAD_FOLDER']
-        if not os.path.exists(upload_folder):
-            logger.warning(f"Upload folder does not exist, recreating: {upload_folder}")
-            os.makedirs(upload_folder, mode=0o777, exist_ok=True)
-        
-        if not os.access(upload_folder, os.W_OK):
-            logger.warning(f"Upload folder not writable, fixing permissions: {upload_folder}")
-            os.chmod(upload_folder, 0o777)
-        
-        logger.debug(f"Upload folder ready: {upload_folder}")
-        
-        if 'file' not in request.files:
-            logger.error("No file part in request")
-            return jsonify({'error': 'No file part'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            logger.error("No selected file")
-            return jsonify({'error': 'No selected file'}), 400
-        
-        logger.debug(f"Processing file: {file.filename}")
-        
-        if not FileValidator.is_valid_excel(file.filename):
-            logger.error(f"Invalid file type: {file.filename}")
-            return jsonify({'error': 'Invalid file type - must be .xlsx'}), 400
-        
-        filename = secure_filename(file.filename)
-        logger.debug(f"Secured filename: {filename}")
-        
-        file_type = FileValidator.get_file_type(filename)
-        logger.debug(f"Detected file type: {file_type}")
-        
-        if file_type is None:
-            logger.error(f"Unable to determine file type for: {filename}")
-            logger.error("Expected file name patterns:")
-            logger.error("  - Registration List: '*Registration List*.xlsx'")
-            logger.error("  - Seating Chart: '*Seating Chart*.xlsx'")
-            logger.error("  - QR Codes: '*QR Codes*.xlsx'")
-            logger.error("  - Form Responses: '*(Form|From) Responses*.xlsx'")
-            return jsonify({
-                'error': 'Unable to determine file type. File name must contain one of: "Registration List", "Seating Chart", "QR Codes", or "Form Responses"'
-            }), 400
-        
-        try:
-            # Remove any existing file of the same type
-            existing_files = [f for f in os.listdir(upload_folder) 
-                            if f.startswith(f"{file_type}_")]
-            for existing_file in existing_files:
-                try:
-                    existing_path = os.path.join(upload_folder, existing_file)
-                    if os.path.exists(existing_path):
-                        os.chmod(existing_path, 0o666)  # Make file writable
-                        os.remove(existing_path)
-                        logger.debug(f"Removed existing file: {existing_file}")
-                except Exception as e:
-                    logger.warning(f"Could not remove existing file {existing_file}: {e}")
-            
-            # Save new file with type prefix
-            save_path = os.path.join(upload_folder, f"{file_type}_{filename}")
-            logger.debug(f"Saving file to: {save_path}")
-            
-            # Create a temporary file first
-            temp_fd, temp_path = tempfile.mkstemp(dir=upload_folder)
-            os.close(temp_fd)
-            
-            logger.debug(f"Created temporary file: {temp_path}")
-            
-            # Save to temporary file first
-            file.save(temp_path)
-            os.chmod(temp_path, 0o666)
-            
-            # Move to final location
-            shutil.move(temp_path, save_path)
-            os.chmod(save_path, 0o666)
-            
-            logger.debug(f"File saved successfully: {save_path}")
-            
-            # Verify file was saved and is readable
-            if not os.path.exists(save_path):
-                raise FileNotFoundError(f"File was not saved: {save_path}")
-            
-            # Try to read the file to verify it's accessible
-            with open(save_path, 'rb') as f:
-                f.read(1)
-            
-            return jsonify({
-                'message': 'File uploaded successfully',
-                'type': file_type,
-                'path': save_path
-            })
-            
-        except Exception as e:
-            logger.exception(f"Error saving file to {save_path if save_path else 'unknown path'}")
-            return jsonify({'error': f'Error saving file: {str(e)}'}), 500
-            
-    except Exception as e:
-        logger.exception("Error in upload handler")
-        return jsonify({'error': f'Upload error: {str(e)}'}), 500
-
-@app.route('/api/get_sub_events', methods=['POST'])
-def get_sub_events():
-    """Get available sub-events from registration file."""
-    logger.debug("Starting sub-events retrieval")
-    try:
-        # Ensure upload folder exists
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-        
-        # Find registration file
-        reg_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
-                    if f.startswith(f"{FileTypes.REGISTRATION}_")]
-        
-        if not reg_files:
-            logger.error("Registration file not uploaded")
-            return jsonify({'error': 'Registration file not uploaded'}), 400
-            
-        # Read registration data
-        reg_file = os.path.join(app.config['UPLOAD_FOLDER'], reg_files[0])
-        logger.debug(f"Reading registration file: {reg_file}")
-        df = pd.read_excel(reg_file)
-        
-        # Clean column names
-        df.columns = df.columns.str.strip()
-        
-        # Handle both 'Event' and 'Event ' column names
-        event_col = 'Event' if 'Event' in df.columns else 'Event '
-        status_col = 'Status Reason' if 'Status Reason' in df.columns else 'Status'
-        
-        logger.debug(f"Using event column: {event_col}")
-        logger.debug(f"Using status column: {status_col}")
-        logger.debug(f"Available columns: {df.columns.tolist()}")
-        
-        # Get unique events from paid registrations
-        paid_df = df[df[status_col] == 'Paid']
-        events = sorted(paid_df[event_col].unique().tolist())
-        logger.debug(f"Found sub-events: {events}")
-        
-        return jsonify({'events': events})
-        
-    except Exception as e:
-        logger.exception("Error retrieving sub-events")
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/process', methods=['POST'])
-def process_files():
-    """Process uploaded files and generate mail merge."""
-    logger.debug("Starting file processing")
-    try:
-        data = request.get_json()
-        if not data:
-            logger.error("No JSON data received")
-            return jsonify({'error': 'No data received'}), 400
-            
-        event_name = data.get('event')
-        sub_event = data.get('subEvent')
-        inclusion_list = data.get('inclusionList')
-        created_on_filter = data.get('createdOnFilter')
-        
-        logger.debug(f"Processing request for event: {event_name}, sub_event: {sub_event}, inclusion list: {inclusion_list}, date filter: {created_on_filter}")
-        
-        if not event_name:
-            logger.error("No event name provided")
-            return jsonify({'error': 'Event name is required'}), 400
-        
-        # Get the preprocessing implementation for the selected event
-        preprocessor_class = preprocessing_implementations.get(event_name, DefaultPreprocessing)
-        if preprocessor_class == DefaultPreprocessing:
-            logger.warning(f"No specific preprocessor found for '{event_name}', using DefaultPreprocessing")
-        
-        # Create temporary directory for processing
-        with tempfile.TemporaryDirectory() as temp_dir:
-            logger.debug(f"Created temporary directory: {temp_dir}")
-            os.makedirs(temp_dir, mode=0o777, exist_ok=True)
-            
-            # Copy uploaded files to temp directory with correct names
-            files = {}
-            for file_type in FileValidator.get_required_file_types():
-                matching_files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) 
-                                if f.startswith(f"{file_type}_")]
-                if not matching_files:
-                    logger.error(f"Missing required file: {file_type}")
-                    return jsonify({'error': f'Missing required file: {file_type}'}), 400
-                source = os.path.join(app.config['UPLOAD_FOLDER'], matching_files[0])
-                dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
-                logger.debug(f"Copying {file_type} file from {source} to {dest}")
-                shutil.copy2(source, dest)
-                files[file_type] = dest
-            
-            # Change to temp directory
-            original_dir = os.getcwd()
-            os.chdir(temp_dir)
-            logger.debug(f"Changed working directory to: {temp_dir}")
-            
-            try:
-                # Create preprocessing config
-                config = PreprocessingConfig(
-                    main_event=event_name,
-                    sub_event=sub_event if sub_event else None,
-                    inclusion_list=inclusion_list if inclusion_list else None,
-                    created_on_filter=created_on_filter if created_on_filter else None
-                )
-                logger.debug(f"Created preprocessing config: {config.__dict__}")
-                
-                # Initialize processor with config and selected preprocessor class
-                processor = EventRegistrationProcessorV3(
-                    config=config,
-                    preprocessor_class=preprocessor_class
-                )
-                
-                # Process files
-                logger.info("Starting file processing...")
-                result_df = processor.transform_and_merge()
-                logger.debug(f"Processing complete. Result shape: {result_df.shape}")
-                
-                # Save output
-                output_file = os.path.join(temp_dir, "MAIL_MERGE_output.xlsx")
-                result_df.to_excel(output_file, index=False)
-                logger.debug(f"Saved output to: {output_file}")
-                
-                # Send file to user
-                return send_file(
-                    output_file,
-                    as_attachment=True,
-                    download_name=f"MAIL_MERGE_{event_name.replace(' ', '_')}_{sub_event or 'all'}.xlsx",
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                )
-            
-            except Exception as e:
-                logger.exception("Error during processing")
-                return jsonify({'error': f'Processing error: {str(e)}\n{traceback.format_exc()}'}), 500
-            
-            finally:
-                os.chdir(original_dir)
-                logger.debug(f"Changed working directory back to: {original_dir}")
-    except Exception as e:
-        logger.exception("Error in process_files handler")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
-
-# Badge Generator V2 Routes
-
-@app.route('/badges-v2')
-def badges_v2():
-    """Badge Generator V2 page with automated CRM integration."""
-    return render_template('badges_v2.html')
 
 @app.route('/badge-mapping')
 def badge_mapping():
@@ -815,75 +503,8 @@ def get_campaign_sub_events(campaign_id):
     except Exception as e:
         logger.error(f"Error fetching sub-events for campaign {campaign_id}: {str(e)}")
         return jsonify({'error': f'Failed to fetch sub-events: {str(e)}'}), 500
-
-@app.route('/api/debug/qr-code-fields', methods=['GET'])
-def debug_qr_code_fields():
-    """Debug endpoint to discover QR code fields in Dynamics."""
-    try:
-        crm_client = DynamicsCRMClient()
-        
-        # Get first QR codes with all fields
-        endpoint = "aha_eventguestqrcodeses?$top=5"
-        response = crm_client._make_request(endpoint)
-        records = response.get('value', [])
-        
-        if records:
-            all_fields_data = []
-            for record in records:
-                fields = {}
-                for key, value in record.items():
-                    fields[key] = str(value)[:200] if value else None
-                all_fields_data.append(fields)
-            
-            return jsonify({
-                'total_records': len(records),
-                'records': all_fields_data
-            })
-        else:
-            return jsonify({'error': 'No QR codes found'}), 404
-        
-    except Exception as e:
-        logger.exception(f"Error fetching QR code fields: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/debug/contact-fields', methods=['GET'])
-def debug_contact_fields():
-    """Debug endpoint to discover contact fields in Dynamics."""
-    try:
-        crm_client = DynamicsCRMClient()
-        
-        # Get multiple contacts to check title and local club fields  
-        endpoint = "contacts?$top=10"
-        response = crm_client._make_request(endpoint)
-        records = response.get('value', [])
-        
-        contacts_data = []
-        for record in records:
-            # Extract only the relevant fields we care about
-            contact_info = {
-                'name': f"{record.get('firstname', '')} {record.get('lastname', '')}",
-                'salutation': record.get('salutation'),
-                'salutation_formatted': record.get('salutation@OData.Community.Display.V1.FormattedValue'),
-                'aha_title': record.get('aha_title'),
-                'aha_title_formatted': record.get('aha_title@OData.Community.Display.V1.FormattedValue'),
-                'jobtitle': record.get('jobtitle'),
-                'aha_localclub': record.get('aha_localclub'),
-                '_aha_localclub2_value': record.get('_aha_localclub2_value'),
-                '_aha_localclub2_formatted': record.get('_aha_localclub2_value@OData.Community.Display.V1.FormattedValue'),
-            }
-            contacts_data.append(contact_info)
-        
-        return jsonify({
-            'total_contacts': len(contacts_data),
-            'contacts': contacts_data
-        })
-        
-    except Exception as e:
-        logger.error(f"Error fetching contact fields: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/badges-v2/pull-and-process', methods=['POST'])
-def badges_v2_pull_and_process():
+@app.route('/api/badges/pull-and-process', methods=['POST'])
+def badges_pull_and_process():
     """One-click endpoint to pull all data from CRM and process it."""
     logger.debug("Starting Badge Generator V2 pull and process")
     try:
@@ -1132,6 +753,8 @@ def create_badge_template():
             name=data['name'],
             svg_filename=data['svg_filename'],
             club_logo_filename=data.get('club_logo_filename'),
+            club_logo_width=data.get('club_logo_width'),
+            club_logo_height=data.get('club_logo_height'),
             column_mappings=json.dumps(data['column_mappings']),
             avery_template=data.get('avery_template', '5392')
         )
@@ -1184,6 +807,10 @@ def update_badge_template(template_id):
             template.svg_filename = data['svg_filename']
         if 'club_logo_filename' in data:
             template.club_logo_filename = data['club_logo_filename']
+        if 'club_logo_width' in data:
+            template.club_logo_width = data['club_logo_width']
+        if 'club_logo_height' in data:
+            template.club_logo_height = data['club_logo_height']
         if 'column_mappings' in data:
             template.column_mappings = json.dumps(data['column_mappings'])
         if 'avery_template' in data:
@@ -1318,10 +945,22 @@ def upload_club_logo():
         filepath = os.path.join(app.config['BADGE_LOGOS_FOLDER'], filename)
         file.save(filepath)
         
+        # Calculate image dimensions for aspect ratio
+        width, height = None, None
+        try:
+            from PIL import Image
+            with Image.open(filepath) as img:
+                width, height = img.size
+                logger.info(f"Club logo dimensions: {width}x{height}")
+        except Exception as e:
+            logger.warning(f"Could not determine logo dimensions: {e}")
+        
         logger.info(f"Uploaded club logo: {filename}")
         return jsonify({
             'filename': filename,
-            'path': filepath
+            'path': filepath,
+            'width': width,
+            'height': height
         })
         
     except Exception as e:
@@ -1549,17 +1188,18 @@ def generate_badges():
         if not os.path.exists(svg_path):
             return jsonify({'error': 'SVG template file not found'}), 404
         
-        # Get club logo path (optional)
-        club_logo_filename = data.get('club_logo_filename')
+        # Get club logo path from template (optional)
         club_logo_path = None
-        if club_logo_filename:
-            club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], club_logo_filename)
+        if template.club_logo_filename:
+            club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
             if not os.path.exists(club_logo_path):
                 logger.warning(f"Club logo not found: {club_logo_path}")
                 club_logo_path = None
+            else:
+                logger.info(f"Using club logo: {club_logo_path}")
         
-        # Get Avery template
-        avery_template = data.get('avery_template', template.avery_template)
+        # Get Avery template from badge template
+        avery_template = template.avery_template
         
         # Parse column mappings
         column_mappings = json.loads(template.column_mappings)
@@ -1571,6 +1211,8 @@ def generate_badges():
             column_mappings=column_mappings,
             afrp_logo_path=app.config['AFRP_LOGO_PATH'],
             club_logo_path=club_logo_path,
+            club_logo_width=template.club_logo_width,
+            club_logo_height=template.club_logo_height,
             avery_template=avery_template
         )
         
@@ -1592,8 +1234,8 @@ def generate_badges():
         logger.exception("Error generating badges")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/badges-v2/pull-process-generate', methods=['POST'])
-def badges_v2_pull_process_generate():
+@app.route('/api/badges/pull-process-generate', methods=['POST'])
+def badges_pull_process_generate():
     """Combined endpoint: pull data, process, and generate badges."""
     try:
         data = request.get_json()
@@ -1695,12 +1337,18 @@ def badges_v2_pull_process_generate():
                         return jsonify({'error': 'Badge template not found'}), 404
                     
                     svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
-                    club_logo_filename = data.get('club_logo_filename')
-                    club_logo_path = None
-                    if club_logo_filename:
-                        club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], club_logo_filename)
                     
-                    avery_template = data.get('avery_template', template.avery_template)
+                    # Get club logo path from template (optional)
+                    club_logo_path = None
+                    if template.club_logo_filename:
+                        club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
+                        if not os.path.exists(club_logo_path):
+                            logger.warning(f"Club logo not found: {club_logo_path}")
+                            club_logo_path = None
+                        else:
+                            logger.info(f"Using club logo: {club_logo_path}")
+                    
+                    avery_template = template.avery_template
                     column_mappings = json.loads(template.column_mappings)
                     
                     generator = BadgeGenerator(
@@ -1709,6 +1357,8 @@ def badges_v2_pull_process_generate():
                         column_mappings=column_mappings,
                         afrp_logo_path=app.config['AFRP_LOGO_PATH'],
                         club_logo_path=club_logo_path,
+                        club_logo_width=template.club_logo_width,
+                        club_logo_height=template.club_logo_height,
                         avery_template=avery_template
                     )
                     

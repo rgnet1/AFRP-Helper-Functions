@@ -501,7 +501,7 @@
     <div class="container">
         <div class="header">
             <h1><i class="fas fa-id-card"></i> Badge Template Mapping</h1>
-            <a href="/badges-v2" class="back-btn">
+            <a href="/badges" class="back-btn">
                 <i class="fas fa-arrow-left"></i> Back to Badge Generator
             </a>
         </div>
@@ -612,6 +612,8 @@
     {% raw %}
         let currentSvgFilename = null;
         let currentLogoFilename = null;
+        let currentLogoWidth = null;
+        let currentLogoHeight = null;
         let extractedPlaceholders = [];
         let sampleExcelColumns = []; // Will be loaded from a sample file or defined
         let currentTemplateId = null; // Track if we're editing an existing template
@@ -777,12 +779,14 @@
 
                 const data = await response.json();
                 currentLogoFilename = data.filename;
+                currentLogoWidth = data.width;
+                currentLogoHeight = data.height;
 
                 // Show current file
                 document.getElementById('currentLogoFile').innerHTML = `
                     <div class="current-file">
                         <i class="fas fa-image"></i>
-                        <span class="current-file-name">${data.filename}</span>
+                        <span class="current-file-name">${data.filename} (${data.width}x${data.height})</span>
                         <i class="fas fa-times remove-file" onclick="removeLogoFile()"></i>
                     </div>
                 `;
@@ -808,6 +812,8 @@
 
         function removeLogoFile() {
             currentLogoFilename = null;
+            currentLogoWidth = null;
+            currentLogoHeight = null;
             document.getElementById('currentLogoFile').innerHTML = '';
             document.getElementById('logoFileInput').value = '';
         }
@@ -988,6 +994,8 @@
                     name: templateName,
                     svg_filename: currentSvgFilename,
                     club_logo_filename: currentLogoFilename,
+                    club_logo_width: currentLogoWidth,
+                    club_logo_height: currentLogoHeight,
                     column_mappings: mappings,
                     avery_template: averyTemplate || '5392'
                 };
@@ -1165,10 +1173,15 @@
                 // Load club logo if exists
                 if (template.club_logo_filename) {
                     currentLogoFilename = template.club_logo_filename;
+                    currentLogoWidth = template.club_logo_width;
+                    currentLogoHeight = template.club_logo_height;
+                    const dimensionText = (template.club_logo_width && template.club_logo_height) 
+                        ? ` (${template.club_logo_width}x${template.club_logo_height})` 
+                        : '';
                     document.getElementById('currentLogoFile').innerHTML = `
                         <div class="current-file">
                             <i class="fas fa-image"></i>
-                            <span class="current-file-name">${template.club_logo_filename}</span>
+                            <span class="current-file-name">${template.club_logo_filename}${dimensionText}</span>
                             <i class="fas fa-times remove-file" onclick="removeLogoFile()"></i>
                         </div>
                     `;

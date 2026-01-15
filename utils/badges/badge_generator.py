@@ -75,7 +75,8 @@ class BadgeGenerator:
     }
     
     def __init__(self, excel_file, svg_template_path, column_mappings, 
-                 afrp_logo_path, club_logo_path=None, avery_template='5392'):
+                 afrp_logo_path, club_logo_path=None, club_logo_width=None, 
+                 club_logo_height=None, avery_template='5392'):
         """
         Initialize the badge generator.
         
@@ -92,7 +93,17 @@ class BadgeGenerator:
         self.column_mappings = column_mappings
         self.afrp_logo_path = afrp_logo_path
         self.club_logo_path = club_logo_path
+        self.club_logo_width = club_logo_width
+        self.club_logo_height = club_logo_height
         self.avery_template = avery_template
+        
+        # Debug logging
+        logger.info(f"BadgeGenerator initialized with:")
+        logger.info(f"  - AFRP logo: {afrp_logo_path} (exists: {os.path.exists(afrp_logo_path) if afrp_logo_path else False})")
+        logger.info(f"  - Club logo: {club_logo_path} (exists: {os.path.exists(club_logo_path) if club_logo_path else False})")
+        if club_logo_width and club_logo_height:
+            logger.info(f"  - Club logo dimensions: {club_logo_width}x{club_logo_height}")
+        logger.info(f"  - SVG template: {svg_template_path}")
         
         # Load Excel data
         logger.info(f"Loading Excel file: {excel_file}")
@@ -158,6 +169,70 @@ class BadgeGenerator:
             logger.warning(f"Failed to encode image {image_path}: {e}")
             return None
     
+    def adjust_club_logo_dimensions(self, svg_content):
+        """
+        Dynamically adjust club logo dimensions in SVG based on actual image aspect ratio.
+        
+        Args:
+            svg_content: SVG content as string
+            
+        Returns:
+            Modified SVG content with adjusted club logo dimensions
+        """
+        if not self.club_logo_width or not self.club_logo_height:
+            logger.debug("No club logo dimensions provided, skipping adjustment")
+            return svg_content
+        
+        # Calculate aspect ratio
+        aspect_ratio = self.club_logo_width / self.club_logo_height
+        logger.info(f"Club logo aspect ratio: {aspect_ratio:.2f}:1")
+        
+        # Find club logo image tag in SVG using regex
+        # Match image tag with CLUB_LOGO regardless of attribute order
+        import re
+        pattern = r'<image[^>]*href="{{CLUB_LOGO}}"[^>]*/>'
+        match = re.search(pattern, svg_content, re.DOTALL)
+        
+        if not match:
+            logger.warning("Could not find CLUB_LOGO image tag in SVG")
+            logger.debug(f"SVG contains CLUB_LOGO placeholder: {'{{CLUB_LOGO}}' in svg_content}")
+            return svg_content
+        
+        original_tag = match.group(0)
+        logger.info(f"Found club logo tag, adjusting dimensions")
+        
+        # Extract x and y position from the original tag
+        x_match = re.search(r'x="([^"]+)"', original_tag)
+        y_match = re.search(r'y="([^"]+)"', original_tag)
+        
+        if not x_match or not y_match:
+            logger.warning("Could not extract x/y from club logo tag")
+            return svg_content
+        
+        x_pos = x_match.group(1)
+        y_pos = y_match.group(1)
+        
+        # Calculate appropriate dimensions
+        # Target height of 50px, adjust width based on aspect ratio
+        target_height = 50
+        target_width = int(target_height * aspect_ratio)
+        
+        logger.info(f"Adjusting club logo to {target_width}x{target_height} (from {self.club_logo_width}x{self.club_logo_height})")
+        
+        # Create new image tag with correct dimensions
+        new_tag = (
+            f'<image x="{x_pos}" y="{y_pos}" '
+            f'width="{target_width}" height="{target_height}" '
+            f'preserveAspectRatio="xMidYMid meet" '
+            f'href="{{{{CLUB_LOGO}}}}"/>'
+        )
+        
+        # Replace in SVG content
+        svg_content = svg_content.replace(original_tag, new_tag)
+        logger.info("Club logo dimensions adjusted in SVG")
+        
+        return svg_content
+    
     def render_svg_badge(self, row_data, temp_dir):
         """
         Render a single badge by replacing placeholders in SVG template.
@@ -175,6 +250,9 @@ class BadgeGenerator:
         # Read SVG template
         with open(self.svg_template_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
+        
+        # Dynamically adjust club logo dimensions if available
+        svg_content = self.adjust_club_logo_dimensions(svg_content)
         
         logger.debug(f"SVG template length: {len(svg_content)} characters")
         replacements_made = 0
@@ -259,21 +337,29 @@ class BadgeGenerator:
         
         # Handle club logo
         if '{{CLUB_LOGO}}' in svg_content:
+            logger.info(f"Found {{{{CLUB_LOGO}}}} placeholder in SVG")
             if self.club_logo_path:
-                logger.debug(f"Found CLUB_LOGO placeholder, path: {self.club_logo_path}")
+                logger.info(f"Club logo path provided: {self.club_logo_path}")
+                logger.info(f"Club logo exists: {os.path.exists(self.club_logo_path)}")
                 club_base64 = self.image_to_base64(self.club_logo_path)
                 if club_base64:
+                    logger.info(f"Club logo encoded successfully, length: {len(club_base64)}")
                     ext = os.path.splitext(self.club_logo_path)[1].lower()
                     mime_type = 'image/svg+xml' if ext == '.svg' else 'image/png'
+                    logger.info(f"Club logo mime type: {mime_type}")
                     svg_content = svg_content.replace(
                         '{{CLUB_LOGO}}',
                         f'data:{mime_type};base64,{club_base64}'
                     )
+                    logger.info("Club logo placeholder replaced with base64 data")
                 else:
+                    logger.warning("Failed to encode club logo, removing placeholder")
                     svg_content = svg_content.replace('{{CLUB_LOGO}}', '')
             else:
-                logger.debug("No club logo path provided, removing placeholder")
+                logger.warning("No club logo path provided, removing placeholder")
                 svg_content = svg_content.replace('{{CLUB_LOGO}}', '')
+        else:
+            logger.warning("No {{CLUB_LOGO}} placeholder found in SVG template")
         
         # Final cleanup: Remove any remaining placeholders that weren't handled
         final_cleanup = re.findall(r'\{\{[A-Z_0-9]+\}\}', svg_content)
