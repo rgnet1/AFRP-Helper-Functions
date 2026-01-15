@@ -16,13 +16,6 @@
   <!-- White Background -->
   <rect width="384" height="288" fill="#FFFFFF"/>
   
-  <!-- Simple Border -->
-  <rect x="10" y="10" width="364" height="268" 
-        fill="none" 
-        stroke="#333333" 
-        stroke-width="1" 
-        rx="5"/>
-  
   <!-- AFRP Logo (Top Left) - Aspect ratio 2.25:1 -->
   <image x="20" y="20" 
          width="110" 
@@ -31,7 +24,7 @@
          href="{{AFRP_LOGO}}"/>
   
   <!-- Club Logo (Top Right) - Aspect ratio 1.46:1 -->
-  <image x="294" y="20" 
+  <image x="309" y="20" 
          width="70" 
          height="48" 
          preserveAspectRatio="xMidYMid meet"
@@ -61,45 +54,45 @@
         fill="#333333">{{TABLE_NUMBER}}</text>
   
   <!-- Sub-Events Section (Bottom Left) -->
-  <text x="20" y="215" 
+  <text x="5" y="215" 
         text-anchor="start" 
         font-family="Arial" 
         font-size="10" 
         fill="#333333">{{SUBEVENT_1}}</text>
   
-  <text x="20" y="230" 
+  <text x="5" y="230" 
         text-anchor="start" 
         font-family="Arial" 
         font-size="10" 
         fill="#333333">{{SUBEVENT_2}}</text>
   
-  <text x="20" y="245" 
+  <text x="5" y="245" 
         text-anchor="start" 
         font-family="Arial" 
         font-size="10" 
         fill="#333333">{{SUBEVENT_3}}</text>
   
-  <text x="20" y="260" 
+  <text x="5" y="260" 
         text-anchor="start" 
         font-family="Arial" 
         font-size="10" 
         fill="#333333">{{SUBEVENT_4}}</text>
   
   <!-- Member ID (Above QR Code, Bottom Right) -->
-  <text x="339" y="195" 
-        text-anchor="end" 
+  <text x="349" y="218" 
+        text-anchor="middle" 
         font-family="Arial" 
         font-size="12" 
         fill="#666666">{{MEMBER_ID}}</text>
   
   <!-- QR Code (Bottom Right) -->
-  <image x="284" y="200" 
+  <image x="319" y="223" 
          width="60" 
          height="60" 
          href="{{QR_CODE}}"/>
   
   <!-- Meal Preference (Below QR Code) -->
-  <text x="314" y="270" 
+  <text x="349" y="286" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="9" 

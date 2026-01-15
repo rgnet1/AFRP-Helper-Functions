@@ -567,6 +567,17 @@
                     </select>
                     <p class="help-text">Select the Avery label sheet size you'll be printing on</p>
                 </div>
+
+                <!-- Show Outlines Toggle -->
+                <div class="form-group">
+                    <label for="showOutlines">
+                        <input type="checkbox" id="showOutlines" style="width: auto; margin-right: 8px;">
+                        Show badge outlines (for alignment testing)
+                    </label>
+                    <small style="display: block; color: #666; margin-top: 4px;">
+                        Draws a light gray border around each badge to help verify alignment with Avery labels
+                    </small>
+                </div>
             </div>
 
             <!-- Right Column: Column Mapping -->
@@ -836,26 +847,38 @@
                 return;
             }
 
-            // Separate regular placeholders and sub-event placeholders
-            const regularPlaceholders = extractedPlaceholders.filter(p => !p.includes('SUBEVENT'));
+            // System placeholders that don't need column mapping (handled by image uploads)
+            const systemPlaceholders = new Set(['{{AFRP_LOGO}}', '{{CLUB_LOGO}}']);
+            
+            // Separate regular placeholders and sub-event placeholders, excluding system ones
+            const regularPlaceholders = extractedPlaceholders.filter(p => !p.includes('SUBEVENT') && !systemPlaceholders.has(p));
             const subEventPlaceholders = extractedPlaceholders.filter(p => p.includes('SUBEVENT'));
             
             console.log('Regular placeholders:', regularPlaceholders);
             console.log('Sub-event placeholders:', subEventPlaceholders);
             
-            // Also check saved mappings for sub-events
-            const savedSubEvents = Object.keys(savedMappings).filter(p => p.includes('SUBEVENT'));
+            // Also check saved mappings for sub-events (excluding system placeholders)
+            const savedSubEvents = Object.keys(savedMappings).filter(p => p.includes('SUBEVENT') && !systemPlaceholders.has(p));
+            const allSubEventPlaceholders = [...new Set([...savedSubEvents, ...subEventPlaceholders])];
             
-            // Update counter based only on saved sub-events (not SVG placeholders)
-            // User can add more via "Add Sub-Event Mapping" button
-            subEventCounter = savedSubEvents.length;
+            // Track the highest sub-event index so the "+" button always increments correctly
+            const maxSubEventIndex = allSubEventPlaceholders.reduce((maxIndex, placeholder) => {
+                const match = placeholder.match(/SUBEVENT_(\d+)/);
+                if (!match) return maxIndex;
+                const index = parseInt(match[1], 10);
+                return Number.isNaN(index) ? maxIndex : Math.max(maxIndex, index);
+            }, 0);
+            
+            subEventCounter = maxSubEventIndex;
             
             console.log('subEventCounter:', subEventCounter);
 
             let html = '<div class="placeholders-list">';
             
-            // Render regular placeholders
+            // Render regular placeholders (excluding system placeholders)
             regularPlaceholders.forEach(placeholder => {
+                if (systemPlaceholders.has(placeholder)) return; // Skip system placeholders
+                
                 const savedValue = savedMappings[placeholder];
                 console.log(`Rendering ${placeholder}, savedValue:`, savedValue);
                 html += `
@@ -881,9 +904,8 @@
                 `;
             }
             
-            // Only render sub-event placeholders that are actually saved in mappings
-            // Do NOT render all sub-events from SVG - only the ones user has mapped
-            savedSubEvents.forEach(placeholder => {
+            // Render all sub-event placeholders (from both SVG and saved mappings)
+            allSubEventPlaceholders.forEach(placeholder => {
                 const savedValue = savedMappings[placeholder];
                 html += renderSubEventMapping(placeholder, savedValue);
             });
@@ -997,7 +1019,8 @@
                     club_logo_width: currentLogoWidth,
                     club_logo_height: currentLogoHeight,
                     column_mappings: mappings,
-                    avery_template: averyTemplate || '5392'
+                    avery_template: averyTemplate || '5392',
+                    show_outlines: document.getElementById('showOutlines').checked
                 };
 
                 let response;
@@ -1036,6 +1059,7 @@
             currentTemplateId = null;
             subEventCounter = 0;
             document.getElementById('templateName').value = '';
+            document.getElementById('showOutlines').checked = false;
             document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
             document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
             clearMappings();
@@ -1188,6 +1212,7 @@
                 }
 
                 document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
+                document.getElementById('showOutlines').checked = template.show_outlines || false;
                 showToast('Template loaded for editing', 'success');
             } catch (error) {
                 showToast('Error loading template: ' + error.message, 'error');

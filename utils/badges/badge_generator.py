@@ -76,7 +76,7 @@ class BadgeGenerator:
     
     def __init__(self, excel_file, svg_template_path, column_mappings, 
                  afrp_logo_path, club_logo_path=None, club_logo_width=None, 
-                 club_logo_height=None, avery_template='5392'):
+                 club_logo_height=None, avery_template='5392', show_outlines=False):
         """
         Initialize the badge generator.
         
@@ -87,6 +87,7 @@ class BadgeGenerator:
             afrp_logo_path: Path to default AFRP logo
             club_logo_path: Optional path to club-specific logo
             avery_template: Avery template code (default: 5392)
+            show_outlines: Draw badge outlines for alignment testing
         """
         self.excel_file = excel_file
         self.svg_template_path = svg_template_path
@@ -96,6 +97,7 @@ class BadgeGenerator:
         self.club_logo_width = club_logo_width
         self.club_logo_height = club_logo_height
         self.avery_template = avery_template
+        self.show_outlines = show_outlines
         
         # Debug logging
         logger.info(f"BadgeGenerator initialized with:")
@@ -104,6 +106,7 @@ class BadgeGenerator:
         if club_logo_width and club_logo_height:
             logger.info(f"  - Club logo dimensions: {club_logo_width}x{club_logo_height}")
         logger.info(f"  - SVG template: {svg_template_path}")
+        logger.info(f"  - Show outlines: {show_outlines}")
         
         # Load Excel data
         logger.info(f"Loading Excel file: {excel_file}")
@@ -465,6 +468,14 @@ class BadgeGenerator:
                         # Render to PDF
                         logger.debug(f"Drawing to PDF at position ({x/inch:.2f}\", {y/inch:.2f}\")")
                         renderPDF.draw(drawing, c, x, y)
+                        
+                        # Draw outline if enabled (for alignment testing)
+                        if self.show_outlines:
+                            c.saveState()
+                            c.setStrokeColorRGB(0.8, 0.8, 0.8)  # Light gray
+                            c.setLineWidth(0.5)
+                            c.rect(x, y, badge_width, badge_height, stroke=1, fill=0)
+                            c.restoreState()
                         
                         logger.debug(f"Successfully rendered badge {index + 1}/{total_badges}")
                     else:

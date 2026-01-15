@@ -1098,7 +1098,8 @@ def create_badge_template():
             club_logo_width=data.get('club_logo_width'),
             club_logo_height=data.get('club_logo_height'),
             column_mappings=json.dumps(data['column_mappings']),
-            avery_template=data.get('avery_template', '5392')
+            avery_template=data.get('avery_template', '5392'),
+            show_outlines=bool(data.get('show_outlines', False))
         )
         
         db.session.add(template)
@@ -1159,6 +1160,8 @@ def update_badge_template(template_id):
             template.column_mappings = json.dumps(data['column_mappings'])
         if 'avery_template' in data:
             template.avery_template = data['avery_template']
+        if 'show_outlines' in data:
+            template.show_outlines = bool(data['show_outlines'])
         
         template.updated_at = datetime.utcnow()
         db.session.commit()
@@ -1215,8 +1218,11 @@ def duplicate_badge_template(template_id):
             name=new_name,
             svg_filename=template.svg_filename,
             club_logo_filename=template.club_logo_filename,
+            club_logo_width=template.club_logo_width,
+            club_logo_height=template.club_logo_height,
             column_mappings=template.column_mappings,
-            avery_template=template.avery_template
+            avery_template=template.avery_template,
+            show_outlines=template.show_outlines
         )
         
         db.session.add(new_template)
@@ -1569,7 +1575,8 @@ def generate_badges():
             club_logo_path=club_logo_path,
             club_logo_width=template.club_logo_width,
             club_logo_height=template.club_logo_height,
-            avery_template=avery_template
+            avery_template=avery_template,
+            show_outlines=template.show_outlines
         )
         
         # Generate PDF
@@ -1716,7 +1723,8 @@ def badges_pull_process_generate():
                         club_logo_path=club_logo_path,
                         club_logo_width=template.club_logo_width,
                         club_logo_height=template.club_logo_height,
-                        avery_template=avery_template
+                        avery_template=avery_template,
+                        show_outlines=template.show_outlines
                     )
                     
                     output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')

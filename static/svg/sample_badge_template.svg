@@ -35,13 +35,6 @@
   <!-- Background (white) -->
   <rect width="288" height="336" fill="#FFFFFF"/>
   
-  <!-- Optional: Decorative border -->
-  <rect x="5" y="5" width="278" height="374" 
-        fill="none" 
-        stroke="#4b904b" 
-        stroke-width="2" 
-        rx="8"/>
-  
   <!-- Top Header Band (optional decorative element) -->
   <rect x="5" y="5" width="278" height="60" 
         fill="#4b904b" 

@@ -197,6 +197,7 @@ class BadgeTemplate(db.Model):
     club_logo_height = db.Column(db.Integer, nullable=True)  # Original height in pixels
     column_mappings = db.Column(db.Text, nullable=False)  # JSON string
     avery_template = db.Column(db.String(50), default='5392')  # Avery template number
+    show_outlines = db.Column(db.Boolean, default=False, nullable=False)  # Show badge outlines for alignment
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -212,6 +213,7 @@ class BadgeTemplate(db.Model):
             'club_logo_height': self.club_logo_height,
             'column_mappings': json.loads(self.column_mappings) if self.column_mappings else {},
             'avery_template': self.avery_template,
+            'show_outlines': self.show_outlines,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

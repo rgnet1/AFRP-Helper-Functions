@@ -21,13 +21,6 @@
   <rect x="0" y="0" width="384" height="8" fill="#4b904b"/>
   <rect x="0" y="8" width="384" height="2" fill="#d4af37" opacity="0.5"/>
   
-  <!-- Main Content Border -->
-  <rect x="15" y="20" width="354" height="250" 
-        fill="none" 
-        stroke="#cccccc" 
-        stroke-width="1" 
-        rx="3"/>
-  
   <!-- ====================== -->
   <!-- HEADER SECTION         -->
   <!-- ====================== -->
