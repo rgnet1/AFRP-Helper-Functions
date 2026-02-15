@@ -97,19 +97,14 @@
         }
 
         .tile-icon {
-            width: 60px; 
-            height: 60px; 
+            width: 60px;
+            height: 60px;
             display: flex;
             font-size: 40px;
+            line-height: 1;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-        }
-
-        .tile-icon img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
         }
 
         .tile-title {
@@ -152,17 +147,13 @@
     <div class="tiles-container">
         <!-- QR Code Generator Tile -->
         <a href="/qr" class="tile">
-            <div class="tile-icon">
-                <img src="{{ url_for('static', filename='images/qrcode_my.afrp.org.png') }}" alt="QR Code Icon">
-            </div>
+            <div class="tile-icon" aria-hidden="true">🔳</div>
             <div class="tile-title">QR Code Generator</div>
         </a>
 
         <!-- Event URL Generator Tile -->
         <a href="/event" class="tile">
-            <div class="tile-icon">
-                <img src="{{ url_for('static', filename='images/internet.png') }}" alt="Internet Icon">
-            </div>
+            <div class="tile-icon" aria-hidden="true">🌐</div>
             <div class="tile-title">Generate Private Event URL</div>
         </a>
 
@@ -174,9 +165,7 @@
 
          <!-- Badge Generator Tile -->
          <a href="/badges" class="tile">
-            <div class="tile-icon">
-                <img src="{{ url_for('static', filename='images/badge-icon.svg') }}" alt="Badge Generator Icon">
-            </div>
+            <div class="tile-icon" aria-hidden="true">🏷️</div>
             <div class="tile-title">Badge Generator</div>
             <div class="tile-subtitle">Automated CRM Integration</div>
         </a>

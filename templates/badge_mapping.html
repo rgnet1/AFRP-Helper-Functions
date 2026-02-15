@@ -629,6 +629,7 @@
         let sampleExcelColumns = []; // Will be loaded from a sample file or defined
         let currentTemplateId = null; // Track if we're editing an existing template
         let subEventCounter = 0; // Track how many sub-event mappings exist
+        let manualSubEventPlaceholders = new Set(); // Sub-event placeholders explicitly added in the UI
 
         // Sample Excel columns (these should match your actual output columns)
         const defaultExcelColumns = [
@@ -811,6 +812,7 @@
         function removeSvgFile() {
             currentSvgFilename = null;
             extractedPlaceholders = [];
+            manualSubEventPlaceholders = new Set();
             document.getElementById('currentSvgFile').innerHTML = '';
             document.getElementById('svgFileInput').value = '';
             document.getElementById('mappingArea').innerHTML = `
@@ -852,14 +854,14 @@
             
             // Separate regular placeholders and sub-event placeholders, excluding system ones
             const regularPlaceholders = extractedPlaceholders.filter(p => !p.includes('SUBEVENT') && !systemPlaceholders.has(p));
-            const subEventPlaceholders = extractedPlaceholders.filter(p => p.includes('SUBEVENT'));
             
             console.log('Regular placeholders:', regularPlaceholders);
-            console.log('Sub-event placeholders:', subEventPlaceholders);
+            console.log('Manual sub-event placeholders:', Array.from(manualSubEventPlaceholders));
             
-            // Also check saved mappings for sub-events (excluding system placeholders)
+            // Sub-event mappings are optional:
+            // only render ones that are already saved OR explicitly added via "+".
             const savedSubEvents = Object.keys(savedMappings).filter(p => p.includes('SUBEVENT') && !systemPlaceholders.has(p));
-            const allSubEventPlaceholders = [...new Set([...savedSubEvents, ...subEventPlaceholders])];
+            const allSubEventPlaceholders = [...new Set([...savedSubEvents, ...manualSubEventPlaceholders])];
             
             // Track the highest sub-event index so the "+" button always increments correctly
             const maxSubEventIndex = allSubEventPlaceholders.reduce((maxIndex, placeholder) => {
@@ -895,11 +897,11 @@
             });
             
             // Add section header for sub-events if any exist
-            if (subEventCounter > 0 || subEventPlaceholders.length > 0) {
+            if (allSubEventPlaceholders.length > 0) {
                 html += `
                     <div style="margin-top: 20px; padding: 10px; background: #f8f9ff; border-left: 4px solid #4b904b;">
                         <strong style="color: #4b904b;"><i class="fas fa-calendar-alt"></i> Sub-Event Mappings</strong>
-                        <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Map each sub-event placeholder to a column. Click the + button to add more.</p>
+                        <p style="font-size: 12px; color: #666; margin: 5px 0 0 0;">Sub-event mappings are optional. Click + to add only the ones you want.</p>
                     </div>
                 `;
             }
@@ -943,10 +945,7 @@
             subEventCounter++;
             const placeholder = '{{SUBEVENT_' + subEventCounter + '}}';
             
-            // Add to extracted placeholders if not already there
-            if (!extractedPlaceholders.includes(placeholder)) {
-                extractedPlaceholders.push(placeholder);
-            }
+            manualSubEventPlaceholders.add(placeholder);
             
             // Re-render the interface
             const currentMappings = getMappings();
@@ -956,7 +955,8 @@
         }
 
         function removeSubEventMapping(placeholder) {
-            // Remove from extractedPlaceholders
+            // Remove user-added and extracted sub-event placeholder tracking
+            manualSubEventPlaceholders.delete(placeholder);
             const index = extractedPlaceholders.indexOf(placeholder);
             if (index > -1) {
                 extractedPlaceholders.splice(index, 1);
@@ -1058,6 +1058,7 @@
         function resetForm() {
             currentTemplateId = null;
             subEventCounter = 0;
+            manualSubEventPlaceholders = new Set();
             document.getElementById('templateName').value = '';
             document.getElementById('showOutlines').checked = false;
             document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
@@ -1124,6 +1125,7 @@
 
                 // Set current template ID for updating
                 currentTemplateId = template.id;
+                manualSubEventPlaceholders = new Set();
 
                 // Populate form
                 document.getElementById('templateName').value = template.name;
