@@ -19,6 +19,7 @@ import base64
 import logging
 import tempfile
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -430,7 +431,8 @@ class BadgeGenerator:
         # Create temporary directory for SVG files
         with tempfile.TemporaryDirectory() as temp_dir:
             logger.info(f"Using temporary directory: {temp_dir}")
-            
+            badges_on_current_page = 0
+
             for index, row in self.df.iterrows():
                 # Calculate position on page
                 badge_num = index % badges_per_page
@@ -469,14 +471,6 @@ class BadgeGenerator:
                         logger.debug(f"Drawing to PDF at position ({x/inch:.2f}\", {y/inch:.2f}\")")
                         renderPDF.draw(drawing, c, x, y)
                         
-                        # Draw outline if enabled (for alignment testing)
-                        if self.show_outlines:
-                            c.saveState()
-                            c.setStrokeColorRGB(0.8, 0.8, 0.8)  # Light gray
-                            c.setLineWidth(0.5)
-                            c.rect(x, y, badge_width, badge_height, stroke=1, fill=0)
-                            c.restoreState()
-                        
                         logger.debug(f"Successfully rendered badge {index + 1}/{total_badges}")
                     else:
                         logger.warning(f"Failed to convert SVG to drawing for badge {index + 1}")
@@ -493,10 +487,20 @@ class BadgeGenerator:
                 # Report progress
                 if progress_callback:
                     progress_callback(index + 1, total_badges, f"Generated badge {index + 1} of {total_badges}")
-                
+
+                badges_on_current_page += 1
+                page_is_full = badges_on_current_page == badges_per_page
+                is_last_badge = (index + 1) == total_badges
+
+                # Draw tear-line guides once per page (not once per badge).
+                # This avoids darker/double borders where neighboring badges share an edge.
+                if self.show_outlines and (page_is_full or is_last_badge):
+                    self._draw_cut_lines(c, page_width, page_height)
+
                 # Start new page if current page is full
-                if (index + 1) % badges_per_page == 0 and (index + 1) < total_badges:
+                if page_is_full and not is_last_badge:
                     c.showPage()
+                    badges_on_current_page = 0
                     logger.debug(f"Starting new page after {index + 1} badges")
             
             # Save PDF
@@ -504,6 +508,52 @@ class BadgeGenerator:
             logger.info(f"PDF saved to: {output_path}")
         
         return output_path
+
+    def _draw_cut_lines(self, canvas_obj, page_width, page_height):
+        """
+        Draw unique badge boundary lines for the current Avery sheet.
+        Lines are drawn once per page so only true tear/cut lines are shown.
+        """
+        spec = self.template_spec
+        badge_width = spec['width'] * inch
+        badge_height = spec['height'] * inch
+        cols = spec['cols']
+        rows = spec['rows']
+        margin_left = spec['margin_left'] * inch
+        margin_top = spec['margin_top'] * inch
+        gap_h = spec.get('gap_horizontal', 0) * inch
+        gap_v = spec.get('gap_vertical', 0) * inch
+
+        # Preserve insertion order for deterministic rendering while deduplicating.
+        unique_segments = OrderedDict()
+
+        def add_segment(x1, y1, x2, y2):
+            # Normalize direction so identical neighboring edges dedupe correctly.
+            if (x1, y1) <= (x2, y2):
+                key = (round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4))
+            else:
+                key = (round(x2, 4), round(y2, 4), round(x1, 4), round(y1, 4))
+            unique_segments[key] = None
+
+        for row_idx in range(rows):
+            for col_idx in range(cols):
+                x = margin_left + col_idx * (badge_width + gap_h)
+                y = page_height - margin_top - (row_idx + 1) * badge_height - (row_idx * gap_v)
+
+                # Rectangle edges for each label position.
+                add_segment(x, y, x + badge_width, y)  # bottom
+                add_segment(x, y + badge_height, x + badge_width, y + badge_height)  # top
+                add_segment(x, y, x, y + badge_height)  # left
+                add_segment(x + badge_width, y, x + badge_width, y + badge_height)  # right
+
+        canvas_obj.saveState()
+        canvas_obj.setStrokeColorRGB(0.8, 0.8, 0.8)  # Light gray guides
+        canvas_obj.setLineWidth(0.5)
+
+        for x1, y1, x2, y2 in unique_segments.keys():
+            canvas_obj.line(x1, y1, x2, y2)
+
+        canvas_obj.restoreState()
     
     @classmethod
     def get_available_templates(cls):
