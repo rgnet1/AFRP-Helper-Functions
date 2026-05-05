@@ -1,6 +1,7 @@
 import os
 import sys
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor
 import warnings
 import re
 from datetime import datetime
@@ -406,11 +407,16 @@ class EventRegistrationProcessorV3:
             # Find latest files
             files = self.find_latest_files()
             
-            # Load all data sources
-            reg_df = pd.read_excel(files[FileTypes.REGISTRATION])
-            seating_df = pd.read_excel(files[FileTypes.SEATING])
-            qr_df = pd.read_excel(files[FileTypes.QR_CODES])
-            forms_df = pd.read_excel(files[FileTypes.FORM_RESPONSES])
+            # Load all data sources (I/O-bound; parallelize the four Excel reads)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                f_reg = pool.submit(pd.read_excel, files[FileTypes.REGISTRATION])
+                f_seat = pool.submit(pd.read_excel, files[FileTypes.SEATING])
+                f_qr = pool.submit(pd.read_excel, files[FileTypes.QR_CODES])
+                f_forms = pool.submit(pd.read_excel, files[FileTypes.FORM_RESPONSES])
+                reg_df = f_reg.result()
+                seating_df = f_seat.result()
+                qr_df = f_qr.result()
+                forms_df = f_forms.result()
             
             # Process main registration data
             result_df = self.process_registration_data(reg_df)

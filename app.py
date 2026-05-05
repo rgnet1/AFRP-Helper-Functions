@@ -11,7 +11,9 @@ import numpy as np
 import sys
 import threading
 import queue
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+import time as pytime
+import uuid
 import re
 from contextlib import redirect_stdout
 import logging
@@ -35,6 +37,70 @@ import json
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
 from typing import Dict, Type
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# ============================================================================
+# In-memory badge generation job tracking (for UI progress updates)
+# ============================================================================
+
+_BADGE_JOB_LOCK = threading.Lock()
+_BADGE_JOBS: Dict[str, dict] = {}
+
+
+def _cleanup_badge_jobs():
+    """Remove old job records (and any leftover output PDFs)."""
+    cutoff = datetime.utcnow() - timedelta(hours=2)
+    with _BADGE_JOB_LOCK:
+        stale_ids = [
+            job_id
+            for job_id, job in _BADGE_JOBS.items()
+            if job.get("created_at") and job["created_at"] < cutoff
+        ]
+        for job_id in stale_ids:
+            job = _BADGE_JOBS.pop(job_id, None)
+            if not job:
+                continue
+            output_path = job.get("output_pdf_path")
+            try:
+                if output_path and os.path.exists(output_path):
+                    os.remove(output_path)
+            except Exception:
+                pass
+
+
+def _init_badge_job(phase: str, download_name: str = "badges.pdf") -> str:
+    _cleanup_badge_jobs()
+    job_id = str(uuid.uuid4())
+    with _BADGE_JOB_LOCK:
+        _BADGE_JOBS[job_id] = {
+            "id": job_id,
+            "status": "running",  # running|completed|failed
+            "phase": phase,
+            "message": "Starting...",
+            "current": 0,
+            "total": 0,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "error": None,
+            "output_pdf_path": None,
+            "download_name": download_name,
+        }
+    return job_id
+
+
+def _update_badge_job(job_id: str, **updates) -> None:
+    with _BADGE_JOB_LOCK:
+        job = _BADGE_JOBS.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = datetime.utcnow()
+
+
+def _get_badge_job(job_id: str) -> dict:
+    with _BADGE_JOB_LOCK:
+        job = _BADGE_JOBS.get(job_id)
+        return dict(job) if job else {}
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -45,7 +111,10 @@ logger.info("Starting app.py...")
 
 # Check if running in Docker
 IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
-BASE_PATH = '/app' if IN_DOCKER else '.'
+# Resolve BASE_PATH to an absolute path so resource lookups (logos, templates,
+# uploads) keep working even when other code temporarily changes the process
+# working directory via os.chdir() (e.g. preprocessing in /api/badges/pull-process-generate).
+BASE_PATH = '/app' if IN_DOCKER else os.path.abspath(os.path.dirname(__file__))
 
 # Ensure required directories exist with proper permissions
 for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos']:
@@ -112,7 +181,6 @@ if not app.config.get('SECRET_KEY') or app.config['SECRET_KEY'] == '':
 app.config['SESSION_COOKIE_SECURE'] = True  # HTTPS only
 app.config['SESSION_COOKIE_HTTPONLY'] = True  # No JavaScript access
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
-from datetime import timedelta
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)  # Session timeout
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)  # Remember me duration
 app.config['REMEMBER_COOKIE_SECURE'] = True  # HTTPS only
@@ -188,7 +256,12 @@ app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates'
 app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
 # AFRP logo path from environment variable (defaults to PNG in static folder)
 afrp_logo_relative = os.environ.get('AFRP_LOGO_PATH', 'static/afrp_logo.png')
-app.config['AFRP_LOGO_PATH'] = os.path.join(BASE_PATH, afrp_logo_relative)
+# Always store an absolute path so logo lookups survive os.chdir() and so that
+# missing-file warnings include a useful path in the logs.
+afrp_logo_resolved = afrp_logo_relative if os.path.isabs(afrp_logo_relative) else os.path.join(BASE_PATH, afrp_logo_relative)
+app.config['AFRP_LOGO_PATH'] = os.path.abspath(afrp_logo_resolved)
+if not os.path.exists(app.config['AFRP_LOGO_PATH']):
+    logger.warning(f"AFRP logo not found at startup: {app.config['AFRP_LOGO_PATH']}")
 
 # Ensure badge folders exist
 os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
@@ -1597,6 +1670,283 @@ def generate_badges():
         logger.exception("Error generating badges")
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/badges/generate-async', methods=['POST'])
+@login_required
+def generate_badges_async():
+    """Start badge generation in background and return a job id for progress polling."""
+    data = request.get_json() or {}
+    excel_file = data.get('excel_file')
+    template_id = data.get('template_id')
+
+    if not excel_file:
+        return jsonify({'error': 'Excel file path is required'}), 400
+    if not template_id:
+        return jsonify({'error': 'Template ID is required'}), 400
+    if not os.path.exists(excel_file):
+        return jsonify({'error': 'Excel file not found'}), 404
+
+    template = BadgeTemplate.query.get(template_id)
+    if not template:
+        return jsonify({'error': 'Template not found'}), 404
+
+    download_name = 'badges.pdf'
+    job_id = _init_badge_job(phase="generate_badges", download_name=download_name)
+
+    def run_job():
+        try:
+            with app.app_context():
+                svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+                if not os.path.exists(svg_path):
+                    raise FileNotFoundError("SVG template file not found")
+
+                club_logo_path = None
+                if template.club_logo_filename:
+                    candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
+                    if os.path.exists(candidate):
+                        club_logo_path = candidate
+
+                column_mappings = json.loads(template.column_mappings)
+
+                generator = BadgeGenerator(
+                    excel_file=excel_file,
+                    svg_template_path=svg_path,
+                    column_mappings=column_mappings,
+                    afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+                    club_logo_path=club_logo_path,
+                    club_logo_width=template.club_logo_width,
+                    club_logo_height=template.club_logo_height,
+                    avery_template=template.avery_template,
+                    show_outlines=template.show_outlines
+                )
+
+                total = len(generator.df) if hasattr(generator, "df") else 0
+                _update_badge_job(job_id, total=total, message="Generating badges...")
+
+                def progress_callback(current, total_count, message):
+                    _update_badge_job(
+                        job_id,
+                        current=int(current),
+                        total=int(total_count),
+                        message=message or "Generating badges..."
+                    )
+
+                output_pdf = os.path.join(
+                    tempfile.gettempdir(),
+                    f'badges_{job_id}_{int(datetime.utcnow().timestamp())}.pdf'
+                )
+
+                generator.generate_pdf(output_pdf, progress_callback=progress_callback)
+                _update_badge_job(job_id, status="completed", output_pdf_path=output_pdf, message="Complete")
+        except Exception as e:
+            logger.exception("Async badge generation failed")
+            _update_badge_job(job_id, status="failed", error=str(e), message="Failed")
+
+    threading.Thread(target=run_job, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/badges/pull-process-generate-async', methods=['POST'])
+@login_required
+def badges_pull_process_generate_async():
+    """Start pull+process+generate in background and return a job id for progress polling."""
+    data = request.get_json() or {}
+    campaign_name = (data.get('campaign_name') or 'campaign').replace(" ", "_")
+    download_name = f'badges_{campaign_name}.pdf'
+    job_id = _init_badge_job(phase="pull_process_generate", download_name=download_name)
+
+    def run_job():
+        try:
+            with app.app_context():
+                _update_badge_job(job_id, message="Pulling and processing data...")
+
+                # Reuse the synchronous implementation by calling it directly isn't safe
+                # because it returns a Flask response; instead, inline the same logic here.
+                campaign_id = data.get('campaign_id')
+                campaign_name_local = data.get('campaign_name')
+                event_name = data.get('event', 'Default')
+                sub_event = data.get('subEvent')
+                inclusion_list = data.get('inclusionList')
+                created_on_filter = data.get('createdOnFilter')
+                preprocessing_template_id = data.get('preprocessingTemplateId')
+
+                if not campaign_id and not campaign_name_local:
+                    raise ValueError('Campaign ID or name is required')
+
+                crm_client = DynamicsCRMClient()
+                if campaign_name_local and not campaign_id:
+                    campaign_info = crm_client.get_campaign_by_name(campaign_name_local)
+                    if not campaign_info:
+                        raise ValueError(f'Campaign {campaign_name_local} not found')
+                    campaign_id = campaign_info['id']
+
+                upload_folder = app.config['UPLOAD_FOLDER']
+                os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+
+                data_type_mapping = {
+                    'event_guests': FileTypes.REGISTRATION,
+                    'qr_codes': FileTypes.QR_CODES,
+                    'table_reservations': FileTypes.SEATING,
+                    'form_responses': FileTypes.FORM_RESPONSES
+                }
+
+                def _pull_crm_excel(data_type: str, file_type: str):
+                    df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
+                    temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
+                    df.to_excel(temp_file, index=False)
+
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    futs = [
+                        pool.submit(_pull_crm_excel, dt, ft)
+                        for dt, ft in data_type_mapping.items()
+                    ]
+                    for fut in as_completed(futs):
+                        fut.result()
+
+                # Determine preprocessor
+                preprocessor_class = None
+                if preprocessing_template_id:
+                    try:
+                        template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+                        if template:
+                            preprocessor_class = create_preprocessor_from_template(template)
+                    except Exception:
+                        preprocessor_class = None
+                if not preprocessor_class:
+                    preprocessor_class = DefaultPreprocessing
+
+                config_obj = PreprocessingConfig(
+                    main_event=event_name,
+                    sub_event=sub_event,
+                    inclusion_list=inclusion_list,
+                    created_on_filter=created_on_filter
+                )
+
+                template_id = data.get('template_id')
+                if not template_id:
+                    raise ValueError('template_id is required')
+
+                badge_template = BadgeTemplate.query.get(int(template_id))
+                if not badge_template:
+                    raise ValueError('Badge template not found')
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Copy files to temp dir
+                    for file_type in FileValidator.get_required_file_types():
+                        matching_files = [f for f in os.listdir(upload_folder) if f.startswith(f"{file_type}_")]
+                        if matching_files:
+                            source = os.path.join(upload_folder, matching_files[0])
+                            dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
+                            shutil.copy2(source, dest)
+
+                    original_dir = os.getcwd()
+                    os.chdir(temp_dir)
+                    try:
+                        _update_badge_job(job_id, message="Processing and merging data...")
+                        processor = EventRegistrationProcessorV3(config=config_obj, preprocessor_class=preprocessor_class)
+                        result_df = processor.transform_and_merge()
+
+                        processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
+                        result_df.to_excel(processed_excel, index=False)
+
+                        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], badge_template.svg_filename)
+
+                        club_logo_path = None
+                        if badge_template.club_logo_filename:
+                            candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], badge_template.club_logo_filename)
+                            if os.path.exists(candidate):
+                                club_logo_path = candidate
+
+                        column_mappings = json.loads(badge_template.column_mappings)
+
+                        generator = BadgeGenerator(
+                            excel_file=processed_excel,
+                            svg_template_path=svg_path,
+                            column_mappings=column_mappings,
+                            afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+                            club_logo_path=club_logo_path,
+                            club_logo_width=badge_template.club_logo_width,
+                            club_logo_height=badge_template.club_logo_height,
+                            avery_template=badge_template.avery_template,
+                            show_outlines=badge_template.show_outlines
+                        )
+
+                        total = len(generator.df) if hasattr(generator, "df") else 0
+                        _update_badge_job(job_id, total=total, message="Generating badges...")
+
+                        def progress_callback(current, total_count, message):
+                            _update_badge_job(
+                                job_id,
+                                current=int(current),
+                                total=int(total_count),
+                                message=message or "Generating badges..."
+                            )
+
+                        output_pdf = os.path.join(
+                            tempfile.gettempdir(),
+                            f'badges_{job_id}_{int(datetime.utcnow().timestamp())}.pdf'
+                        )
+                        generator.generate_pdf(output_pdf, progress_callback=progress_callback)
+                        _update_badge_job(job_id, status="completed", output_pdf_path=output_pdf, message="Complete")
+                    finally:
+                        os.chdir(original_dir)
+
+        except Exception as e:
+            logger.exception("Async pull-process-generate failed")
+            _update_badge_job(job_id, status="failed", error=str(e), message="Failed")
+
+    threading.Thread(target=run_job, daemon=True).start()
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/api/badges/jobs/<job_id>', methods=['GET'])
+@login_required
+def get_badge_job(job_id):
+    """Get progress for an async badge generation job."""
+    job = _get_badge_job(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    total = int(job.get("total") or 0)
+    current = int(job.get("current") or 0)
+    percent = 0
+    if total > 0:
+        percent = min(100, int((current / total) * 100))
+    elif job.get("status") == "completed":
+        percent = 100
+
+    return jsonify({
+        'job_id': job_id,
+        'status': job.get('status'),
+        'phase': job.get('phase'),
+        'message': job.get('message'),
+        'current': current,
+        'total': total,
+        'percent': percent,
+        'error': job.get('error')
+    })
+
+
+@app.route('/api/badges/jobs/<job_id>/download', methods=['GET'])
+@login_required
+def download_badge_job(job_id):
+    """Download the PDF for a completed async badge generation job."""
+    job = _get_badge_job(job_id)
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+    if job.get("status") != "completed":
+        return jsonify({'error': 'Job not completed'}), 409
+    output_path = job.get("output_pdf_path")
+    if not output_path or not os.path.exists(output_path):
+        return jsonify({'error': 'Output file missing'}), 404
+    return send_file(
+        output_path,
+        as_attachment=True,
+        download_name=job.get("download_name") or "badges.pdf",
+        mimetype='application/pdf'
+    )
+
+
 @app.route('/api/badges/pull-process-generate', methods=['POST'])
 @login_required
 def badges_pull_process_generate():
@@ -1638,11 +1988,19 @@ def badges_pull_process_generate():
             'table_reservations': FileTypes.SEATING,
             'form_responses': FileTypes.FORM_RESPONSES
         }
-        
-        for data_type, file_type in data_type_mapping.items():
+
+        def _pull_crm_excel_sync(data_type: str, file_type: str):
             df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
             temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
             df.to_excel(temp_file, index=False)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = [
+                pool.submit(_pull_crm_excel_sync, dt, ft)
+                for dt, ft in data_type_mapping.items()
+            ]
+            for fut in as_completed(futs):
+                fut.result()
         
         # Get the preprocessing implementation from database templates
         preprocessor_class = None

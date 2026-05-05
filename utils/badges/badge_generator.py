@@ -13,6 +13,7 @@ import pandas as pd
 import os
 import json
 import re
+import shutil
 from io import BytesIO
 from PIL import Image
 import base64
@@ -20,8 +21,220 @@ import logging
 import tempfile
 import xml.etree.ElementTree as ET
 from collections import OrderedDict
+import copy
+import pickle
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
+
+# Placeholders like {{FIRST_NAME}} — must match after logo substitution (paths are not matched).
+PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_0-9]+\}\}")
+
+
+def _subtree_has_placeholder(elem: ET.Element) -> bool:
+    xml = ET.tostring(elem, encoding="unicode", method="xml")
+    return PLACEHOLDER_RE.search(xml) is not None
+
+
+def _static_prune(elem: ET.Element):
+    """Keep only SVG subtrees with no mail-merge placeholders (static layer)."""
+    if not _subtree_has_placeholder(elem):
+        return copy.deepcopy(elem)
+    new_el = ET.Element(elem.tag, dict(elem.attrib))
+    if elem.text:
+        new_el.text = PLACEHOLDER_RE.sub("", elem.text)
+    else:
+        new_el.text = elem.text
+    new_el.tail = elem.tail
+    for k, v in list(new_el.attrib.items()):
+        if v and PLACEHOLDER_RE.search(v):
+            del new_el.attrib[k]
+    for child in elem:
+        pruned = _static_prune(child)
+        if pruned is not None:
+            new_el.append(pruned)
+    if len(new_el) == 0 and not (new_el.text and str(new_el.text).strip()):
+        return None
+    return new_el
+
+
+def _elem_has_own_placeholder(elem: ET.Element) -> bool:
+    parts = []
+    if elem.text:
+        parts.append(elem.text)
+    if elem.tail:
+        parts.append(elem.tail)
+    for v in elem.attrib.values():
+        if v:
+            parts.append(v)
+    return any(PLACEHOLDER_RE.search(p) for p in parts)
+
+
+def _dynamic_prune(elem: ET.Element):
+    """Keep only subtrees that still contain at least one placeholder (dynamic layer)."""
+    if not _subtree_has_placeholder(elem):
+        return None
+    pruned_children = []
+    for child in elem:
+        p = _dynamic_prune(child)
+        if p is not None:
+            pruned_children.append(p)
+    if not _elem_has_own_placeholder(elem) and not pruned_children:
+        return None
+    new_el = ET.Element(elem.tag, dict(elem.attrib))
+    new_el.text = elem.text
+    new_el.tail = elem.tail
+    for p in pruned_children:
+        new_el.append(p)
+    return new_el
+
+
+def split_template_svg(svg_text: str) -> tuple[str, str]:
+    """Split full SVG into (static_xml, dynamic_xml) sharing the same root dimensions."""
+    root = ET.fromstring(svg_text.strip())
+    static_el = _static_prune(root)
+    dynamic_el = _dynamic_prune(root)
+    if static_el is None or dynamic_el is None:
+        raise ValueError("split_template_svg produced empty static or dynamic layer")
+    return (
+        ET.tostring(static_el, encoding="unicode"),
+        ET.tostring(dynamic_el, encoding="unicode"),
+    )
+
+
+def _generate_qr_code_bytes(data: str):
+    """Module-level QR generator for picklable worker processes."""
+    if not data:
+        return None
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    qr.add_data(str(data))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
+
+
+def _row_value_str(row: dict, col_name: str) -> str:
+    if col_name not in row:
+        return ""
+    val = row[col_name]
+    if val is None:
+        return ""
+    try:
+        if pd.isna(val):
+            return ""
+    except Exception:
+        pass
+    return str(val)
+
+
+def _apply_column_mappings(svg_content: str, row: dict, column_mappings: dict) -> str:
+    for placeholder, column_name in column_mappings.items():
+        if placeholder == "{{QR_CODE}}":
+            continue
+        if isinstance(column_name, list):
+            sub_events = []
+            for col in column_name:
+                v = _row_value_str(row, col)
+                if v:
+                    event_name = col.split(" ~ ")[-1] if " ~ " in col else col
+                    sub_events.append(event_name)
+            value = "\n".join(sub_events)
+        else:
+            value = _row_value_str(row, column_name)
+        if placeholder in svg_content:
+            svg_content = svg_content.replace(placeholder, value)
+    return svg_content
+
+
+def _replace_qr_placeholder(
+    svg_content: str, row: dict, temp_dir: str, row_index
+) -> str:
+    if "{{QR_CODE}}" not in svg_content:
+        return svg_content
+    replaced = False
+    qr_data = row.get("QR Code", "")
+    if qr_data is not None and qr_data != "":
+        try:
+            if pd.isna(qr_data):
+                qr_data = ""
+        except Exception:
+            pass
+    if qr_data:
+        buf = _generate_qr_code_bytes(str(qr_data))
+        if buf:
+            fn = f"qr_{row_index}.png"
+            with open(os.path.join(temp_dir, fn), "wb") as qf:
+                qf.write(buf.getvalue())
+            svg_content = svg_content.replace("{{QR_CODE}}", fn)
+            replaced = True
+    if not replaced:
+        svg_content = svg_content.replace("{{QR_CODE}}", "")
+    return svg_content
+
+
+def _strip_remaining_placeholders(svg_content: str) -> str:
+    remaining = set(PLACEHOLDER_RE.findall(svg_content))
+    if remaining:
+        logger.warning(
+            "Final cleanup removing %s remaining placeholders: %s",
+            len(remaining),
+            remaining,
+        )
+    for token in remaining:
+        svg_content = svg_content.replace(token, "")
+    return svg_content
+
+
+def _render_dynamic_drawing(args: dict):
+    """Picklable worker: render dynamic-only SVG for one row; returns (row_index, pickle_bytes|None, err|None)."""
+    row_index = args["row_index"]
+    temp_dir = args["temp_dir"]
+    dynamic_path = args["dynamic_svg_path"]
+    column_mappings = args["column_mappings"]
+    row = args["row"]
+    badge_w = args["badge_width"]
+    badge_h = args["badge_height"]
+    try:
+        with open(dynamic_path, "r", encoding="utf-8") as f:
+            svg_content = f.read()
+        svg_content = _apply_column_mappings(svg_content, row, column_mappings)
+        svg_content = _replace_qr_placeholder(svg_content, row, temp_dir, row_index)
+        svg_content = _strip_remaining_placeholders(svg_content)
+        out_svg = os.path.join(temp_dir, f"badge_dynamic_{row_index}.svg")
+        with open(out_svg, "w", encoding="utf-8") as wf:
+            wf.write(svg_content)
+        drawing = svg2rlg(out_svg)
+        if os.path.exists(out_svg):
+            os.remove(out_svg)
+        if not drawing:
+            return (row_index, None, "svg2rlg returned None")
+        scale_x = badge_w / drawing.width
+        scale_y = badge_h / drawing.height
+        scale = min(scale_x, scale_y)
+        drawing.width = badge_w
+        drawing.height = badge_h
+        drawing.scale(scale, scale)
+        return (
+            row_index,
+            pickle.dumps(drawing, protocol=pickle.HIGHEST_PROTOCOL),
+            None,
+        )
+    except Exception as e:
+        logger.error(
+            "Error rendering dynamic badge row_index=%s: %s",
+            row_index,
+            e,
+            exc_info=True,
+        )
+        return (row_index, None, str(e))
 
 class BadgeGenerator:
     """Generate print-ready badges from Excel data using SVG templates."""
@@ -93,12 +306,20 @@ class BadgeGenerator:
         self.excel_file = excel_file
         self.svg_template_path = svg_template_path
         self.column_mappings = column_mappings
-        self.afrp_logo_path = afrp_logo_path
-        self.club_logo_path = club_logo_path
+        # Resolve logo paths to absolute paths up-front so they survive any
+        # later os.chdir() the caller might do (e.g. the /pull-process-generate
+        # endpoint chdir's into a temp working dir while preprocessing).
+        self.afrp_logo_path = os.path.abspath(afrp_logo_path) if afrp_logo_path else None
+        self.club_logo_path = os.path.abspath(club_logo_path) if club_logo_path else None
         self.club_logo_width = club_logo_width
         self.club_logo_height = club_logo_height
         self.avery_template = avery_template
         self.show_outlines = show_outlines
+
+        # Filenames used inside each per-badge temp dir; populated by
+        # _stage_static_assets(). Empty string => placeholder will be cleared.
+        self._afrp_logo_filename = ''
+        self._club_logo_filename = ''
         
         # Debug logging
         logger.info(f"BadgeGenerator initialized with:")
@@ -237,149 +458,113 @@ class BadgeGenerator:
         
         return svg_content
     
+    def _stage_static_assets(self, temp_dir):
+        """
+        Copy AFRP and Club logos into ``temp_dir`` once per generation so each
+        rendered SVG can reference them by relative filename.
+
+        Using on-disk image files (instead of data: URIs embedded in the SVG)
+        is significantly more reliable: ``svglib`` has full support for raster
+        and SVG images referenced by relative path, but its inline data:-URI
+        path only matches PNG/JPEG and silently drops other types (notably SVG
+        club logos). It also avoids bloating every rendered SVG with a 400KB+
+        base64 string per logo.
+        """
+        self._afrp_logo_filename = ''
+        self._club_logo_filename = ''
+
+        if self.afrp_logo_path and os.path.exists(self.afrp_logo_path):
+            ext = os.path.splitext(self.afrp_logo_path)[1].lower() or '.png'
+            filename = f'afrp_logo{ext}'
+            try:
+                shutil.copyfile(self.afrp_logo_path, os.path.join(temp_dir, filename))
+                self._afrp_logo_filename = filename
+                logger.info(f"Staged AFRP logo: {self.afrp_logo_path} -> {filename}")
+            except Exception as e:
+                logger.error(f"Failed to stage AFRP logo {self.afrp_logo_path}: {e}")
+        else:
+            logger.warning(
+                f"AFRP logo missing or not provided (path={self.afrp_logo_path}); "
+                "the {{AFRP_LOGO}} placeholder will be left blank."
+            )
+
+        if self.club_logo_path and os.path.exists(self.club_logo_path):
+            ext = os.path.splitext(self.club_logo_path)[1].lower() or '.png'
+            filename = f'club_logo{ext}'
+            try:
+                shutil.copyfile(self.club_logo_path, os.path.join(temp_dir, filename))
+                self._club_logo_filename = filename
+                logger.info(f"Staged club logo: {self.club_logo_path} -> {filename}")
+            except Exception as e:
+                logger.error(f"Failed to stage club logo {self.club_logo_path}: {e}")
+        elif self.club_logo_path:
+            logger.warning(
+                f"Club logo path provided but file not found: {self.club_logo_path}; "
+                "the {{CLUB_LOGO}} placeholder will be left blank."
+            )
+
+    def _scale_drawing_to_badge(self, drawing, badge_width, badge_height):
+        """Scale a ReportLab Drawing to fit the Avery badge cell (mutates drawing)."""
+        scale_x = badge_width / drawing.width
+        scale_y = badge_height / drawing.height
+        scale = min(scale_x, scale_y)
+        drawing.width = badge_width
+        drawing.height = badge_height
+        drawing.scale(scale, scale)
+
     def render_svg_badge(self, row_data, temp_dir):
         """
         Render a single badge by replacing placeholders in SVG template.
-        
+
         Args:
             row_data: Pandas Series containing data for one attendee
             temp_dir: Temporary directory for storing files
-            
+
         Returns:
             Path to rendered SVG file
         """
         logger.debug(f"Rendering SVG for row {row_data.name}")
         logger.debug(f"Row data columns: {list(row_data.index)}")
-        
-        # Read SVG template
+
         with open(self.svg_template_path, 'r', encoding='utf-8') as f:
             svg_content = f.read()
-        
-        # Dynamically adjust club logo dimensions if available
+
         svg_content = self.adjust_club_logo_dimensions(svg_content)
-        
+
         logger.debug(f"SVG template length: {len(svg_content)} characters")
-        replacements_made = 0
-        
-        # Replace text placeholders
+
+        row = row_data.to_dict()
         for placeholder, column_name in self.column_mappings.items():
-            if placeholder == '{{QR_CODE}}':
-                continue  # Handle QR code separately
-                
-            if isinstance(column_name, list):
-                # Handle sub-events (multiple columns)
-                sub_events = []
-                for col in column_name:
-                    if col in row_data.index and pd.notna(row_data[col]):
-                        # Extract event name from column like "Event ~ Sub-event"
-                        event_name = col.split(' ~ ')[-1] if ' ~ ' in col else col
-                        sub_events.append(event_name)
-                value = '\n'.join(sub_events) if sub_events else ''
-            else:
-                # Single column mapping
-                if column_name in row_data.index:
-                    value = str(row_data[column_name]) if pd.notna(row_data[column_name]) else ''
-                else:
-                    value = ''
-                    logger.warning(f"Column '{column_name}' not found in data for row {row_data.name}")
-            
-            # Replace placeholder in SVG
-            if placeholder in svg_content:
-                svg_content = svg_content.replace(placeholder, value)
-                replacements_made += 1
-                logger.debug(f"Replaced {placeholder} with '{value[:50]}...'")
-            else:
-                logger.warning(f"Placeholder {placeholder} not found in SVG template")
-        
-        logger.debug(f"Made {replacements_made} replacements in SVG")
-        
-        # Handle QR code
-        if '{{QR_CODE}}' in svg_content:
-            logger.debug("Found QR_CODE placeholder in SVG")
-            qr_replaced = False
-            if 'QR Code' in row_data.index:
-                qr_data = row_data.get('QR Code', '')
-                logger.debug(f"QR Code data: {qr_data}")
-                if qr_data and not pd.isna(qr_data):
-                    qr_img_bytes = self.generate_qr_code(qr_data)
-                    if qr_img_bytes:
-                        qr_base64 = base64.b64encode(qr_img_bytes.getvalue()).decode()
-                        logger.debug(f"Generated QR code, base64 length: {len(qr_base64)}")
-                        svg_content = svg_content.replace(
-                            '{{QR_CODE}}',
-                            f'data:image/png;base64,{qr_base64}'
-                        )
-                        qr_replaced = True
-                    else:
-                        logger.warning("Failed to generate QR code image")
-                else:
-                    logger.warning(f"QR Code data is empty or NA for row {row_data.name}")
-            else:
-                logger.warning("QR Code column not found in row data")
-            
-            # If QR code wasn't replaced (empty data or error), remove the placeholder
-            if not qr_replaced:
-                svg_content = svg_content.replace('{{QR_CODE}}', '')
-                logger.debug("Removed empty QR_CODE placeholder")
-        
-        # Handle AFRP logo
-        if '{{AFRP_LOGO}}' in svg_content:
-            logger.debug(f"Found AFRP_LOGO placeholder, path: {self.afrp_logo_path}")
-            afrp_base64 = self.image_to_base64(self.afrp_logo_path)
-            if afrp_base64:
-                logger.debug(f"AFRP logo encoded, base64 length: {len(afrp_base64)}")
-                # Detect file type from extension
-                ext = os.path.splitext(self.afrp_logo_path)[1].lower()
-                mime_type = 'image/svg+xml' if ext == '.svg' else 'image/png'
-                svg_content = svg_content.replace(
-                    '{{AFRP_LOGO}}',
-                    f'data:{mime_type};base64,{afrp_base64}'
+            if placeholder == "{{QR_CODE}}":
+                continue
+            if not isinstance(column_name, list) and column_name not in row_data.index:
+                logger.warning(
+                    "Column '%s' not found in data for row %s",
+                    column_name,
+                    row_data.name,
                 )
-            else:
-                logger.warning("Failed to encode AFRP logo, removing placeholder")
-                svg_content = svg_content.replace('{{AFRP_LOGO}}', '')
-        
-        # Handle club logo
-        if '{{CLUB_LOGO}}' in svg_content:
-            logger.info(f"Found {{{{CLUB_LOGO}}}} placeholder in SVG")
-            if self.club_logo_path:
-                logger.info(f"Club logo path provided: {self.club_logo_path}")
-                logger.info(f"Club logo exists: {os.path.exists(self.club_logo_path)}")
-                club_base64 = self.image_to_base64(self.club_logo_path)
-                if club_base64:
-                    logger.info(f"Club logo encoded successfully, length: {len(club_base64)}")
-                    ext = os.path.splitext(self.club_logo_path)[1].lower()
-                    mime_type = 'image/svg+xml' if ext == '.svg' else 'image/png'
-                    logger.info(f"Club logo mime type: {mime_type}")
-                    svg_content = svg_content.replace(
-                        '{{CLUB_LOGO}}',
-                        f'data:{mime_type};base64,{club_base64}'
-                    )
-                    logger.info("Club logo placeholder replaced with base64 data")
-                else:
-                    logger.warning("Failed to encode club logo, removing placeholder")
-                    svg_content = svg_content.replace('{{CLUB_LOGO}}', '')
-            else:
-                logger.warning("No club logo path provided, removing placeholder")
-                svg_content = svg_content.replace('{{CLUB_LOGO}}', '')
-        else:
-            logger.warning("No {{CLUB_LOGO}} placeholder found in SVG template")
-        
-        # Final cleanup: Remove any remaining placeholders that weren't handled
-        final_cleanup = re.findall(r'\{\{[A-Z_0-9]+\}\}', svg_content)
-        if final_cleanup:
-            logger.warning(f"Final cleanup removing {len(final_cleanup)} remaining placeholders: {final_cleanup}")
-            for remaining in final_cleanup:
-                svg_content = svg_content.replace(remaining, '')
-        
-        # Save rendered SVG to temp file
+
+        svg_content = _apply_column_mappings(
+            svg_content, row, self.column_mappings
+        )
+        svg_content = _replace_qr_placeholder(
+            svg_content, row, temp_dir, row_data.name
+        )
+
+        # AFRP logo and Club logo: just point at the staged file in temp_dir.
+        # svglib will resolve the relative href against the SVG's directory.
+        svg_content = svg_content.replace("{{AFRP_LOGO}}", self._afrp_logo_filename)
+        svg_content = svg_content.replace("{{CLUB_LOGO}}", self._club_logo_filename)
+
+        svg_content = _strip_remaining_placeholders(svg_content)
+
         temp_svg_path = os.path.join(temp_dir, f'badge_{row_data.name}.svg')
         with open(temp_svg_path, 'w', encoding='utf-8') as f:
             f.write(svg_content)
-        
+
         logger.debug(f"Saved rendered SVG to: {temp_svg_path}")
         logger.debug(f"Final SVG length: {len(svg_content)} characters")
-        
+
         return temp_svg_path
     
     def generate_pdf(self, output_path, progress_callback=None):
@@ -430,79 +615,153 @@ class BadgeGenerator:
         
         # Create temporary directory for SVG files
         with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir = os.path.abspath(temp_dir)
             logger.info(f"Using temporary directory: {temp_dir}")
+
+            # Copy AFRP/Club logos into the temp dir once so every per-badge
+            # SVG can reference them by relative filename.
+            self._stage_static_assets(temp_dir)
+
+            cache_static = os.environ.get("BADGE_GENERATOR_CACHE_STATIC", "1") != "0"
+            static_form_name = "badge_static_layer"
+
+            with open(self.svg_template_path, "r", encoding="utf-8") as tf:
+                svg_base = tf.read()
+            svg_base = self.adjust_club_logo_dimensions(svg_base)
+            svg_base = svg_base.replace("{{AFRP_LOGO}}", self._afrp_logo_filename)
+            svg_base = svg_base.replace("{{CLUB_LOGO}}", self._club_logo_filename)
+
+            static_xml, dynamic_xml = split_template_svg(svg_base)
+            static_svg_path = os.path.join(temp_dir, "_static_layer.svg")
+            dynamic_svg_path = os.path.join(temp_dir, "_dynamic_layer.svg")
+            with open(static_svg_path, "w", encoding="utf-8") as sf:
+                sf.write(static_xml)
+            with open(dynamic_svg_path, "w", encoding="utf-8") as df:
+                df.write(dynamic_xml)
+
+            static_drawing = svg2rlg(static_svg_path)
+            if not static_drawing:
+                raise RuntimeError("Failed to convert static SVG layer to ReportLab drawing")
+            self._scale_drawing_to_badge(static_drawing, badge_width, badge_height)
+
+            if cache_static:
+                c.beginForm(
+                    static_form_name,
+                    0,
+                    0,
+                    static_drawing.width,
+                    static_drawing.height,
+                )
+                renderPDF.draw(static_drawing, c, 0, 0)
+                c.endForm()
+
+            max_workers = int(
+                os.environ.get("BADGE_GENERATOR_WORKERS", os.cpu_count() or 4)
+            )
+            max_workers = max(1, max_workers)
+
+            dynamic_by_index = {}
+            if total_badges > 0:
+                workers = min(max_workers, total_badges)
+                work_items = []
+                for idx, row in self.df.iterrows():
+                    work_items.append(
+                        {
+                            "row_index": idx,
+                            "temp_dir": temp_dir,
+                            "dynamic_svg_path": dynamic_svg_path,
+                            "column_mappings": self.column_mappings,
+                            "row": row.to_dict(),
+                            "badge_width": badge_width,
+                            "badge_height": badge_height,
+                        }
+                    )
+                with ProcessPoolExecutor(max_workers=workers) as pool:
+                    futures = [
+                        pool.submit(_render_dynamic_drawing, item) for item in work_items
+                    ]
+                    done = 0
+                    for fut in as_completed(futures):
+                        row_index, pdata, err = fut.result()
+                        if err:
+                            logger.error(
+                                "Dynamic render failed for row_index=%s: %s",
+                                row_index,
+                                err,
+                            )
+                        elif pdata:
+                            try:
+                                dynamic_by_index[row_index] = pickle.loads(pdata)
+                            except Exception as pe:
+                                logger.error(
+                                    "Failed to unpickle drawing row_index=%s: %s",
+                                    row_index,
+                                    pe,
+                                    exc_info=True,
+                                )
+                        done += 1
+                        if progress_callback:
+                            progress_callback(
+                                done,
+                                total_badges,
+                                f"Generated badge {done} of {total_badges}",
+                            )
+
             badges_on_current_page = 0
 
             for index, row in self.df.iterrows():
-                # Calculate position on page
+                # Calculate position on page (index label order must match legacy behavior)
                 badge_num = index % badges_per_page
                 col = badge_num % cols
                 row_pos = badge_num // cols
-                
+
                 # Calculate x, y position
                 x = margin_left + col * (badge_width + gap_h)
                 y = page_height - margin_top - (row_pos + 1) * badge_height - (row_pos * gap_v)
-                
+
                 try:
-                    # Render SVG for this badge
-                    logger.debug(f"Rendering badge {index + 1}/{total_badges}")
-                    svg_path = self.render_svg_badge(row, temp_dir)
-                    logger.debug(f"SVG rendered to: {svg_path}")
-                    
-                    # Convert SVG to ReportLab drawing
-                    drawing = svg2rlg(svg_path)
-                    logger.debug(f"SVG converted to drawing: {drawing is not None}")
-                    
+                    drawing = dynamic_by_index.get(index)
                     if drawing:
-                        logger.debug(f"Original drawing size: {drawing.width} x {drawing.height}")
-                        
-                        # Scale to fit badge dimensions
-                        scale_x = badge_width / drawing.width
-                        scale_y = badge_height / drawing.height
-                        scale = min(scale_x, scale_y)
-                        
-                        logger.debug(f"Scale factors: x={scale_x}, y={scale_y}, using={scale}")
-                        
-                        drawing.width = badge_width
-                        drawing.height = badge_height
-                        drawing.scale(scale, scale)
-                        
-                        # Render to PDF
-                        logger.debug(f"Drawing to PDF at position ({x/inch:.2f}\", {y/inch:.2f}\")")
-                        renderPDF.draw(drawing, c, x, y)
-                        
-                        logger.debug(f"Successfully rendered badge {index + 1}/{total_badges}")
+                        logger.debug(
+                            "Compositing badge at PDF (%.2f\", %.2f\")",
+                            x / inch,
+                            y / inch,
+                        )
+                        c.saveState()
+                        c.translate(x, y)
+                        if cache_static and c.hasForm(static_form_name):
+                            c.doForm(static_form_name)
+                        else:
+                            renderPDF.draw(static_drawing, c, 0, 0)
+                        renderPDF.draw(drawing, c, 0, 0)
+                        c.restoreState()
                     else:
-                        logger.warning(f"Failed to convert SVG to drawing for badge {index + 1}")
-                        logger.warning(f"SVG file content preview: {open(svg_path).read()[:200]}")
-                    
-                    # Clean up temp SVG file
-                    if os.path.exists(svg_path):
-                        os.remove(svg_path)
-                    
+                        logger.warning(
+                            "No dynamic drawing for badge index=%s; skipping composite",
+                            index,
+                        )
+
                 except Exception as e:
-                    logger.error(f"Error rendering badge {index + 1}: {e}", exc_info=True)
-                    # Continue with next badge
-                
-                # Report progress
-                if progress_callback:
-                    progress_callback(index + 1, total_badges, f"Generated badge {index + 1} of {total_badges}")
+                    logger.error(
+                        "Error compositing badge index=%s: %s",
+                        index,
+                        e,
+                        exc_info=True,
+                    )
 
                 badges_on_current_page += 1
                 page_is_full = badges_on_current_page == badges_per_page
                 is_last_badge = (index + 1) == total_badges
 
                 # Draw tear-line guides once per page (not once per badge).
-                # This avoids darker/double borders where neighboring badges share an edge.
                 if self.show_outlines and (page_is_full or is_last_badge):
                     self._draw_cut_lines(c, page_width, page_height)
 
-                # Start new page if current page is full
                 if page_is_full and not is_last_badge:
                     c.showPage()
                     badges_on_current_page = 0
-                    logger.debug(f"Starting new page after {index + 1} badges")
-            
+                    logger.debug("Starting new page after index=%s badges", index)
+
             # Save PDF
             c.save()
             logger.info(f"PDF saved to: {output_path}")

@@ -1115,6 +1115,54 @@
             document.getElementById('loadingMessage').textContent = message;
         }
 
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function pollBadgeJob(jobId, { downloadName } = {}) {
+            // Poll the server periodically for real progress updates while badges generate.
+            while (true) {
+                const resp = await fetch(`/api/badges/jobs/${jobId}`);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `Failed to fetch job status (${resp.status})`);
+                }
+
+                const job = await resp.json();
+                const total = job.total || 0;
+                const current = job.current || 0;
+                const pct = Number.isFinite(job.percent) ? job.percent : 0;
+
+                const progressSuffix = total > 0 ? ` (${current}/${total})` : '';
+                updateProgress(pct, `${job.message || 'Working...'}${progressSuffix}`, 'generating');
+
+                if (job.status === 'failed') {
+                    throw new Error(job.error || 'Badge generation failed');
+                }
+                if (job.status === 'completed') {
+                    updateProgress(100, 'Complete! Downloading badges...', 'complete');
+                    const downloadResp = await fetch(`/api/badges/jobs/${jobId}/download`);
+                    if (!downloadResp.ok) {
+                        const err = await downloadResp.json().catch(() => ({}));
+                        throw new Error(err.error || `Download failed (${downloadResp.status})`);
+                    }
+
+                    const blob = await downloadResp.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = downloadName || 'badges.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    return;
+                }
+
+                await sleep(2000);
+            }
+        }
+
         function showToast(message, type = 'success') {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
@@ -1193,12 +1241,10 @@
             }
 
             showLoading();
-            updateProgress(0, 'Preparing badge generation...', 'loading');
+            updateProgress(0, 'Starting badge generation...', 'loading');
 
             try {
-                updateProgress(30, 'Generating QR codes...', 'processing');
-                
-                const response = await fetch('/api/badges/generate', {
+                const response = await fetch('/api/badges/generate-async', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -1212,20 +1258,9 @@
                     throw new Error(error.error || 'Badge generation failed');
                 }
 
-                updateProgress(80, 'Creating PDF...', 'generating');
-
-                const blob = await response.blob();
-                updateProgress(100, 'Complete! Downloading badges...', 'complete');
-
-                // Download PDF
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'badges.pdf';
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                const { job_id } = await response.json();
+                updateProgress(0, 'Generating badges...', 'generating');
+                await pollBadgeJob(job_id, { downloadName: 'badges.pdf' });
 
                 setTimeout(() => {
                     hideLoading();
@@ -1285,9 +1320,9 @@
                 updateProgress(70, 'Pulling Form Responses from CRM...', 'pulling-forms');
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
-                updateProgress(80, 'Processing and generating badges...', 'processing');
+                updateProgress(80, 'Starting pull, process & generate...', 'processing');
 
-                const response = await fetch('/api/badges/pull-process-generate', {
+                const response = await fetch('/api/badges/pull-process-generate-async', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(data)
@@ -1298,21 +1333,9 @@
                     throw new Error(error.error || 'Processing failed');
                 }
 
-                updateProgress(95, 'Creating PDF badges...', 'generating');
-                await new Promise(resolve => setTimeout(resolve, 300));
-
-                const blob = await response.blob();
-                updateProgress(100, 'Complete! Downloading badges...', 'complete');
-
-                // Download file
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `badges_${campaignName.replace(/\s+/g, '_')}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                const { job_id } = await response.json();
+                updateProgress(80, 'Generating badges...', 'generating');
+                await pollBadgeJob(job_id, { downloadName: `badges_${campaignName.replace(/\s+/g, '_')}.pdf` });
 
                 setTimeout(() => {
                     hideLoading();
