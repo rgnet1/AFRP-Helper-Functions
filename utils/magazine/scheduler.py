@@ -38,6 +38,11 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 console_handler.setFormatter(formatter)
 logging.getLogger().addHandler(console_handler)
 
+# Redact secrets from every log record before it reaches a handler so that
+# credentials (e.g. the email app password) can never be written to logs.
+from utils.log_redaction import install_secret_redaction
+install_secret_redaction()
+
 # Create loggers with source identification
 scheduler_logger = logging.getLogger('SCHEDULER')
 job_logger = logging.getLogger('JOB')

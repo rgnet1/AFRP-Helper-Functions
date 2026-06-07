@@ -106,6 +106,10 @@ def _get_badge_job(job_id: str) -> dict:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Redact secrets from every log record so credentials are never written to logs.
+from utils.log_redaction import install_secret_redaction
+install_secret_redaction()
+
 # Log that the script is starting
 logger.info("Starting app.py...")
 
