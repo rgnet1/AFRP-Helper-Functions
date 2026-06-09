@@ -30,7 +30,11 @@ from utils.badges.event_preprocessing import preprocessing_implementations
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
-from utils.badges.badge_generator import BadgeGenerator
+from utils.badges.badge_generator import (
+    BadgeGenerator,
+    probe_image_dimensions,
+    validate_template_club_logo,
+)
 from utils.dynamics_crm import DynamicsCRMClient
 import os
 import json
@@ -101,6 +105,19 @@ def _get_badge_job(job_id: str) -> dict:
     with _BADGE_JOB_LOCK:
         job = _BADGE_JOBS.get(job_id)
         return dict(job) if job else {}
+
+
+def _resolve_badge_club_logo(template, svg_path=None):
+    """Resolve club logo path and validate template logo requirements."""
+    if svg_path is None:
+        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+    club_logo_path = None
+    if template.club_logo_filename:
+        candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
+        if os.path.exists(candidate):
+            club_logo_path = candidate
+    error = validate_template_club_logo(svg_path, club_logo_path)
+    return club_logo_path, error
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1376,15 +1393,11 @@ def upload_club_logo():
         filepath = os.path.join(app.config['BADGE_LOGOS_FOLDER'], filename)
         file.save(filepath)
         
-        # Calculate image dimensions for aspect ratio
-        width, height = None, None
-        try:
-            from PIL import Image
-            with Image.open(filepath) as img:
-                width, height = img.size
-                logger.info(f"Club logo dimensions: {width}x{height}")
-        except Exception as e:
-            logger.warning(f"Could not determine logo dimensions: {e}")
+        width, height = probe_image_dimensions(filepath)
+        if width and height:
+            logger.info(f"Club logo dimensions: {width}x{height}")
+        else:
+            logger.warning(f"Could not determine logo dimensions for {filename}")
         
         logger.info(f"Uploaded club logo: {filename}")
         return jsonify({
@@ -1627,15 +1640,11 @@ def generate_badges():
         if not os.path.exists(svg_path):
             return jsonify({'error': 'SVG template file not found'}), 404
         
-        # Get club logo path from template (optional)
-        club_logo_path = None
-        if template.club_logo_filename:
-            club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
-            if not os.path.exists(club_logo_path):
-                logger.warning(f"Club logo not found: {club_logo_path}")
-                club_logo_path = None
-            else:
-                logger.info(f"Using club logo: {club_logo_path}")
+        club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
+        if club_logo_error:
+            return jsonify({'error': club_logo_error}), 400
+        if club_logo_path:
+            logger.info(f"Using club logo: {club_logo_path}")
         
         # Get Avery template from badge template
         avery_template = template.avery_template
@@ -1694,6 +1703,13 @@ def generate_badges_async():
     if not template:
         return jsonify({'error': 'Template not found'}), 404
 
+    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+    if not os.path.exists(svg_path):
+        return jsonify({'error': 'SVG template file not found'}), 404
+    club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
+    if club_logo_error:
+        return jsonify({'error': club_logo_error}), 400
+
     download_name = 'badges.pdf'
     job_id = _init_badge_job(phase="generate_badges", download_name=download_name)
 
@@ -1703,12 +1719,6 @@ def generate_badges_async():
                 svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
                 if not os.path.exists(svg_path):
                     raise FileNotFoundError("SVG template file not found")
-
-                club_logo_path = None
-                if template.club_logo_filename:
-                    candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
-                    if os.path.exists(candidate):
-                        club_logo_path = candidate
 
                 column_mappings = json.loads(template.column_mappings)
 
@@ -1755,6 +1765,22 @@ def generate_badges_async():
 def badges_pull_process_generate_async():
     """Start pull+process+generate in background and return a job id for progress polling."""
     data = request.get_json() or {}
+    template_id = data.get('template_id')
+    if not template_id:
+        return jsonify({'error': 'template_id is required'}), 400
+
+    badge_template = BadgeTemplate.query.get(int(template_id))
+    if not badge_template:
+        return jsonify({'error': 'Badge template not found'}), 404
+
+    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], badge_template.svg_filename)
+    if not os.path.exists(svg_path):
+        return jsonify({'error': 'SVG template file not found'}), 404
+
+    club_logo_path, club_logo_error = _resolve_badge_club_logo(badge_template, svg_path)
+    if club_logo_error:
+        return jsonify({'error': club_logo_error}), 400
+
     campaign_name = (data.get('campaign_name') or 'campaign').replace(" ", "_")
     download_name = f'badges_{campaign_name}.pdf'
     job_id = _init_badge_job(phase="pull_process_generate", download_name=download_name)
@@ -1826,14 +1852,6 @@ def badges_pull_process_generate_async():
                     created_on_filter=created_on_filter
                 )
 
-                template_id = data.get('template_id')
-                if not template_id:
-                    raise ValueError('template_id is required')
-
-                badge_template = BadgeTemplate.query.get(int(template_id))
-                if not badge_template:
-                    raise ValueError('Badge template not found')
-
                 with tempfile.TemporaryDirectory() as temp_dir:
                     # Copy files to temp dir
                     for file_type in FileValidator.get_required_file_types():
@@ -1854,12 +1872,6 @@ def badges_pull_process_generate_async():
                         result_df.to_excel(processed_excel, index=False)
 
                         svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], badge_template.svg_filename)
-
-                        club_logo_path = None
-                        if badge_template.club_logo_filename:
-                            candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], badge_template.club_logo_filename)
-                            if os.path.exists(candidate):
-                                club_logo_path = candidate
 
                         column_mappings = json.loads(badge_template.column_mappings)
 
@@ -2063,16 +2075,11 @@ def badges_pull_process_generate():
                         return jsonify({'error': 'Badge template not found'}), 404
                     
                     svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
-                    
-                    # Get club logo path from template (optional)
-                    club_logo_path = None
-                    if template.club_logo_filename:
-                        club_logo_path = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
-                        if not os.path.exists(club_logo_path):
-                            logger.warning(f"Club logo not found: {club_logo_path}")
-                            club_logo_path = None
-                        else:
-                            logger.info(f"Using club logo: {club_logo_path}")
+                    club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
+                    if club_logo_error:
+                        return jsonify({'error': club_logo_error}), 400
+                    if club_logo_path:
+                        logger.info(f"Using club logo: {club_logo_path}")
                     
                     avery_template = template.avery_template
                     column_mappings = json.loads(template.column_mappings)
