@@ -267,7 +267,17 @@ class EventRegistrationProcessorV3:
             table_value = str(row['Table']).strip() if pd.notna(row['Table']) else ''
             if table_value:
                 column_name = f"{row['Event']} ~ Table"
-                df.loc[df['Contact ID'] == row['Contact ID'], column_name] = table_value
+                contact_id = row['Contact ID']
+                contact_mask = df['Contact ID'] == contact_id
+                event_name = row['Event']
+                # Only assign a table when the contact has a Paid registration for this event.
+                # CRM may retain stale seat assignments after registration is cancelled/inactive.
+                if event_name not in df.columns or not contact_mask.any():
+                    continue
+                reg_val = df.loc[contact_mask, event_name].iloc[0]
+                if not (pd.notna(reg_val) and str(reg_val).strip()):
+                    continue
+                df.loc[contact_mask, column_name] = table_value
 
         # Print unique events from seating chart for verification
         logger.info("Events found in seating chart:")
