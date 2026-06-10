@@ -6,6 +6,7 @@
   AVAILABLE PLACEHOLDERS:
   - {{FIRST_NAME}} - Attendee's first name
   - {{LAST_NAME}} - Attendee's last name
+  - {{MAIDEN_NAME}} - Attendee's maiden name (if any)
   - {{TITLE}} - Mr., Mrs., Dr., etc.
   - {{MEMBER_ID}} - Format: ID-#### 
   - {{LOCAL_CLUB}} - Club affiliation
@@ -21,6 +22,9 @@
   CUSTOMIZATION TIPS:
   1. Change font-family: Arial, Helvetica, "Times New Roman", Courier, Verdana
   2. Change font-size: Numbers in pixels (e.g., 24, 18, 14, 12)
+     Add data-shrink-to-fit="true" on a <text> element to auto-shrink long
+     values down from that font-size so they stay on one line (optional
+     data-max-width, data-min-font-size).
   3. Change colors: Use hex codes (#000000) or names (black, red, blue)
   4. Move elements: Adjust x, y coordinates
   5. Resize images: Adjust width and height attributes

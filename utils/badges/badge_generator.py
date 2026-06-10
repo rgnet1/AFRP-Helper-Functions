@@ -7,6 +7,7 @@ import qrcode
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from svglib.svglib import svg2rlg
 from reportlab.graphics import renderPDF
 import pandas as pd
@@ -29,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 # Placeholders like {{FIRST_NAME}} — must match after logo substitution (paths are not matched).
 PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_0-9]+\}\}")
+TEXT_TAG_RE = re.compile(r"<text\b([^>]*)>([^<]*)</text>", re.IGNORECASE)
+VIEWBOX_WIDTH_RE = re.compile(
+    r'viewBox\s*=\s*"[\d.\s]+[\s,]+[\d.\s]+[\s,]+([\d.]+)',
+    re.IGNORECASE,
+)
+SVG_WIDTH_RE = re.compile(r'\bwidth\s*=\s*"([\d.]+)', re.IGNORECASE)
+DEFAULT_MIN_SHRINK_FONT_SIZE = 10.0
 
 CLUB_LOGO_PLACEHOLDER = "{{CLUB_LOGO}}"
 AFRP_LOGO_PLACEHOLDER = "{{AFRP_LOGO}}"
@@ -288,6 +296,131 @@ def _row_value_str(row: dict, col_name: str) -> str:
     return str(val)
 
 
+def _collapse_empty_maiden_parentheses(svg_content: str) -> str:
+    """Drop empty ( ) around maiden name when the attendee has no maiden name."""
+    return re.sub(r"\s*\(\s*\)\s*", " ", svg_content)
+
+
+def _parse_svg_attr(attrs: str, name: str, default=None):
+    match = re.search(rf'\b{re.escape(name)}\s*=\s*"([^"]*)"', attrs, re.IGNORECASE)
+    return match.group(1) if match else default
+
+
+def _reportlab_font_name(font_family: str, font_weight: str) -> str:
+    family = (font_family or "Arial").lower().strip()
+    bold = str(font_weight or "").lower() in ("bold", "700", "800", "900", "bolder")
+    if "times" in family:
+        return "Times-Bold" if bold else "Times-Roman"
+    if "courier" in family:
+        return "Courier-Bold" if bold else "Courier"
+    return "Helvetica-Bold" if bold else "Helvetica"
+
+
+def _svg_canvas_width(svg_content: str) -> float:
+    viewbox = VIEWBOX_WIDTH_RE.search(svg_content)
+    if viewbox:
+        return float(viewbox.group(1))
+    width = SVG_WIDTH_RE.search(svg_content)
+    return float(width.group(1)) if width else 384.0
+
+
+def _max_text_width(
+    x_value: str,
+    text_anchor: str,
+    svg_width: float,
+    explicit_max_width: str,
+) -> float:
+    margin = 12.0
+    if explicit_max_width:
+        try:
+            return float(explicit_max_width)
+        except ValueError:
+            pass
+    try:
+        x = float(x_value) if x_value is not None else svg_width / 2
+    except ValueError:
+        x = svg_width / 2
+    anchor = (text_anchor or "start").lower()
+    if anchor == "middle":
+        return max(2 * min(x - margin, svg_width - x - margin), 0.0)
+    if anchor == "end":
+        return max(x - margin, 0.0)
+    return max(svg_width - x - margin, 0.0)
+
+
+def _shrink_text_to_fit(svg_content: str) -> str:
+    """Shrink font-size on opt-in <text> elements so content stays on one line."""
+    svg_width = _svg_canvas_width(svg_content)
+
+    def _replace_text(match: re.Match) -> str:
+        attrs, text = match.group(1), match.group(2).strip()
+        if not text:
+            return match.group(0)
+
+        shrink_flag = (_parse_svg_attr(attrs, "data-shrink-to-fit", "") or "").lower()
+        if shrink_flag not in ("true", "1", "yes"):
+            return match.group(0)
+
+        try:
+            font_size = float(_parse_svg_attr(attrs, "font-size", "12"))
+        except ValueError:
+            font_size = 12.0
+        try:
+            min_font_size = float(
+                _parse_svg_attr(attrs, "data-min-font-size", str(DEFAULT_MIN_SHRINK_FONT_SIZE))
+            )
+        except ValueError:
+            min_font_size = DEFAULT_MIN_SHRINK_FONT_SIZE
+
+        max_width = _max_text_width(
+            _parse_svg_attr(attrs, "x"),
+            _parse_svg_attr(attrs, "text-anchor"),
+            svg_width,
+            _parse_svg_attr(attrs, "data-max-width"),
+        )
+        if max_width <= 0:
+            return match.group(0)
+
+        font_name = _reportlab_font_name(
+            _parse_svg_attr(attrs, "font-family"),
+            _parse_svg_attr(attrs, "font-weight"),
+        )
+
+        fitted_size = font_size
+        while fitted_size > min_font_size and stringWidth(text, font_name, fitted_size) > max_width:
+            fitted_size -= 0.5
+
+        if fitted_size >= font_size:
+            return match.group(0)
+
+        if re.search(r"\bfont-size\s*=", attrs, re.IGNORECASE):
+            new_attrs = re.sub(
+                r'font-size\s*=\s*"[^"]*"',
+                f'font-size="{fitted_size:g}"',
+                attrs,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        else:
+            new_attrs = f'{attrs} font-size="{fitted_size:g}"'
+
+        logger.debug(
+            "Shrunk badge text %r from %spt to %spt (max width %.0f)",
+            text[:50],
+            font_size,
+            fitted_size,
+            max_width,
+        )
+        return f"<text{new_attrs}>{text}</text>"
+
+    return TEXT_TAG_RE.sub(_replace_text, svg_content)
+
+
+def _finalize_svg_content(svg_content: str) -> str:
+    svg_content = _collapse_empty_maiden_parentheses(svg_content)
+    return _shrink_text_to_fit(svg_content)
+
+
 def _apply_column_mappings(svg_content: str, row: dict, column_mappings: dict) -> str:
     for placeholder, column_name in column_mappings.items():
         if placeholder == "{{QR_CODE}}":
@@ -304,7 +437,7 @@ def _apply_column_mappings(svg_content: str, row: dict, column_mappings: dict) -
             value = _row_value_str(row, column_name)
         if placeholder in svg_content:
             svg_content = svg_content.replace(placeholder, value)
-    return svg_content
+    return _collapse_empty_maiden_parentheses(svg_content)
 
 
 def _replace_qr_placeholder(
@@ -361,6 +494,7 @@ def _render_dynamic_drawing(args: dict):
         svg_content = _apply_column_mappings(svg_content, row, column_mappings)
         svg_content = _replace_qr_placeholder(svg_content, row, temp_dir, row_index)
         svg_content = _strip_remaining_placeholders(svg_content)
+        svg_content = _finalize_svg_content(svg_content)
         out_svg = os.path.join(temp_dir, f"badge_dynamic_{row_index}.svg")
         with open(out_svg, "w", encoding="utf-8") as wf:
             wf.write(svg_content)
@@ -693,6 +827,7 @@ class BadgeGenerator:
         svg_content = svg_content.replace("{{CLUB_LOGO}}", self._club_logo_filename)
 
         svg_content = _strip_remaining_placeholders(svg_content)
+        svg_content = _finalize_svg_content(svg_content)
 
         temp_svg_path = os.path.join(temp_dir, f'badge_{row_data.name}.svg')
         with open(temp_svg_path, 'w', encoding='utf-8') as f:

@@ -263,6 +263,20 @@ class DynamicsCRMClient:
         
         return df
     
+    @staticmethod
+    def _coalesce_contact_fields(df: pd.DataFrame, sources: List[str], target: str) -> pd.DataFrame:
+        """Combine candidate source columns into one, taking the first non-empty value per row."""
+        present = [col for col in sources if col in df.columns]
+        if not present:
+            return df
+        coalesced = df[present[0]]
+        for col in present[1:]:
+            is_empty = coalesced.isna() | (coalesced.astype(str).str.strip() == '')
+            coalesced = coalesced.where(~is_empty, df[col])
+        df = df.drop(columns=present)
+        df[target] = coalesced
+        return df
+
     def _map_event_guest_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Map Event Guest API columns to Excel export column names."""
         if df.empty:
@@ -278,6 +292,15 @@ class DynamicsCRMClient:
         redundant_cols = ['attendeefirstname', 'attendeelastname']
         df = df.drop(columns=[col for col in redundant_cols if col in df.columns], errors='ignore')
         
+        # Coalesce honorific sources into a single title column. AFRP stores
+        # honorifics in the aha_title option set (formatted: "Mr.", "Mrs.", ...);
+        # the standard salutation field is unpopulated. Mapping both to the same
+        # Excel header used to create duplicate columns and the dedup below kept
+        # the empty salutation column, wiping out Title in the export.
+        df = self._coalesce_contact_fields(
+            df, ['contact_aha_title', 'contact_salutation'], 'contact_title'
+        )
+        
         # Mapping from API field names to Excel export column names
         # NOTE: Only map expanded entity fields, NOT lookup GUIDs to avoid duplicates
         column_mapping = {
@@ -286,8 +309,8 @@ class DynamicsCRMClient:
             'contact_aha_memberid': 'Member ID (Existing Contact) (Contact)',
             'contact_firstname': 'First Name (Existing Contact) (Contact)',
             'contact_lastname': 'Last Name (Existing Contact) (Contact)',
-            'contact_salutation': 'Title (Existing Contact) (Contact)',  # Honorifics field (may be null)
-            'contact_aha_title': 'Title (Existing Contact) (Contact)',  # Alternative title field
+            'contact_title': 'Title (Existing Contact) (Contact)',  # Coalesced aha_title/salutation
+            'contact_msnfp_maidenname': 'Maiden Name (Existing Contact) (Contact)',
             'contact__aha_localclub2_value': 'Local Club (Existing Contact) (Contact)',  # Lookup field GUID
             'contact_aha_localclub2': 'Local Club (Existing Contact) (Contact)',  # Alternative mapping
             'contact_gendercode': 'Gender (Existing Contact) (Contact)',

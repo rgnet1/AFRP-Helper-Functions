@@ -30,19 +30,24 @@
          preserveAspectRatio="xMidYMid meet"
          href="{{CLUB_LOGO}}"/>
   
-  <!-- Full Name on One Line (Center) -->
+  <!-- Full Name on One Line (Center). Maiden name is optional: renders as
+       "First (Maiden) Last" when Maiden Name is mapped and populated, otherwise "First Last". -->
   <text x="192" y="120" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="28" 
         font-weight="bold"
-        fill="#000000">{{FIRST_NAME}} {{LAST_NAME}}</text>
+        data-shrink-to-fit="true"
+        data-min-font-size="14"
+        fill="#000000">{{FIRST_NAME}} ({{MAIDEN_NAME}}) {{LAST_NAME}}</text>
   
   <!-- Local Club (Center) -->
   <text x="192" y="150" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="16" 
+        data-shrink-to-fit="true"
+        data-min-font-size="10"
         fill="#4b904b">{{LOCAL_CLUB}}</text>
   
   <!-- Table Number (Below Club) -->

@@ -32,6 +32,7 @@ class RegistrationColumns:
     FIRST_NAME = "First Name (Existing Contact) (Contact)"
     LAST_NAME = "Last Name (Existing Contact) (Contact)"
     TITLE = "Title (Existing Contact) (Contact)"
+    MAIDEN_NAME = "Maiden Name (Existing Contact) (Contact)"
     LOCAL_CLUB = "Local Club (Existing Contact) (Contact)"
     GENDER = "Gender (Existing Contact) (Contact)"
     AGE = "Age (Existing Contact) (Contact)"
@@ -46,6 +47,7 @@ class RegistrationColumns:
         'First Name': [FIRST_NAME],
         'Last Name': [LAST_NAME],
         'Title': [TITLE],
+        'Maiden Name': [MAIDEN_NAME, 'Maiden Name'],
         'Local Club': [LOCAL_CLUB],
         'Gender': [GENDER],
         'Age': [AGE],
@@ -149,6 +151,12 @@ class EventRegistrationProcessorV3:
         
         # Standardize column names
         reg_df, missing_columns = self._standardize_columns(reg_df, RegistrationColumns.MAPPINGS)
+        # Maiden Name is optional - older data files may not include it
+        optional_columns = {'Maiden Name'}
+        for col in [c for c in missing_columns if c in optional_columns]:
+            logger.info(f"Optional column '{col}' not found in registration data, adding empty column")
+            reg_df[col] = ''
+        missing_columns = [c for c in missing_columns if c not in optional_columns]
         if missing_columns:
             logger.info("\nAvailable columns:")
             logger.info(reg_df.columns.tolist())
@@ -166,7 +174,7 @@ class EventRegistrationProcessorV3:
             logger.info(f"  - {event}")
         
         # Create base DataFrame with unique contacts using only the key identifying columns
-        unique_columns = ['Contact ID', 'Member ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age']
+        unique_columns = ['Contact ID', 'Member ID', 'First Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age']
         transformed_df = paid_df[unique_columns].drop_duplicates(subset=['Contact ID']).reset_index(drop=True)
         
         logger.info(f"\nFound {len(transformed_df)} unique contacts")
@@ -175,6 +183,7 @@ class EventRegistrationProcessorV3:
         logger.info("Formatting names to proper case...")
         transformed_df['First Name'] = transformed_df['First Name'].apply(lambda x: str(x).strip().title() if pd.notna(x) else x)
         transformed_df['Last Name'] = transformed_df['Last Name'].apply(lambda x: str(x).strip().title() if pd.notna(x) else x)
+        transformed_df['Maiden Name'] = transformed_df['Maiden Name'].apply(lambda x: str(x).strip().title() if pd.notna(x) and str(x).strip() else '')
         
         # Normalize Gender values - handle cases where formatted values didn't come through
         logger.info("Normalizing Gender values...")
@@ -455,7 +464,7 @@ class EventRegistrationProcessorV3:
                 logger.info(f"Found {len(result_df)} contacts registered for {self.config.sub_event}")
                 
                 # Filter columns to only include relevant ones for this sub-event
-                contact_columns = ['Contact ID', 'First Name', 'Last Name', 'Title', 'Local Club', 'Gender', 'Age']
+                contact_columns = ['Contact ID', 'First Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age']
                 relevant_columns = [col for col in contact_columns if col in result_df.columns]
                 
                 # Add the sub-event column itself
