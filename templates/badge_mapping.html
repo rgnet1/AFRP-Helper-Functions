@@ -850,8 +850,10 @@
                 return;
             }
 
-            // System placeholders that don't need column mapping (handled by image uploads)
-            const systemPlaceholders = new Set(['{{AFRP_LOGO}}', '{{CLUB_LOGO}}']);
+            // System placeholders that don't need column mapping
+            // (logos come from image uploads; DISPLAY_NAME is computed by the
+            // generator from First/Maiden/Last Name columns)
+            const systemPlaceholders = new Set(['{{AFRP_LOGO}}', '{{CLUB_LOGO}}', '{{DISPLAY_NAME}}']);
             
             // Separate regular placeholders and sub-event placeholders, excluding system ones
             const regularPlaceholders = extractedPlaceholders.filter(p => !p.includes('SUBEVENT') && !systemPlaceholders.has(p));

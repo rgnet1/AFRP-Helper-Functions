@@ -30,11 +30,12 @@ logger = logging.getLogger(__name__)
 
 # Placeholders like {{FIRST_NAME}} — must match after logo substitution (paths are not matched).
 PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_0-9]+\}\}")
-TEXT_TAG_RE = re.compile(r"<text\b([^>]*)>([^<]*)</text>", re.IGNORECASE)
-VIEWBOX_WIDTH_RE = re.compile(
-    r'viewBox\s*=\s*"[\d.\s]+[\s,]+[\d.\s]+[\s,]+([\d.]+)',
-    re.IGNORECASE,
+# Match <text> with optional XML namespace prefix (ElementTree emits ns0:text
+# for the split dynamic layer).
+TEXT_TAG_RE = re.compile(
+    r"<(?:\w+:)?text\b([^>]*)>([^<]*)</(?:\w+:)?text>", re.IGNORECASE
 )
+VIEWBOX_RE = re.compile(r'viewBox\s*=\s*"([^"]*)"', re.IGNORECASE)
 SVG_WIDTH_RE = re.compile(r'\bwidth\s*=\s*"([\d.]+)', re.IGNORECASE)
 DEFAULT_MIN_SHRINK_FONT_SIZE = 10.0
 
@@ -317,9 +318,14 @@ def _reportlab_font_name(font_family: str, font_weight: str) -> str:
 
 
 def _svg_canvas_width(svg_content: str) -> float:
-    viewbox = VIEWBOX_WIDTH_RE.search(svg_content)
+    viewbox = VIEWBOX_RE.search(svg_content)
     if viewbox:
-        return float(viewbox.group(1))
+        parts = viewbox.group(1).replace(",", " ").split()
+        if len(parts) == 4:
+            try:
+                return float(parts[2])
+            except ValueError:
+                pass
     width = SVG_WIDTH_RE.search(svg_content)
     return float(width.group(1)) if width else 384.0
 
@@ -386,9 +392,14 @@ def _shrink_text_to_fit(svg_content: str) -> str:
             _parse_svg_attr(attrs, "font-weight"),
         )
 
+        # svglib/system fonts render slightly wider than the Helvetica metrics
+        # ReportLab uses for estimation, so keep a safety margin.
+        usable_width = max_width * 0.90
+
         fitted_size = font_size
-        while fitted_size > min_font_size and stringWidth(text, font_name, fitted_size) > max_width:
+        while fitted_size > min_font_size and stringWidth(text, font_name, fitted_size) > usable_width:
             fitted_size -= 0.5
+        fitted_size = max(fitted_size, min_font_size)
 
         if fitted_size >= font_size:
             return match.group(0)
@@ -421,7 +432,30 @@ def _finalize_svg_content(svg_content: str) -> str:
     return _shrink_text_to_fit(svg_content)
 
 
+def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, default_column: str) -> str:
+    column = column_mappings.get(placeholder, default_column)
+    if isinstance(column, list):
+        return ""
+    return _row_value_str(row, column).strip()
+
+
+def _build_display_name(row: dict, column_mappings: dict) -> str:
+    """Full name for {{DISPLAY_NAME}}: 'First (Maiden) Last', parentheses only when maiden exists."""
+    first = _mapped_row_value(row, column_mappings, "{{FIRST_NAME}}", "First Name")
+    last = _mapped_row_value(row, column_mappings, "{{LAST_NAME}}", "Last Name")
+    maiden = _mapped_row_value(row, column_mappings, "{{MAIDEN_NAME}}", "Maiden Name")
+    if maiden:
+        parts = [first, f"({maiden})", last]
+    else:
+        parts = [first, last]
+    return " ".join(p for p in parts if p)
+
+
 def _apply_column_mappings(svg_content: str, row: dict, column_mappings: dict) -> str:
+    if "{{DISPLAY_NAME}}" in svg_content:
+        svg_content = svg_content.replace(
+            "{{DISPLAY_NAME}}", _build_display_name(row, column_mappings)
+        )
     for placeholder, column_name in column_mappings.items():
         if placeholder == "{{QR_CODE}}":
             continue

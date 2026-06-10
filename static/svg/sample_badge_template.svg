@@ -7,6 +7,8 @@
   - {{FIRST_NAME}} - Attendee's first name
   - {{LAST_NAME}} - Attendee's last name
   - {{MAIDEN_NAME}} - Attendee's maiden name (if any)
+  - {{DISPLAY_NAME}} - Auto-computed full name: "First (Maiden) Last" when a
+    maiden name exists, otherwise "First Last" (no mapping needed)
   - {{TITLE}} - Mr., Mrs., Dr., etc.
   - {{MEMBER_ID}} - Format: ID-#### 
   - {{LOCAL_CLUB}} - Club affiliation

@@ -16,30 +16,32 @@
   <!-- White Background -->
   <rect width="384" height="288" fill="#FFFFFF"/>
   
-  <!-- AFRP Logo (Top Left) - Aspect ratio 2.25:1 -->
+  <!-- Club Logo (Top Left) -->
   <image x="20" y="20" 
-         width="110" 
-         height="49" 
-         preserveAspectRatio="xMidYMid meet"
-         href="{{AFRP_LOGO}}"/>
-  
-  <!-- Club Logo (Top Right) - Aspect ratio 1.46:1 -->
-  <image x="309" y="20" 
          width="70" 
          height="48" 
          preserveAspectRatio="xMidYMid meet"
          href="{{CLUB_LOGO}}"/>
   
-  <!-- Full Name on One Line (Center). Maiden name is optional: renders as
-       "First (Maiden) Last" when Maiden Name is mapped and populated, otherwise "First Last". -->
+  <!-- AFRP Logo (Top Right) - Aspect ratio 2.25:1 -->
+  <image x="254" y="20" 
+         width="110" 
+         height="49" 
+         preserveAspectRatio="xMidYMid meet"
+         href="{{AFRP_LOGO}}"/>
+  
+  <!-- Full Name on One Line (Center). {{DISPLAY_NAME}} is computed by the
+       generator as "First (Maiden) Last" when a maiden name exists,
+       otherwise "First Last" - no empty parentheses ever. -->
   <text x="192" y="120" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="28" 
         font-weight="bold"
         data-shrink-to-fit="true"
-        data-min-font-size="14"
-        fill="#000000">{{FIRST_NAME}} ({{MAIDEN_NAME}}) {{LAST_NAME}}</text>
+        data-min-font-size="10"
+        data-max-width="350"
+        fill="#000000">{{DISPLAY_NAME}}</text>
   
   <!-- Local Club (Center) -->
   <text x="192" y="150" 
