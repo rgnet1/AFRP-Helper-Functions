@@ -101,6 +101,7 @@ class PreprocessingBase(ABC):
         'Contact ID',
         'Member ID',
         'First Name', 
+        'Middle Name',
         'Last Name', 
         'Maiden Name',
         'Title', 

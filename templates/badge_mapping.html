@@ -634,6 +634,7 @@
         // Sample Excel columns (these should match your actual output columns)
         const defaultExcelColumns = [
             'First Name',
+            'Middle Name',
             'Last Name',
             'Maiden Name',
             'Member ID',
@@ -852,7 +853,7 @@
 
             // System placeholders that don't need column mapping
             // (logos come from image uploads; DISPLAY_NAME is computed by the
-            // generator from First/Maiden/Last Name columns)
+            // generator from First/Middle/Maiden/Last Name columns)
             const systemPlaceholders = new Set(['{{AFRP_LOGO}}', '{{CLUB_LOGO}}', '{{DISPLAY_NAME}}']);
             
             // Separate regular placeholders and sub-event placeholders, excluding system ones

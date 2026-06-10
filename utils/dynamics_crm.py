@@ -308,6 +308,7 @@ class DynamicsCRMClient:
             'contact_contactid': 'Contact ID',
             'contact_aha_memberid': 'Member ID (Existing Contact) (Contact)',
             'contact_firstname': 'First Name (Existing Contact) (Contact)',
+            'contact_middlename': 'Middle Name (Existing Contact) (Contact)',
             'contact_lastname': 'Last Name (Existing Contact) (Contact)',
             'contact_title': 'Title (Existing Contact) (Contact)',  # Coalesced aha_title/salutation
             'contact_msnfp_maidenname': 'Maiden Name (Existing Contact) (Contact)',

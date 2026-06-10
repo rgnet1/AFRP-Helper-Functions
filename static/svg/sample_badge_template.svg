@@ -5,10 +5,11 @@
   
   AVAILABLE PLACEHOLDERS:
   - {{FIRST_NAME}} - Attendee's first name
+  - {{MIDDLE_NAME}} - Attendee's middle name (if any)
   - {{LAST_NAME}} - Attendee's last name
   - {{MAIDEN_NAME}} - Attendee's maiden name (if any)
-  - {{DISPLAY_NAME}} - Auto-computed full name: "First (Maiden) Last" when a
-    maiden name exists, otherwise "First Last" (no mapping needed)
+  - {{DISPLAY_NAME}} - Auto-computed full name: First [Middle] [(Maiden)] Last
+    (no mapping needed; uses First/Middle/Maiden/Last Name columns)
   - {{TITLE}} - Mr., Mrs., Dr., etc.
   - {{MEMBER_ID}} - Format: ID-#### 
   - {{LOCAL_CLUB}} - Club affiliation

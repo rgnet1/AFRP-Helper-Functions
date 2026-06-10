@@ -440,14 +440,18 @@ def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, defaul
 
 
 def _build_display_name(row: dict, column_mappings: dict) -> str:
-    """Full name for {{DISPLAY_NAME}}: 'First (Maiden) Last', parentheses only when maiden exists."""
+    """Full name for {{DISPLAY_NAME}}: First [Middle] [(Maiden)] Last."""
     first = _mapped_row_value(row, column_mappings, "{{FIRST_NAME}}", "First Name")
-    last = _mapped_row_value(row, column_mappings, "{{LAST_NAME}}", "Last Name")
+    middle = _mapped_row_value(row, column_mappings, "{{MIDDLE_NAME}}", "Middle Name")
     maiden = _mapped_row_value(row, column_mappings, "{{MAIDEN_NAME}}", "Maiden Name")
+    last = _mapped_row_value(row, column_mappings, "{{LAST_NAME}}", "Last Name")
+    parts = [first]
+    if middle:
+        parts.append(middle)
     if maiden:
-        parts = [first, f"({maiden})", last]
-    else:
-        parts = [first, last]
+        parts.append(f"({maiden})")
+    if last:
+        parts.append(last)
     return " ".join(p for p in parts if p)
 
 

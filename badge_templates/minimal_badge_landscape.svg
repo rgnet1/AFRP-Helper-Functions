@@ -31,8 +31,7 @@
          href="{{AFRP_LOGO}}"/>
   
   <!-- Full Name on One Line (Center). {{DISPLAY_NAME}} is computed by the
-       generator as "First (Maiden) Last" when a maiden name exists,
-       otherwise "First Last" - no empty parentheses ever. -->
+       generator as First [Middle] [(Maiden)] Last - optional parts omitted. -->
   <text x="192" y="120" 
         text-anchor="middle" 
         font-family="Arial" 
