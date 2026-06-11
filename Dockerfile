@@ -32,6 +32,7 @@ COPY backup/ ./backup/
 COPY db_migrations/ ./db_migrations/
 COPY static/ ./static/
 COPY templates/ ./templates/
+COPY badge_background_templates/ ./badge_background_templates/
 COPY utils/ ./utils/
 
 EXPOSE 5066

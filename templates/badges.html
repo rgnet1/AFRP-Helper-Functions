@@ -583,6 +583,11 @@
         <header>
             <h1><i class="fas fa-robot"></i> Badge Generator V2</h1>
             <div class="subtitle">Automated CRM Integration</div>
+            <div style="margin-top: 18px;">
+                <a href="/badge-mapping" class="btn" style="background: rgba(255,255,255,0.95); color: #3c723c; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
+                    <i class="fas fa-palette"></i> Badge Mapping (Templates &amp; Backgrounds)
+                </a>
+            </div>
         </header>
 
         <!-- Campaign Selection -->
@@ -669,14 +674,18 @@
                     <select id="badgeTemplateSelect" class="form-select">
                         <option value="">Loading templates...</option>
                     </select>
-                    <p class="form-help">Select a pre-configured badge template</p>
+                    <p class="form-help">
+                        Select a saved badge template, or
+                        <a href="/badge-mapping" style="color: #4b904b; font-weight: 600;">open Badge Mapping</a>
+                        to create one (layout, backgrounds, club logo, column mappings).
+                    </p>
                 </div>
 
             </div>
 
             <div class="process-section" style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
-                <a href="/badge-mapping" class="btn" style="background: #6c757d; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
-                    <i class="fas fa-cog"></i> Configure Templates
+                <a href="/badge-mapping" class="btn" style="background: #4b904b; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-palette"></i> Badge Mapping
                 </a>
                 
                 <button class="btn" style="background: #17a2b8; color: white;" id="generateBadgesBtn" disabled>

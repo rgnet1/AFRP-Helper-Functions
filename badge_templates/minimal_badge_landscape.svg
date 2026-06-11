@@ -13,8 +13,7 @@
      height="288" 
      viewBox="0 0 384 288">
   
-  <!-- White Background -->
-  <rect width="384" height="288" fill="#FFFFFF"/>
+  <!-- Background is composited separately (badge_background_templates/) -->
   
   <!-- Club Logo (Top Left) -->
   <image x="20" y="20" 

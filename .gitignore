@@ -23,6 +23,8 @@ __pycache__/
 !/badge_logos/.gitkeep
 /badge_templates/*
 !/badge_templates/.gitkeep
+/badge_background_templates/5392/uploads/*
+!/badge_background_templates/5392/uploads/.gitkeep
 
 # Backups
 /backups/

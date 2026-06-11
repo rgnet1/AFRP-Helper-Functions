@@ -26,6 +26,8 @@ import copy
 import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+from utils.badges.background_templates import resolve_background_path
+
 logger = logging.getLogger(__name__)
 
 # Placeholders like {{FIRST_NAME}} — must match after logo substitution (paths are not matched).
@@ -82,6 +84,89 @@ def _parse_svg_length(value):
     return float(match.group(1)) if match else None
 
 
+def _image_tag_pattern(placeholder):
+    return re.compile(
+        r"<image\b(?P<body>[^>]*?(?:href|xlink:href)\s*=\s*[\"']"
+        + re.escape(placeholder)
+        + r"[\"'][^>]*?)/?>",
+        re.DOTALL | re.IGNORECASE,
+    )
+
+
+def _read_image_tag_attrs(image_tag):
+    def _attr(name):
+        m = re.search(rf'\b{name}\s*=\s*"([^"]*)"', image_tag, re.IGNORECASE)
+        if not m:
+            return None
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+
+    return {
+        "x": _attr("x") or 0.0,
+        "y": _attr("y") or 0.0,
+        "width": _attr("width"),
+        "height": _attr("height"),
+    }
+
+
+def _logo_slot_rect(svg_content, placeholder, img_w, img_h):
+    """Contain-fit logo box in SVG user units, or None if slot/image missing."""
+    if not img_w or not img_h:
+        return None
+    match = _image_tag_pattern(placeholder).search(svg_content)
+    if not match:
+        return None
+    attrs = _read_image_tag_attrs(match.group(0))
+    slot_w, slot_h = attrs["width"], attrs["height"]
+    if not slot_w or not slot_h:
+        return None
+    scale = min(slot_w / img_w, slot_h / img_h)
+    draw_w = img_w * scale
+    draw_h = img_h * scale
+    draw_x = attrs["x"] + (slot_w - draw_w) / 2
+    draw_y = attrs["y"] + (slot_h - draw_h) / 2
+    return draw_x, draw_y, draw_w, draw_h
+
+
+def _strip_logo_image_tags(svg_content):
+    for placeholder in (CLUB_LOGO_PLACEHOLDER, AFRP_LOGO_PLACEHOLDER):
+        svg_content = _image_tag_pattern(placeholder).sub("", svg_content)
+    return svg_content
+
+
+def _svg_canvas_size(svg_content):
+    w = _svg_canvas_width(svg_content)
+    viewbox = VIEWBOX_RE.search(svg_content)
+    h = 288.0
+    if viewbox:
+        parts = viewbox.group(1).replace(",", " ").split()
+        if len(parts) == 4:
+            try:
+                h = float(parts[3])
+            except ValueError:
+                pass
+    height_match = re.search(r'\bheight\s*=\s*"([\d.]+)', svg_content, re.IGNORECASE)
+    if height_match:
+        try:
+            h = float(height_match.group(1))
+        except ValueError:
+            pass
+    return w, h
+
+
+def _svg_rect_to_pdf_points(rect, svg_w, svg_h, badge_w, badge_h):
+    """Map SVG top-left rect to ReportLab coords inside a badge cell."""
+    x, y, w, h = rect
+    scale = min(badge_w / svg_w, badge_h / svg_h)
+    x_pt = x * scale
+    w_pt = w * scale
+    h_pt = h * scale
+    y_pt = badge_h - (y + h) * scale
+    return x_pt, y_pt, w_pt, h_pt
+
+
 def _fit_image_in_slot(svg_content, placeholder, img_w, img_h):
     """Resize an <image> slot so svglib draws the logo without stretching.
 
@@ -92,41 +177,20 @@ def _fit_image_in_slot(svg_content, placeholder, img_w, img_h):
     if not img_w or not img_h:
         return svg_content
 
-    pattern = re.compile(
-        r"<image\b(?P<body>[^>]*?(?:href|xlink:href)\s*=\s*[\"']"
-        + re.escape(placeholder)
-        + r"[\"'][^>]*?)/?>",
-        re.DOTALL | re.IGNORECASE,
-    )
-    match = pattern.search(svg_content)
+    match = _image_tag_pattern(placeholder).search(svg_content)
     if not match:
         logger.warning("Could not find %s image tag in SVG", placeholder)
         return svg_content
 
     original_tag = match.group(0)
-
-    def _attr(name):
-        m = re.search(rf'\b{name}\s*=\s*"([^"]*)"', original_tag, re.IGNORECASE)
-        if not m:
-            return None
-        try:
-            return float(m.group(1))
-        except ValueError:
-            return None
-
-    slot_x = _attr("x") or 0.0
-    slot_y = _attr("y") or 0.0
-    slot_w = _attr("width")
-    slot_h = _attr("height")
-    if not slot_w or not slot_h:
+    fitted = _logo_slot_rect(svg_content, placeholder, img_w, img_h)
+    if not fitted:
         logger.warning("Could not read slot dimensions for %s", placeholder)
         return svg_content
-
-    scale = min(slot_w / img_w, slot_h / img_h)
-    draw_w = img_w * scale
-    draw_h = img_h * scale
-    draw_x = slot_x + (slot_w - draw_w) / 2
-    draw_y = slot_y + (slot_h - draw_h) / 2
+    draw_x, draw_y, draw_w, draw_h = fitted
+    slot_attrs = _read_image_tag_attrs(original_tag)
+    slot_w = slot_attrs["width"] or draw_w
+    slot_h = slot_attrs["height"] or draw_h
 
     new_tag = (
         f'<image x="{draw_x:g}" y="{draw_y:g}" '
@@ -151,33 +215,48 @@ def _fit_image_in_slot(svg_content, placeholder, img_w, img_h):
 
 
 def validate_template_club_logo(svg_template_path, club_logo_path=None):
-    """Return an error message if the template needs a club logo that is missing."""
+    """Validate club logo configuration; missing logos are allowed (rendered blank)."""
     try:
         with open(svg_template_path, "r", encoding="utf-8") as f:
             content = f.read()
     except OSError as e:
         return f"Cannot read SVG template: {e}"
 
-    if CLUB_LOGO_PLACEHOLDER not in content:
-        return None
-    if club_logo_path and os.path.exists(club_logo_path):
-        return None
-    return (
-        "Template requires a club logo — upload one in Badge Mapping "
-        "and save the template"
-    )
+    if CLUB_LOGO_PLACEHOLDER in content and not (
+        club_logo_path and os.path.exists(club_logo_path)
+    ):
+        logger.warning(
+            "Template %s includes %s but no club logo is configured; "
+            "badges will be generated with a blank club logo slot",
+            svg_template_path,
+            CLUB_LOGO_PLACEHOLDER,
+        )
+    return None
 
 
 def _stage_logo_file(source_path, dest_path, max_edge=MAX_STAGED_LOGO_EDGE):
-    """Copy a logo into the badge temp dir, downscaling large rasters."""
+    """Stage a logo for alpha-aware PDF compositing (preserve transparency)."""
     ext = os.path.splitext(source_path)[1].lower()
+
     if ext == ".svg":
-        shutil.copyfile(source_path, dest_path)
-        return
+        dest_path = os.path.splitext(dest_path)[0] + ".png"
+        try:
+            import cairosvg
+            png_data = cairosvg.svg2png(url=source_path, output_width=max_edge)
+            with Image.open(BytesIO(png_data)) as img:
+                img = img.convert("RGBA")
+                img.save(dest_path, format="PNG")
+            return dest_path
+        except Exception as e:
+            logger.warning("Could not rasterize SVG logo %s: %s", source_path, e)
+            shutil.copyfile(source_path, dest_path)
+            return dest_path
 
     with Image.open(source_path) as img:
-        if img.mode not in ("RGB", "RGBA"):
-            img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
+        if img.mode == "P":
+            img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+        elif img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA")
         w, h = img.size
         if max(w, h) > max_edge:
             scale = max_edge / max(w, h)
@@ -185,12 +264,17 @@ def _stage_logo_file(source_path, dest_path, max_edge=MAX_STAGED_LOGO_EDGE):
                 (max(1, int(w * scale)), max(1, int(h * scale))),
                 Image.Resampling.LANCZOS,
             )
-        save_format = "PNG" if ext == ".png" else None
         if ext in (".jpg", ".jpeg"):
             if img.mode == "RGBA":
                 img = img.convert("RGB")
-            save_format = "JPEG"
-        img.save(dest_path, format=save_format)
+            img.save(dest_path, format="JPEG")
+        else:
+            if img.mode != "RGBA":
+                img = img.convert("RGBA")
+            out = dest_path if ext == ".png" else os.path.splitext(dest_path)[0] + ".png"
+            img.save(out, format="PNG")
+            dest_path = out
+    return dest_path
 
 
 def _subtree_has_placeholder(elem: ET.Element) -> bool:
@@ -297,9 +381,27 @@ def _row_value_str(row: dict, col_name: str) -> str:
     return str(val)
 
 
+_OPTIONAL_NAME_SENTINELS = frozenset({"nan", "none", "null", "n/a", "na"})
+
+
+def _clean_optional_name_part(value: str) -> str:
+    """Treat spreadsheet/CRM sentinels as blank for optional name fields."""
+    cleaned = value.strip()
+    if cleaned.lower() in _OPTIONAL_NAME_SENTINELS:
+        return ""
+    return cleaned
+
+
 def _collapse_empty_maiden_parentheses(svg_content: str) -> str:
-    """Drop empty ( ) around maiden name when the attendee has no maiden name."""
-    return re.sub(r"\s*\(\s*\)\s*", " ", svg_content)
+    """Drop empty or sentinel-only parentheses left after maiden-name substitution."""
+    svg_content = re.sub(r"\s*\(\s*\)\s*", " ", svg_content)
+    svg_content = re.sub(
+        r"\s*\(\s*(?:nan|none|null|n/?a)\s*\)\s*",
+        " ",
+        svg_content,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"  +", " ", svg_content)
 
 
 def _parse_svg_attr(attrs: str, name: str, default=None):
@@ -436,7 +538,7 @@ def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, defaul
     column = column_mappings.get(placeholder, default_column)
     if isinstance(column, list):
         return ""
-    return _row_value_str(row, column).strip()
+    return _clean_optional_name_part(_row_value_str(row, column))
 
 
 def _build_display_name(row: dict, column_mappings: dict) -> str:
@@ -615,7 +717,8 @@ class BadgeGenerator:
     
     def __init__(self, excel_file, svg_template_path, column_mappings, 
                  afrp_logo_path, club_logo_path=None, club_logo_width=None, 
-                 club_logo_height=None, avery_template='5392', show_outlines=False):
+                 club_logo_height=None, avery_template='5392', show_outlines=False,
+                 background_id='white', backgrounds_folder=None):
         """
         Initialize the badge generator.
         
@@ -627,6 +730,8 @@ class BadgeGenerator:
             club_logo_path: Optional path to club-specific logo
             avery_template: Avery template code (default: 5392)
             show_outlines: Draw badge outlines for alignment testing
+            background_id: Badge background template id (default white)
+            backgrounds_folder: Root path for badge_background_templates/
         """
         self.excel_file = excel_file
         self.svg_template_path = svg_template_path
@@ -642,6 +747,15 @@ class BadgeGenerator:
         self.afrp_logo_height = None
         self.avery_template = avery_template
         self.show_outlines = show_outlines
+        self.background_id = background_id or 'white'
+        self.backgrounds_folder = backgrounds_folder
+        self._bg_is_white = True
+        self._bg_image_path = None
+        self._logo_draw_specs = []
+        if self.backgrounds_folder:
+            self._bg_is_white, self._bg_image_path = resolve_background_path(
+                self.backgrounds_folder, self.background_id, self.avery_template
+            )
 
         if self.afrp_logo_path and os.path.exists(self.afrp_logo_path):
             aw, ah = probe_image_dimensions(self.afrp_logo_path)
@@ -671,6 +785,7 @@ class BadgeGenerator:
             logger.info(f"  - Club logo dimensions: {self.club_logo_width}x{self.club_logo_height}")
         logger.info(f"  - SVG template: {svg_template_path}")
         logger.info(f"  - Show outlines: {show_outlines}")
+        logger.info(f"  - Background: {self.background_id} (white={self._bg_is_white})")
         
         # Load Excel data
         logger.info(f"Loading Excel file: {excel_file}")
@@ -778,12 +893,14 @@ class BadgeGenerator:
             ext = os.path.splitext(self.afrp_logo_path)[1].lower() or ".png"
             filename = f"afrp_logo{ext}"
             try:
-                _stage_logo_file(
+                staged_path = _stage_logo_file(
                     self.afrp_logo_path,
                     os.path.join(temp_dir, filename),
                 )
-                self._afrp_logo_filename = filename
-                logger.info(f"Staged AFRP logo: {self.afrp_logo_path} -> {filename}")
+                self._afrp_logo_filename = os.path.basename(staged_path)
+                logger.info(
+                    f"Staged AFRP logo: {self.afrp_logo_path} -> {self._afrp_logo_filename}"
+                )
             except Exception as e:
                 logger.error(f"Failed to stage AFRP logo {self.afrp_logo_path}: {e}")
         else:
@@ -796,12 +913,14 @@ class BadgeGenerator:
             ext = os.path.splitext(self.club_logo_path)[1].lower() or ".png"
             filename = f"club_logo{ext}"
             try:
-                _stage_logo_file(
+                staged_path = _stage_logo_file(
                     self.club_logo_path,
                     os.path.join(temp_dir, filename),
                 )
-                self._club_logo_filename = filename
-                logger.info(f"Staged club logo: {self.club_logo_path} -> {filename}")
+                self._club_logo_filename = os.path.basename(staged_path)
+                logger.info(
+                    f"Staged club logo: {self.club_logo_path} -> {self._club_logo_filename}"
+                )
             except Exception as e:
                 logger.error(f"Failed to stage club logo {self.club_logo_path}: {e}")
         elif self.club_logo_path:
@@ -809,6 +928,33 @@ class BadgeGenerator:
                 "Club logo file not found: %s — the %s placeholder will be blank",
                 self.club_logo_path,
                 CLUB_LOGO_PLACEHOLDER,
+            )
+
+    def _draw_badge_background(self, canvas_obj, badge_width, badge_height):
+        if self._bg_is_white or not self._bg_image_path:
+            canvas_obj.setFillColorRGB(1, 1, 1)
+            canvas_obj.rect(0, 0, badge_width, badge_height, fill=1, stroke=0)
+        else:
+            canvas_obj.drawImage(
+                self._bg_image_path,
+                0,
+                0,
+                badge_width,
+                badge_height,
+                preserveAspectRatio=True,
+                anchor="sw",
+                mask="auto",
+            )
+
+    def _draw_badge_logos(self, canvas_obj, temp_dir):
+        for logo_path, x, y, w, h in self._logo_draw_specs:
+            full_path = os.path.join(temp_dir, logo_path) if not os.path.isabs(logo_path) else logo_path
+            if not full_path or not os.path.exists(full_path):
+                continue
+            ext = os.path.splitext(full_path)[1].lower()
+            mask = "auto" if ext == ".png" else None
+            canvas_obj.drawImage(
+                full_path, x, y, w, h, preserveAspectRatio=True, anchor="sw", mask=mask
             )
 
     def _scale_drawing_to_badge(self, drawing, badge_width, badge_height):
@@ -931,38 +1077,39 @@ class BadgeGenerator:
             # SVG can reference them by relative filename.
             self._stage_static_assets(temp_dir)
 
-            cache_static = os.environ.get("BADGE_GENERATOR_CACHE_STATIC", "1") != "0"
-            static_form_name = "badge_static_layer"
-
             with open(self.svg_template_path, "r", encoding="utf-8") as tf:
                 svg_base = tf.read()
-            svg_base = self.fit_logo_placeholders(svg_base)
-            svg_base = svg_base.replace("{{AFRP_LOGO}}", self._afrp_logo_filename)
-            svg_base = svg_base.replace("{{CLUB_LOGO}}", self._club_logo_filename)
+            svg_fitted = self.fit_logo_placeholders(svg_base)
+            svg_w, svg_h = _svg_canvas_size(svg_fitted)
 
-            static_xml, dynamic_xml = split_template_svg(svg_base)
-            static_svg_path = os.path.join(temp_dir, "_static_layer.svg")
+            self._logo_draw_specs = []
+            if self._club_logo_filename:
+                club_rect = _logo_slot_rect(
+                    svg_fitted, CLUB_LOGO_PLACEHOLDER,
+                    self.club_logo_width, self.club_logo_height,
+                )
+                if club_rect:
+                    self._logo_draw_specs.append(
+                        (self._club_logo_filename,) + _svg_rect_to_pdf_points(
+                            club_rect, svg_w, svg_h, badge_width, badge_height
+                        )
+                    )
+            if self._afrp_logo_filename:
+                afrp_rect = _logo_slot_rect(
+                    svg_fitted, AFRP_LOGO_PLACEHOLDER,
+                    self.afrp_logo_width, self.afrp_logo_height,
+                )
+                if afrp_rect:
+                    self._logo_draw_specs.append(
+                        (self._afrp_logo_filename,) + _svg_rect_to_pdf_points(
+                            afrp_rect, svg_w, svg_h, badge_width, badge_height
+                        )
+                    )
+
+            dynamic_xml = _strip_logo_image_tags(svg_fitted)
             dynamic_svg_path = os.path.join(temp_dir, "_dynamic_layer.svg")
-            with open(static_svg_path, "w", encoding="utf-8") as sf:
-                sf.write(static_xml)
             with open(dynamic_svg_path, "w", encoding="utf-8") as df:
                 df.write(dynamic_xml)
-
-            static_drawing = svg2rlg(static_svg_path)
-            if not static_drawing:
-                raise RuntimeError("Failed to convert static SVG layer to ReportLab drawing")
-            self._scale_drawing_to_badge(static_drawing, badge_width, badge_height)
-
-            if cache_static:
-                c.beginForm(
-                    static_form_name,
-                    0,
-                    0,
-                    static_drawing.width,
-                    static_drawing.height,
-                )
-                renderPDF.draw(static_drawing, c, 0, 0)
-                c.endForm()
 
             max_workers = int(
                 os.environ.get("BADGE_GENERATOR_WORKERS", os.cpu_count() or 4)
@@ -1038,10 +1185,8 @@ class BadgeGenerator:
                         )
                         c.saveState()
                         c.translate(x, y)
-                        if cache_static and c.hasForm(static_form_name):
-                            c.doForm(static_form_name)
-                        else:
-                            renderPDF.draw(static_drawing, c, 0, 0)
+                        self._draw_badge_background(c, badge_width, badge_height)
+                        self._draw_badge_logos(c, temp_dir)
                         renderPDF.draw(drawing, c, 0, 0)
                         c.restoreState()
                     else:

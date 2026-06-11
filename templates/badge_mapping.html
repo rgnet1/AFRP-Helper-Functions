@@ -495,6 +495,46 @@
         .remove-file:hover {
             color: #dc2626;
         }
+
+        .background-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .background-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            background: #fafafa;
+        }
+
+        .background-card:hover {
+            border-color: #4b904b;
+        }
+
+        .background-card.selected {
+            border-color: #4b904b;
+            box-shadow: 0 0 0 2px rgba(75, 144, 75, 0.25);
+        }
+
+        .background-card img {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            display: block;
+        }
+
+        .background-card-label {
+            padding: 6px 8px;
+            font-size: 11px;
+            text-align: center;
+            color: #444;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -557,6 +597,23 @@
                         </div>
                     </div>
                     <input type="file" id="logoFileInput" class="file-input" accept=".png,.jpg,.jpeg,.svg,.gif">
+                </div>
+
+                <!-- Badge Background -->
+                <div class="form-group">
+                    <label class="form-label">Badge Background (Avery 5392)</label>
+                    <p class="help-text">384×288 px (4:3). Names and logos are overlaid automatically.</p>
+                    <div class="background-gallery" id="backgroundGallery">
+                        <div style="color:#999;font-size:13px;">Loading backgrounds...</div>
+                    </div>
+                    <div class="upload-area" id="backgroundUploadArea" style="margin-top: 12px;">
+                        <div class="upload-icon"><i class="fas fa-palette"></i></div>
+                        <div class="upload-text">
+                            <strong>Upload custom background</strong><br>
+                            PNG or JPEG, min 384×288, 4:3 ratio
+                        </div>
+                    </div>
+                    <input type="file" id="backgroundFileInput" class="file-input" accept=".png,.jpg,.jpeg">
                 </div>
 
                 <!-- Avery Template Selector -->
@@ -630,6 +687,8 @@
         let currentTemplateId = null; // Track if we're editing an existing template
         let subEventCounter = 0; // Track how many sub-event mappings exist
         let manualSubEventPlaceholders = new Set(); // Sub-event placeholders explicitly added in the UI
+        let selectedBackgroundId = 'white';
+        let backgroundCatalog = [];
 
         // Sample Excel columns (these should match your actual output columns)
         const defaultExcelColumns = [
@@ -659,13 +718,90 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             loadAveryTemplates();
+            loadBackgrounds();
             loadSavedTemplates();
             loadSampleExcelColumns();
             setupUploadAreas();
             setupEventListeners();
         });
 
+        async function loadBackgrounds() {
+            try {
+                const response = await fetch('/api/badge-backgrounds?avery=5392');
+                if (!response.ok) throw new Error('Failed to load backgrounds');
+                const data = await response.json();
+                backgroundCatalog = data.backgrounds || [];
+                renderBackgroundGallery();
+            } catch (error) {
+                console.error('Error loading backgrounds:', error);
+                document.getElementById('backgroundGallery').innerHTML =
+                    '<div style="color:#c00;font-size:13px;">Could not load backgrounds</div>';
+            }
+        }
+
+        function renderBackgroundGallery() {
+            const gallery = document.getElementById('backgroundGallery');
+            if (!backgroundCatalog.length) {
+                gallery.innerHTML = '<div style="color:#999;font-size:13px;">No backgrounds available</div>';
+                return;
+            }
+            gallery.innerHTML = backgroundCatalog.map(bg => `
+                <div class="background-card ${bg.id === selectedBackgroundId ? 'selected' : ''}"
+                     onclick="selectBackground('${bg.id.replace(/'/g, "\\'")}')"
+                     title="${bg.name}">
+                    <img src="${bg.thumbnail_url || ''}" alt="${bg.name}" loading="lazy">
+                    <div class="background-card-label">${bg.name}</div>
+                </div>
+            `).join('');
+        }
+
+        function selectBackground(backgroundId) {
+            selectedBackgroundId = backgroundId;
+            renderBackgroundGallery();
+        }
+
+        async function handleBackgroundUpload(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('avery', '5392');
+            try {
+                const response = await fetch('/api/badge-backgrounds/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Upload failed');
+                }
+                const entry = await response.json();
+                backgroundCatalog.push(entry);
+                selectedBackgroundId = entry.id;
+                renderBackgroundGallery();
+                showToast('Background uploaded', 'success');
+            } catch (error) {
+                showToast('Background upload failed: ' + error.message, 'error');
+            }
+        }
+
         function setupUploadAreas() {
+            // Background upload
+            const bgArea = document.getElementById('backgroundUploadArea');
+            const bgInput = document.getElementById('backgroundFileInput');
+            bgArea.addEventListener('click', () => bgInput.click());
+            bgInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) handleBackgroundUpload(e.target.files[0]);
+            });
+            bgArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                bgArea.classList.add('dragover');
+            });
+            bgArea.addEventListener('dragleave', () => bgArea.classList.remove('dragover'));
+            bgArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                bgArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) handleBackgroundUpload(e.dataTransfer.files[0]);
+            });
+
             // SVG Upload
             const svgArea = document.getElementById('svgUploadArea');
             const svgInput = document.getElementById('svgFileInput');
@@ -1024,6 +1160,7 @@
                     club_logo_height: currentLogoHeight,
                     column_mappings: mappings,
                     avery_template: averyTemplate || '5392',
+                    background_id: selectedBackgroundId || 'white',
                     show_outlines: document.getElementById('showOutlines').checked
                 };
 
@@ -1065,6 +1202,8 @@
             manualSubEventPlaceholders = new Set();
             document.getElementById('templateName').value = '';
             document.getElementById('showOutlines').checked = false;
+            selectedBackgroundId = 'white';
+            renderBackgroundGallery();
             document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
             document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
             clearMappings();
@@ -1219,6 +1358,8 @@
 
                 document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
                 document.getElementById('showOutlines').checked = template.show_outlines || false;
+                selectedBackgroundId = template.background_id || 'white';
+                renderBackgroundGallery();
                 showToast('Template loaded for editing', 'success');
             } catch (error) {
                 showToast('Error loading template: ' + error.message, 'error');

@@ -35,6 +35,11 @@ from utils.badges.badge_generator import (
     probe_image_dimensions,
     validate_template_club_logo,
 )
+from utils.badges.background_templates import (
+    list_backgrounds,
+    validate_background_image,
+    register_upload,
+)
 from utils.dynamics_crm import DynamicsCRMClient
 import os
 import json
@@ -138,7 +143,7 @@ IN_DOCKER = os.environ.get('DOCKER_CONTAINER', False)
 BASE_PATH = '/app' if IN_DOCKER else os.path.abspath(os.path.dirname(__file__))
 
 # Ensure required directories exist with proper permissions
-for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos']:
+for dir_path in ['data', 'temp', 'downloads', 'badge_templates', 'badge_logos', 'badge_background_templates']:
     full_path = os.path.join(BASE_PATH, dir_path)
     os.makedirs(full_path, exist_ok=True)
     os.chmod(full_path, 0o777)
@@ -275,6 +280,7 @@ atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 # Configure badge generation directories
 app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates')
 app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
+app.config['BADGE_BACKGROUNDS_FOLDER'] = os.path.join(BASE_PATH, 'badge_background_templates')
 # AFRP logo path from environment variable (defaults to PNG in static folder)
 afrp_logo_relative = os.environ.get('AFRP_LOGO_PATH', 'static/afrp_logo.png')
 # Always store an absolute path so logo lookups survive os.chdir() and so that
@@ -287,6 +293,7 @@ if not os.path.exists(app.config['AFRP_LOGO_PATH']):
 # Ensure badge folders exist
 os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
 os.makedirs(app.config['BADGE_LOGOS_FOLDER'], mode=0o777, exist_ok=True)
+os.makedirs(app.config['BADGE_BACKGROUNDS_FOLDER'], mode=0o777, exist_ok=True)
 
 # Log registered preprocessors at startup
 logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
@@ -907,6 +914,52 @@ def serve_badge_template(filename):
     return send_from_directory(app.config['BADGE_TEMPLATES_FOLDER'], filename)
 
 
+@app.route('/badge_background_templates/<path:filename>')
+@login_required
+def serve_badge_background(filename):
+    """Serve badge background images and thumbnails."""
+    return send_from_directory(app.config['BADGE_BACKGROUNDS_FOLDER'], filename)
+
+
+@app.route('/api/badge-backgrounds', methods=['GET'])
+@login_required
+def get_badge_backgrounds():
+    """List available badge background templates for an Avery size."""
+    avery = request.args.get('avery', '5392')
+    backgrounds = list_backgrounds(app.config['BADGE_BACKGROUNDS_FOLDER'], avery)
+    return jsonify({'backgrounds': backgrounds, 'avery': avery})
+
+
+@app.route('/api/badge-backgrounds/upload', methods=['POST'])
+@login_required
+def upload_badge_background():
+    """Upload a custom badge background (4:3, min 384×288)."""
+    avery = request.form.get('avery', '5392')
+    if avery != '5392':
+        return jsonify({'error': 'Only Avery 5392 backgrounds are supported currently'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file_storage = request.files['file']
+    if not file_storage.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    img, error = validate_background_image(file_storage)
+    if error:
+        return jsonify({'error': error}), 400
+
+    try:
+        entry = register_upload(
+            app.config['BADGE_BACKGROUNDS_FOLDER'],
+            img,
+            file_storage.filename,
+            avery,
+        )
+        return jsonify(entry), 201
+    except Exception as e:
+        logger.exception("Error uploading badge background")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/campaigns/open', methods=['GET'])
 @login_required
 def get_open_campaigns():
@@ -1193,6 +1246,7 @@ def create_badge_template():
             club_logo_height=data.get('club_logo_height'),
             column_mappings=json.dumps(data['column_mappings']),
             avery_template=data.get('avery_template', '5392'),
+            background_id=data.get('background_id', 'white'),
             show_outlines=bool(data.get('show_outlines', False))
         )
         
@@ -1254,6 +1308,8 @@ def update_badge_template(template_id):
             template.column_mappings = json.dumps(data['column_mappings'])
         if 'avery_template' in data:
             template.avery_template = data['avery_template']
+        if 'background_id' in data:
+            template.background_id = data['background_id'] or 'white'
         if 'show_outlines' in data:
             template.show_outlines = bool(data['show_outlines'])
         
@@ -1316,6 +1372,7 @@ def duplicate_badge_template(template_id):
             club_logo_height=template.club_logo_height,
             column_mappings=template.column_mappings,
             avery_template=template.avery_template,
+            background_id=template.background_id or 'white',
             show_outlines=template.show_outlines
         )
         
@@ -1662,7 +1719,9 @@ def generate_badges():
             club_logo_width=template.club_logo_width,
             club_logo_height=template.club_logo_height,
             avery_template=avery_template,
-            show_outlines=template.show_outlines
+            show_outlines=template.show_outlines,
+            background_id=template.background_id or 'white',
+            backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
         )
         
         # Generate PDF
@@ -1731,7 +1790,9 @@ def generate_badges_async():
                     club_logo_width=template.club_logo_width,
                     club_logo_height=template.club_logo_height,
                     avery_template=template.avery_template,
-                    show_outlines=template.show_outlines
+                    show_outlines=template.show_outlines,
+                    background_id=template.background_id or 'white',
+                    backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                 )
 
                 total = len(generator.df) if hasattr(generator, "df") else 0
@@ -1884,7 +1945,9 @@ def badges_pull_process_generate_async():
                             club_logo_width=badge_template.club_logo_width,
                             club_logo_height=badge_template.club_logo_height,
                             avery_template=badge_template.avery_template,
-                            show_outlines=badge_template.show_outlines
+                            show_outlines=badge_template.show_outlines,
+                            background_id=badge_template.background_id or 'white',
+                            backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                         )
 
                         total = len(generator.df) if hasattr(generator, "df") else 0
@@ -1917,6 +1980,7 @@ def badges_pull_process_generate_async():
 
 @app.route('/api/badges/jobs/<job_id>', methods=['GET'])
 @login_required
+@limiter.exempt
 def get_badge_job(job_id):
     """Get progress for an async badge generation job."""
     job = _get_badge_job(job_id)
@@ -1945,6 +2009,7 @@ def get_badge_job(job_id):
 
 @app.route('/api/badges/jobs/<job_id>/download', methods=['GET'])
 @login_required
+@limiter.exempt
 def download_badge_job(job_id):
     """Download the PDF for a completed async badge generation job."""
     job = _get_badge_job(job_id)
@@ -2093,7 +2158,9 @@ def badges_pull_process_generate():
                         club_logo_width=template.club_logo_width,
                         club_logo_height=template.club_logo_height,
                         avery_template=avery_template,
-                        show_outlines=template.show_outlines
+                        show_outlines=template.show_outlines,
+                        background_id=template.background_id or 'white',
+                        backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                     )
                     
                     output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')

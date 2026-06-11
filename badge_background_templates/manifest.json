@@ -1,0 +1,32 @@
+{
+  "5392": [
+    {
+      "id": "white",
+      "name": "Plain White",
+      "builtin": true,
+      "file": null,
+      "thumbnail": "5392/thumbnails/white.png"
+    },
+    {
+      "id": "afrp_green_header",
+      "name": "AFRP Green Header",
+      "builtin": true,
+      "file": "5392/afrp_green_header.png",
+      "thumbnail": "5392/thumbnails/afrp_green_header.png"
+    },
+    {
+      "id": "formal_gold_accent",
+      "name": "Formal Gold Accent",
+      "builtin": true,
+      "file": "5392/formal_gold_accent.png",
+      "thumbnail": "5392/thumbnails/formal_gold_accent.png"
+    },
+    {
+      "id": "light_gray",
+      "name": "Light Gray",
+      "builtin": true,
+      "file": "5392/light_gray.png",
+      "thumbnail": "5392/thumbnails/light_gray.png"
+    }
+  ]
+}
