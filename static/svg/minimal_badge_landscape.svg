@@ -84,20 +84,20 @@
         fill="#333333">{{SUBEVENT_4}}</text>
   
   <!-- Member ID (Above QR Code, Bottom Right) -->
-  <text x="349" y="218" 
+  <text x="334" y="203" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="12" 
         fill="#666666">{{MEMBER_ID}}</text>
   
-  <!-- QR Code (Bottom Right) -->
-  <image x="319" y="223" 
+  <!-- QR Code (Bottom Right) — 20px margin from right/bottom edges -->
+  <image x="304" y="208" 
          width="60" 
          height="60" 
          href="{{QR_CODE}}"/>
   
-  <!-- Meal Preference (Below QR Code) -->
-  <text x="349" y="286" 
+  <!-- Meal Preference (Below QR Code) — ~6px gap below QR box -->
+  <text x="334" y="283" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="9" 

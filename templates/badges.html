@@ -231,6 +231,57 @@
             font-size: 1.4rem;
         }
 
+        .modal-legal {
+            font-size: 0.95rem;
+            line-height: 1.65;
+            color: #333;
+        }
+
+        .modal-legal p {
+            margin-bottom: 14px;
+        }
+
+        .modal-legal .notice-emphasis {
+            background: #fff8e6;
+            border-left: 4px solid #d97706;
+            padding: 14px 16px;
+            margin: 18px 0;
+            font-size: 0.9rem;
+        }
+
+        .modal-legal .waiver-clause {
+            margin-top: 18px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 0.88rem;
+            color: #555;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 24px;
+        }
+
+        .learn-more-btn {
+            font-size: 0.85rem;
+            padding: 6px 12px;
+            background: transparent;
+            color: #4b904b;
+            border: 1px solid #4b904b;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .learn-more-btn:hover {
+            background: #f0f7f0;
+        }
+
         .form-group {
             margin-bottom: 20px;
         }
@@ -583,11 +634,6 @@
         <header>
             <h1><i class="fas fa-robot"></i> Badge Generator V2</h1>
             <div class="subtitle">Automated CRM Integration</div>
-            <div style="margin-top: 18px;">
-                <a href="/badge-mapping" class="btn" style="background: rgba(255,255,255,0.95); color: #3c723c; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">
-                    <i class="fas fa-palette"></i> Badge Mapping (Templates &amp; Backgrounds)
-                </a>
-            </div>
         </header>
 
         <!-- Campaign Selection -->
@@ -625,6 +671,19 @@
                         <option value="">Select a campaign first...</option>
                     </select>
                     <p class="form-help">Automatically populated with sub-events for the selected campaign.</p>
+                </div>
+
+                <div class="form-group">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; margin: 0;">
+                            <input type="checkbox" id="groupByHousehold" style="width: auto; margin: 0;">
+                            Group badges by family household (NOT recommended)
+                        </label>
+                        <button type="button" class="learn-more-btn" id="householdLearnMoreBtn">
+                            <i class="fas fa-info-circle"></i> Disclaimer
+                        </button>
+                    </div>
+                    <p class="form-help">Keeps household members together in the PDF. Head of household prints first within each group. Uses a local cache; CRM is queried only for new contacts.</p>
                 </div>
 
                 <div class="expandable-section">
@@ -675,16 +734,14 @@
                         <option value="">Loading templates...</option>
                     </select>
                     <p class="form-help">
-                        Select a saved badge template, or
-                        <a href="/badge-mapping" style="color: #4b904b; font-weight: 600;">open Badge Mapping</a>
-                        to create one (layout, backgrounds, club logo, column mappings).
+                        Select a saved badge template (layout, backgrounds, club logo, column mappings).
                     </p>
                 </div>
 
             </div>
 
             <div class="process-section" style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
-                <a href="/badge-mapping" class="btn" style="background: #4b904b; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+                <a href="/badge-mapping" id="badgeMappingLink" class="btn" style="background: #4b904b; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
                     <i class="fas fa-palette"></i> Badge Mapping
                 </a>
                 
@@ -705,6 +762,47 @@
         <a href="/" class="back-link">
             <i class="fas fa-arrow-left"></i> Back to Home
         </a>
+    </div>
+
+    <!-- Household grouping disclaimer -->
+    <div class="modal-overlay" id="householdDisclaimerModal" role="dialog" aria-labelledby="householdDisclaimerTitle" aria-modal="true">
+        <div class="modal" style="max-width: 680px;">
+            <h3 id="householdDisclaimerTitle"><i class="fas fa-gavel"></i> Notice Regarding Household Badge Grouping</h3>
+            <div class="modal-legal">
+                <p>
+                    Records maintained in the AFRP Dynamics CRM under &ldquo;Household&rdquo; designate administrative
+                    family units for membership and contact management. They do <strong>not</strong> constitute,
+                    and shall not be construed as, a reliable indicator of how registrants intend to collect
+                    convention badges at the point of distribution.
+                </p>
+                <p>
+                    In practice, badge pickup requests routinely diverge from household boundaries. Registrants
+                    frequently collect on behalf of parents, children, or other relatives assigned to
+                    <em>different</em> households; moreover, they often request only one or two badges from
+                    a given household rather than the complete set associated with that household record.
+                </p>
+                <div class="notice-emphasis">
+                    Enabling household grouping obliges volunteers to reverse pre-applied sort order, locate
+                    pre-packed household envelopes, and extract individual badges that were not requested&mdash;work
+                    that exceeds, rather than reduces, operational burden at the distribution table.
+                </div>
+                <p>
+                    Each badge must in any event be located and scanned individually. Pre-sorting badges into
+                    household envelopes therefore confers no material efficiency at checkin and, in most
+                    convention scenarios, materially increases handling time and error risk.
+                </p>
+                <p class="waiver-clause">
+                    AFRP makes this feature available as a courtesy but <strong>does not recommend its use</strong>.
+                    By checking the box to enable household grouping, you acknowledge that any resulting workflow
+                    complications&mdash;including but not limited to repacking, re-sorting, and retrieval delays&mdash;are
+                    self-inflicted and expressly waive any claim against AFRP arising from or related to such
+                    complications.
+                </p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" id="householdDisclaimerCloseBtn">I understand</button>
+            </div>
+        </div>
     </div>
 
     <!-- Loading Overlay -->
@@ -746,7 +844,8 @@
                     subEventId: document.getElementById('subEventSelect')?.value || '',
                     contactIdsFilter: document.getElementById('inclusionList')?.value || '',
                     dateFilter: document.getElementById('createdOnFilter')?.value || '',
-                    badgeTemplateId: document.getElementById('badgeTemplateSelect')?.value || ''
+                    badgeTemplateId: document.getElementById('badgeTemplateSelect')?.value || '',
+                    groupByHousehold: document.getElementById('groupByHousehold')?.checked || false
                 };
                 localStorage.setItem(CACHE_KEY, JSON.stringify(preferences));
                 console.log('Saved preferences to cache:', preferences);
@@ -811,6 +910,11 @@
                 if (createdOnFilter) createdOnFilter.value = preferences.dateFilter;
             }
 
+            if (preferences.groupByHousehold) {
+                const groupByHousehold = document.getElementById('groupByHousehold');
+                if (groupByHousehold) groupByHousehold.checked = true;
+            }
+
             // Restore badge template
             if (preferences.badgeTemplateId) {
                 const badgeTemplateSelect = document.getElementById('badgeTemplateSelect');
@@ -861,6 +965,29 @@
                 });
             });
 
+            // Household grouping disclaimer modal
+            const householdModal = document.getElementById('householdDisclaimerModal');
+            const householdLearnMoreBtn = document.getElementById('householdLearnMoreBtn');
+            const householdDisclaimerCloseBtn = document.getElementById('householdDisclaimerCloseBtn');
+            if (householdLearnMoreBtn && householdModal) {
+                householdLearnMoreBtn.addEventListener('click', () => {
+                    householdModal.classList.add('active');
+                });
+                householdDisclaimerCloseBtn?.addEventListener('click', () => {
+                    householdModal.classList.remove('active');
+                });
+                householdModal.addEventListener('click', (e) => {
+                    if (e.target === householdModal) {
+                        householdModal.classList.remove('active');
+                    }
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && householdModal.classList.contains('active')) {
+                        householdModal.classList.remove('active');
+                    }
+                });
+            }
+
             // Process button
             document.getElementById('processBtn').addEventListener('click', processData);
 
@@ -868,6 +995,14 @@
             document.getElementById('badgeTemplateSelect').addEventListener('change', () => {
                 updateBadgeButtons();
                 saveToCache();
+            });
+            document.getElementById('badgeMappingLink').addEventListener('click', (e) => {
+                const templateId = document.getElementById('badgeTemplateSelect').value;
+                saveToCache();
+                if (templateId) {
+                    e.preventDefault();
+                    window.location.href = `/badge-mapping?template_id=${encodeURIComponent(templateId)}`;
+                }
             });
             document.getElementById('generateBadgesBtn').addEventListener('click', generateBadges);
             document.getElementById('processAndGenerateBtn').addEventListener('click', processAndGenerateBadges);
@@ -882,6 +1017,7 @@
             
             // Save sub-event selection
             document.getElementById('subEventSelect').addEventListener('change', saveToCache);
+            document.getElementById('groupByHousehold')?.addEventListener('change', saveToCache);
             
             // Save filters (with debounce to avoid too many saves while typing)
             let filterSaveTimeout;
@@ -1053,7 +1189,8 @@
                 subEvent: document.getElementById('subEventSelect').value || null,
                 inclusionList: inclusionList,
                 createdOnFilter: document.getElementById('createdOnFilter').value || null,
-                preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null
+                preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null,
+                groupByHousehold: document.getElementById('groupByHousehold')?.checked || false
             };
 
             showLoading();
@@ -1310,6 +1447,7 @@
                 inclusionList: inclusionList,
                 createdOnFilter: document.getElementById('createdOnFilter').value || null,
                 preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null,
+                groupByHousehold: document.getElementById('groupByHousehold')?.checked || false,
                 template_id: parseInt(templateId)
             };
 

@@ -178,6 +178,21 @@
             color: white;
         }
 
+        .badge-feature {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            margin-right: 4px;
+            margin-bottom: 4px;
+            display: inline-block;
+        }
+
+        .feature-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            max-width: 220px;
+        }
+
         .actions {
             display: flex;
             gap: 10px;
@@ -276,6 +291,7 @@
                         <th>Username</th>
                         <th>Email</th>
                         <th>Role</th>
+                        <th>Features</th>
                         <th>Status</th>
                         <th>Last Login</th>
                         <th>Created</th>
@@ -300,6 +316,23 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% if user.is_admin %}
+                            <span class="badge badge-feature">All</span>
+                            {% else %}
+                            <div class="feature-tags">
+                                {% set perms = user.get_feature_permissions() %}
+                                {% for feature_id, meta in features.items() %}
+                                    {% if perms.get(feature_id) %}
+                                    <span class="badge badge-feature">{{ meta.label.split()[0] }}</span>
+                                    {% endif %}
+                                {% endfor %}
+                                {% if not user.allowed_features() %}
+                                <span style="color:#999;font-size:12px;">None</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td>
                             {% if user.is_active %}
                             <span class="badge badge-active">Active</span>
                             {% else %}
@@ -317,6 +350,9 @@
                         <td>
                             <div class="actions">
                                 {% if user.id != current_user.id %}
+                                <a href="{{ url_for('edit_user', user_id=user.id) }}" class="btn btn-sm btn-secondary">
+                                    <i class="fas fa-edit"></i> Edit
+                                </a>
                                 <button 
                                     class="btn btn-sm btn-secondary"
                                     onclick="toggleUserActive({{ user.id }}, '{{ user.username }}', {{ user.is_active|lower }})"

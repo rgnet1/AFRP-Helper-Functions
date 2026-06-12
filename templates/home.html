@@ -145,38 +145,41 @@
         </div>
     </header>
     <div class="tiles-container">
-        <!-- QR Code Generator Tile -->
+        {% if allowed_features %}
+        {% if 'qr' in allowed_features %}
         <a href="/qr" class="tile">
             <div class="tile-icon" aria-hidden="true">🔳</div>
             <div class="tile-title">QR Code Generator</div>
         </a>
+        {% endif %}
 
-        <!-- Event URL Generator Tile -->
+        {% if 'event' in allowed_features %}
         <a href="/event" class="tile">
             <div class="tile-icon" aria-hidden="true">🌐</div>
             <div class="tile-title">Generate Private Event URL</div>
         </a>
+        {% endif %}
 
-        <!-- Magazine Downloader Tile -->
+        {% if 'magazine' in allowed_features %}
         <a href="/magazine" class="tile">
             <div class="tile-icon">📖</div>
             <div class="tile-title">Magazine Downloader</div>
         </a>
+        {% endif %}
 
-         <!-- Badge Generator Tile -->
+        {% if 'badges' in allowed_features %}
          <a href="/badges" class="tile">
             <div class="tile-icon" aria-hidden="true">🏷️</div>
             <div class="tile-title">Badge Generator</div>
             <div class="tile-subtitle">Pull CRM data &amp; print PDF badges</div>
         </a>
-
-        <!-- Badge Mapping Tile -->
-        <a href="/badge-mapping" class="tile">
-            <div class="tile-icon" aria-hidden="true">🎨</div>
-            <div class="tile-title">Badge Mapping</div>
-            <div class="tile-subtitle">Templates, backgrounds &amp; column mappings</div>
-        </a>
-
+        {% endif %}
+        {% else %}
+        <div style="text-align:center;padding:40px;color:#666;max-width:420px;">
+            <p style="font-size:18px;margin:0 0 8px;">No features assigned</p>
+            <p style="font-size:14px;margin:0;">Contact an administrator to request access.</p>
+        </div>
+        {% endif %}
     </div>
 </body>
 </html>

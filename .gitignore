@@ -11,6 +11,7 @@
 *.pyc
 __pycache__/
 /data/magazine_schedules.db
+/data/household_cache.json
 
 # Temporary and cache folders
 /temp/*

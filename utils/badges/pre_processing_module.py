@@ -16,6 +16,8 @@ class PreprocessingConfig:
     timezone: str = "America/Los_Angeles"  # Default timezone for timestamps
     inclusion_list: Optional[List[str]] = None  # Optional list of Contact IDs to include
     created_on_filter: Optional[str] = None  # Optional "on or after" date filter (format: "6/11/2025" or "6/11/2025 2:56:51 PM")
+    group_by_household: bool = False  # Group badge order by family household
+    household_cache_path: Optional[str] = None  # Path to household_cache.json
     
     def __post_init__(self):
         self.tz = pytz.timezone(self.timezone)

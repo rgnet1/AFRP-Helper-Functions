@@ -66,10 +66,290 @@
             gap: 20px;
         }
 
-        .main-grid {
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-width: 0;
+        }
+
+        .preview-layout {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 24px;
+            align-items: start;
+        }
+
+        .preview-left {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .badge-preview-stage {
+            position: relative;
+            width: 100%;
+            max-width: 560px;
+            aspect-ratio: 4 / 3;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .badge-preview-stage.show-outline {
+            outline: 2px dashed #999;
+            outline-offset: 4px;
+        }
+
+        .badge-preview-layer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .badge-preview-bg {
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        .badge-preview-svg {
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .badge-preview-svg svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .preview-field-toggles {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .display-name-customizer {
+            margin-top: 4px;
+            padding-top: 14px;
+            border-top: 1px solid #e8e8e8;
+        }
+
+        .display-name-options {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .display-name-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+        }
+
+        .display-name-option input {
+            margin: 0;
+            accent-color: #4b904b;
+        }
+
+        .display-name-sub-option {
+            margin-left: 22px;
+            color: #555;
+        }
+
+        .display-name-sub-option.disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .display-name-sample {
+            margin-top: 10px;
+            padding: 8px 10px;
+            background: #f8f9ff;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .display-name-sample-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            margin-bottom: 4px;
+        }
+
+        .preview-toggle-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #f0f4f0;
+            border: 1px solid #c8dcc8;
+            border-radius: 20px;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .preview-toggle-chip:hover {
+            background: #e4efe4;
+        }
+
+        .preview-toggle-chip input {
+            margin: 0;
+            accent-color: #4b904b;
+        }
+
+        .preview-toggle-chip.disabled-field {
+            opacity: 0.55;
+            background: #f5f5f5;
+            border-color: #ddd;
+        }
+
+        .preview-toggles-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 4px;
+        }
+
+        .preview-right .form-label {
+            margin-bottom: 10px;
+        }
+
+        .background-gallery-compact {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+
+        .background-upload-compact {
+            padding: 16px !important;
+            margin-top: 10px !important;
+            margin-bottom: 0 !important;
+        }
+
+        .background-upload-compact .upload-icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+
+        .background-upload-compact .upload-text {
+            font-size: 12px;
+        }
+
+        .element-locations-section {
+            margin-top: 16px;
+            padding-top: 14px;
+            border-top: 1px solid #e8e8e8;
+        }
+
+        .element-location-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .element-location-row label {
+            min-width: 108px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #444;
+        }
+
+        .element-location-row select {
+            flex: 1;
+            min-width: 140px;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        .layout-drag-hint {
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+
+        .margin-controls {
+            margin-bottom: 16px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #e8e8e8;
+        }
+
+        .margin-inputs {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .margin-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .margin-input-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .margin-input-group input {
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            width: 100%;
+        }
+
+        .margin-recommended {
+            font-size: 12px;
+            color: #4b904b;
+            margin-bottom: 8px;
+        }
+
+        .margin-reset-btn {
+            padding: 8px 14px;
+            background: #f0f4f0;
+            border: 1px solid #c8dcc8;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .margin-reset-btn:hover {
+            background: #e4efe4;
+        }
+
+        .badge-preview-svg .layout-draggable {
+            cursor: grab;
+        }
+
+        .badge-preview-svg .layout-draggable:hover {
+            filter: drop-shadow(0 0 4px rgba(75, 144, 75, 0.55));
+        }
+
+        .badge-preview-svg .layout-dragging {
+            cursor: grabbing;
+            filter: drop-shadow(0 0 6px rgba(75, 144, 75, 0.85));
         }
 
         .sidebar {
@@ -183,10 +463,11 @@
             }
         }
 
-        @media (max-width: 1200px) {
-            .main-grid {
+        @media (max-width: 1100px) {
+            .preview-layout {
                 grid-template-columns: 1fr;
             }
+
         }
 
         @media (max-width: 900px) {
@@ -558,8 +839,103 @@
                 </button>
             </div>
 
-            <!-- Main Grid: Template Configuration & Column Mapping -->
-            <div class="main-grid">
+            <!-- Main Panel: Preview + Configuration (vertical stack) -->
+            <div class="main-panel">
+                <!-- Live Preview -->
+                <div class="card preview-card">
+                    <h2 class="card-title"><i class="fas fa-eye"></i> Live Badge Preview</h2>
+                    <div class="preview-layout">
+                        <div class="preview-left">
+                            <div class="badge-preview-stage" id="badgePreviewStage">
+                                <img id="badgePreviewBackground" class="badge-preview-layer badge-preview-bg" alt="" style="display:none;">
+                                <div id="badgePreviewSvg" class="badge-preview-layer badge-preview-svg"></div>
+                            </div>
+                            <div>
+                                <div class="preview-toggles-label">Show sample fields in preview</div>
+                                <div class="preview-field-toggles" id="previewFieldToggles">
+                                    <span style="color:#999;font-size:13px;">Loading field toggles...</span>
+                                </div>
+                            </div>
+                            <div class="display-name-customizer" id="displayNameCustomizer" hidden>
+                                <div class="preview-toggles-label">Display name format</div>
+                                <p class="help-text" style="margin:0 0 8px;">Controls how &#123;&#123;DISPLAY_NAME&#125;&#125; is built from name columns.</p>
+                                <div class="display-name-options">
+                                    <label class="display-name-option">
+                                        <input type="checkbox" id="displayNameIncludeMiddle">
+                                        Include middle name
+                                    </label>
+                                    <label class="display-name-option display-name-sub-option" id="displayNameParenMiddleWrap">
+                                        <input type="checkbox" id="displayNameParenMiddle">
+                                        Parentheses around middle name
+                                    </label>
+                                    <label class="display-name-option">
+                                        <input type="checkbox" id="displayNameIncludeMaiden">
+                                        Include maiden name
+                                    </label>
+                                    <label class="display-name-option display-name-sub-option" id="displayNameParenMaidenWrap">
+                                        <input type="checkbox" id="displayNameParenMaiden">
+                                        Parentheses around maiden name
+                                    </label>
+                                </div>
+                                <div class="display-name-sample">
+                                    <div class="display-name-sample-label">Sample preview</div>
+                                    <span id="displayNameSampleText">Sarah Marie (Smith) Khoury</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="preview-right">
+                            <label class="form-label" id="backgroundSizeLabel">Badge Background</label>
+                            <p class="help-text" id="backgroundSizeHelp" style="margin-top:0;margin-bottom:10px;">384×288 px (4" × 3"). Names and logos overlay on top.</p>
+                            <div class="background-gallery background-gallery-compact" id="backgroundGallery">
+                                <div style="color:#999;font-size:13px;">Loading backgrounds...</div>
+                            </div>
+                            <div class="upload-area background-upload-compact" id="backgroundUploadArea">
+                                <div class="upload-icon"><i class="fas fa-palette"></i></div>
+                                <div class="upload-text">
+                                    <strong>Upload custom background</strong><br>
+                                    PNG or JPEG, min size matches selected badge
+                                </div>
+                            </div>
+                            <input type="file" id="backgroundFileInput" class="file-input" accept=".png,.jpg,.jpeg">
+                            <div class="element-locations-section">
+                                <div class="margin-controls">
+                                    <div class="preview-toggles-label">Badge margins (px)</div>
+                                    <p class="margin-recommended">
+                                        <i class="fas fa-info-circle"></i>
+                                        Recommended: 20 px on all sides (matches the minimal badge template)
+                                    </p>
+                                    <div class="margin-inputs">
+                                        <div class="margin-input-group">
+                                            <label for="marginTop">Top</label>
+                                            <input type="number" id="marginTop" min="0" max="80" step="1" value="20">
+                                        </div>
+                                        <div class="margin-input-group">
+                                            <label for="marginRight">Right</label>
+                                            <input type="number" id="marginRight" min="0" max="80" step="1" value="20">
+                                        </div>
+                                        <div class="margin-input-group">
+                                            <label for="marginBottom">Bottom</label>
+                                            <input type="number" id="marginBottom" min="0" max="80" step="1" value="20">
+                                        </div>
+                                        <div class="margin-input-group">
+                                            <label for="marginLeft">Left</label>
+                                            <input type="number" id="marginLeft" min="0" max="80" step="1" value="20">
+                                        </div>
+                                    </div>
+                                    <button type="button" class="margin-reset-btn" id="resetMarginsBtn">
+                                        <i class="fas fa-undo"></i> Reset margins to recommended
+                                    </button>
+                                </div>
+                                <div class="preview-toggles-label">Element locations</div>
+                                <p class="layout-drag-hint">Drag corner logos and QR code in the preview, or choose a preset zone.</p>
+                                <div id="elementLocationControls">
+                                    <span style="color:#999;font-size:13px;">Loading layout controls...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Template Configuration -->
                 <div class="card">
                 <h2 class="card-title"><i class="fas fa-cog"></i> Template Configuration</h2>
@@ -569,20 +945,6 @@
                     <label class="form-label" for="templateName">Template Name</label>
                     <input type="text" id="templateName" class="form-input" placeholder="e.g., Convention 2025">
                     <p class="help-text">Give this template a unique name for future use</p>
-                </div>
-
-                <!-- SVG Template Upload -->
-                <div class="form-group">
-                    <label class="form-label" for="svgFileInput">SVG Template File</label>
-                    <div id="currentSvgFile"></div>
-                    <div class="upload-area" id="svgUploadArea">
-                        <div class="upload-icon"><i class="fas fa-file-code"></i></div>
-                        <div class="upload-text">
-                            <strong>Click or drag SVG file here</strong><br>
-                            SVG template with placeholders like {{FIRST_NAME}}
-                        </div>
-                    </div>
-                    <input type="file" id="svgFileInput" class="file-input" accept=".svg">
                 </div>
 
                 <!-- Club Logo Upload -->
@@ -599,30 +961,13 @@
                     <input type="file" id="logoFileInput" class="file-input" accept=".png,.jpg,.jpeg,.svg,.gif">
                 </div>
 
-                <!-- Badge Background -->
-                <div class="form-group">
-                    <label class="form-label">Badge Background (Avery 5392)</label>
-                    <p class="help-text">384×288 px (4:3). Names and logos are overlaid automatically.</p>
-                    <div class="background-gallery" id="backgroundGallery">
-                        <div style="color:#999;font-size:13px;">Loading backgrounds...</div>
-                    </div>
-                    <div class="upload-area" id="backgroundUploadArea" style="margin-top: 12px;">
-                        <div class="upload-icon"><i class="fas fa-palette"></i></div>
-                        <div class="upload-text">
-                            <strong>Upload custom background</strong><br>
-                            PNG or JPEG, min 384×288, 4:3 ratio
-                        </div>
-                    </div>
-                    <input type="file" id="backgroundFileInput" class="file-input" accept=".png,.jpg,.jpeg">
-                </div>
-
                 <!-- Avery Template Selector -->
                 <div class="form-group">
-                    <label class="form-label" for="averyTemplate">Avery Template Size</label>
+                    <label class="form-label" for="averyTemplate">Badge Size</label>
                     <select id="averyTemplate" class="form-select">
-                        <option value="">Loading templates...</option>
+                        <option value="">Loading sizes...</option>
                     </select>
-                    <p class="help-text">Select the Avery label sheet size you'll be printing on</p>
+                    <p class="help-text">Select the label size you will print on; layout scales automatically</p>
                 </div>
 
                 <!-- Show Outlines Toggle -->
@@ -637,14 +982,14 @@
                 </div>
             </div>
 
-            <!-- Right Column: Column Mapping -->
+            <!-- Column Mapping -->
             <div class="card">
                 <h2 class="card-title"><i class="fas fa-link"></i> Column Mapping</h2>
                 
                 <div id="mappingArea">
                     <div class="empty-state">
                         <i class="fas fa-upload"></i>
-                        <p>Upload an SVG template to see placeholders</p>
+                        <p>Loading column mappings...</p>
                     </div>
                 </div>
 
@@ -676,9 +1021,10 @@
         <span id="toastMessage"></span>
     </div>
 
+    <script src="/static/js/badge_scale.js"></script>
     <script>
     {% raw %}
-        let currentSvgFilename = null;
+        const BUILTIN_BADGE_SVG_URL = '/static/svg/minimal_badge_landscape.svg';
         let currentLogoFilename = null;
         let currentLogoWidth = null;
         let currentLogoHeight = null;
@@ -687,8 +1033,101 @@
         let currentTemplateId = null; // Track if we're editing an existing template
         let subEventCounter = 0; // Track how many sub-event mappings exist
         let manualSubEventPlaceholders = new Set(); // Sub-event placeholders explicitly added in the UI
+        let svgSubEventPlaceholders = new Set(); // Sub-event placeholders baked into the SVG template
         let selectedBackgroundId = 'white';
         let backgroundCatalog = [];
+        let currentSvgContent = null;
+        let currentLogoPreviewUrl = null;
+        let fieldVisibility = {};
+        const DEFAULT_DISPLAY_NAME_CONFIG = {
+            include_middle: true,
+            include_maiden: true,
+            parentheses_middle: false,
+            parentheses_maiden: true
+        };
+        let displayNameConfig = { ...DEFAULT_DISPLAY_NAME_CONFIG };
+        let elementLayout = {};
+        let badgeViewBox = { width: 384, height: 288 };
+        let dragState = null;
+        let averyTemplateCatalog = [];
+        let previousAveryCode = '5392';
+
+        const RECOMMENDED_MARGINS = { top: 20, right: 20, bottom: 20, left: 20 };
+        const SUBEVENT_LINE_HEIGHT = 15;
+        const LAYOUT_PRESET_OPTIONS = [
+            { value: 'top-left', label: 'Top left' },
+            { value: 'top-right', label: 'Top right' },
+            { value: 'bottom-left', label: 'Bottom left' },
+            { value: 'bottom-right', label: 'Bottom right' },
+            { value: 'bottom-center', label: 'Bottom center' },
+            { value: 'custom', label: 'Custom (dragged)' }
+        ];
+        const AFRP_LOGO_URL = '/static/afrp_logo.png';
+        const DEFAULT_IMAGE_PRESETS = {
+            '{{CLUB_LOGO}}': 'top-left',
+            '{{AFRP_LOGO}}': 'top-right',
+            '{{QR_CODE}}': 'bottom-right'
+        };
+        const DRAGGABLE_LAYOUT_KEYS = new Set(['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}']);
+        const QR_COMPANION_PLACEHOLDERS = ['{{MEMBER_ID}}', '{{MEAL_PREFERENCE}}'];
+        const LAYOUT_ELEMENT_LABELS = {
+            '{{CLUB_LOGO}}': 'Club logo',
+            '{{AFRP_LOGO}}': 'AFRP logo',
+            '{{QR_CODE}}': 'QR code',
+            'subevents': 'Sub-events'
+        };
+        const SUBEVENT_LAYOUT_KEYS = ['{{SUBEVENT_1}}', '{{SUBEVENT_2}}', '{{SUBEVENT_3}}', '{{SUBEVENT_4}}'];
+
+        const DEFAULT_PREVIEW_PLACEHOLDERS = [
+            '{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{DISPLAY_NAME}}', '{{LOCAL_CLUB}}',
+            '{{TABLE_NUMBER}}', '{{SUBEVENT_1}}', '{{SUBEVENT_2}}', '{{SUBEVENT_3}}',
+            '{{SUBEVENT_4}}', '{{MEMBER_ID}}', '{{QR_CODE}}', '{{MEAL_PREFERENCE}}'
+        ];
+
+        const SAMPLE_BADGE_VALUES = {
+            '{{FIRST_NAME}}': 'Sarah',
+            '{{MIDDLE_NAME}}': 'Marie',
+            '{{LAST_NAME}}': 'Khoury',
+            '{{MAIDEN_NAME}}': 'Smith',
+            '{{DISPLAY_NAME}}': 'Sarah Marie (Smith) Khoury',
+            '{{MEMBER_ID}}': 'ID-01234',
+            '{{LOCAL_CLUB}}': 'Detroit',
+            '{{TABLE_NUMBER}}': 'Table 12',
+            '{{MEAL_PREFERENCE}}': 'Vegetarian',
+            '{{SUBEVENT_1}}': 'Grand Banquet',
+            '{{SUBEVENT_2}}': 'Ahla w Sahla Night',
+            '{{SUBEVENT_3}}': 'Mid-Year Meeting',
+            '{{SUBEVENT_4}}': 'Convention Social',
+            '{{QR_CODE}}': '/static/sample_qr_code.png',
+            '{{AFRP_LOGO}}': AFRP_LOGO_URL,
+            '{{CLUB_LOGO}}': '/static/sample_club_logo.png'
+        };
+
+        const PLACEHOLDER_LABELS = {
+            '{{FIRST_NAME}}': 'First name',
+            '{{MIDDLE_NAME}}': 'Middle name',
+            '{{LAST_NAME}}': 'Last name',
+            '{{MAIDEN_NAME}}': 'Maiden name',
+            '{{DISPLAY_NAME}}': 'Display name',
+            '{{MEMBER_ID}}': 'Member ID',
+            '{{LOCAL_CLUB}}': 'Local club',
+            '{{CLUB_LOGO}}': 'Local club logo',
+            '{{AFRP_LOGO}}': 'AFRP logo',
+            '{{QR_CODE}}': 'QR code',
+            '{{TABLE_NUMBER}}': 'Table number',
+            '{{MEAL_PREFERENCE}}': 'Meal preference',
+            '{{SUBEVENT_1}}': 'Sub-event 1',
+            '{{SUBEVENT_2}}': 'Sub-event 2',
+            '{{SUBEVENT_3}}': 'Sub-event 3',
+            '{{SUBEVENT_4}}': 'Sub-event 4',
+            '{{TITLE}}': 'Title',
+            '{{GENDER}}': 'Gender',
+            '{{AGE}}': 'Age'
+        };
+
+        const IMAGE_PLACEHOLDERS = new Set(['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}']);
+        const NAME_PART_PLACEHOLDERS = ['{{FIRST_NAME}}', '{{MIDDLE_NAME}}', '{{MAIDEN_NAME}}', '{{LAST_NAME}}'];
+        const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
         // Sample Excel columns (these should match your actual output columns)
         const defaultExcelColumns = [
@@ -716,22 +1155,1049 @@
         ];
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            loadAveryTemplates();
+        document.addEventListener('DOMContentLoaded', async function() {
+            await loadAveryTemplates();
             loadBackgrounds();
-            loadSavedTemplates();
+            await loadSavedTemplates();
             loadSampleExcelColumns();
             setupUploadAreas();
             setupEventListeners();
+            setupMarginControls();
+            setupDisplayNameControls();
+            document.getElementById('showOutlines').addEventListener('change', updatePreviewOutline);
+            document.getElementById('averyTemplate').addEventListener('change', onBadgeSizeChanged);
+
+            const initialTemplateId = resolveInitialTemplateId();
+            if (initialTemplateId) {
+                await loadTemplate(initialTemplateId, { silent: true });
+            }
+            if (!currentTemplateId) {
+                initBuiltinBadgeTemplate();
+            }
         });
+
+        const BADGE_PREFS_CACHE_KEY = 'badgeGenerator_preferences';
+
+        function resolveInitialTemplateId() {
+            const params = new URLSearchParams(window.location.search);
+            const fromUrl = params.get('template_id') || params.get('template');
+            if (fromUrl && /^\d+$/.test(fromUrl)) {
+                return parseInt(fromUrl, 10);
+            }
+            try {
+                const cached = localStorage.getItem(BADGE_PREFS_CACHE_KEY);
+                if (cached) {
+                    const prefs = JSON.parse(cached);
+                    const id = prefs.badgeTemplateId;
+                    if (id && /^\d+$/.test(String(id))) {
+                        return parseInt(id, 10);
+                    }
+                }
+            } catch (error) {
+                console.warn('Could not read badge template from preferences cache:', error);
+            }
+            return null;
+        }
+
+        const AVERY_ALIASES = { '8395': '5395', '5384': '5392', '35392': '5392' };
+
+        function normalizeAveryCode(code) {
+            return AVERY_ALIASES[code] || code || '5392';
+        }
+
+        function getSelectedAveryCode() {
+            const select = document.getElementById('averyTemplate');
+            return normalizeAveryCode(select.value || previousAveryCode || '5392');
+        }
+
+        function getCanvasForAvery(code) {
+            return BadgeScale.canvasForTemplate(averyTemplateCatalog, code || getSelectedAveryCode());
+        }
+
+        function updatePreviewAspectRatio() {
+            const stage = document.querySelector('.badge-preview-stage');
+            if (!stage || !badgeViewBox.width || !badgeViewBox.height) return;
+            stage.style.aspectRatio = `${badgeViewBox.width} / ${badgeViewBox.height}`;
+        }
+
+        function updateBackgroundSizeLabels() {
+            const code = getSelectedAveryCode();
+            const t = averyTemplateCatalog.find(x => x.code === code);
+            const label = document.getElementById('backgroundSizeLabel');
+            const help = document.getElementById('backgroundSizeHelp');
+            if (!t) return;
+            label.textContent = `Badge Background (${t.size})`;
+            help.textContent = `${t.canvas_width}×${t.canvas_height} px (${t.size}). Names and logos overlay on top.`;
+        }
+
+        function updateMarginInputLimits() {
+            const canvas = getCanvasForAvery();
+            const maxVal = BadgeScale.marginInputMax(canvas.width, canvas.height);
+            ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].forEach(id => {
+                document.getElementById(id).max = maxVal;
+            });
+            const rec = BadgeScale.recommendedMargins(canvas.width, canvas.height);
+            const hint = document.querySelector('.margin-recommended');
+            if (hint) {
+                hint.innerHTML = `<i class="fas fa-info-circle"></i> Recommended: ${rec.top} px top/bottom, ${rec.left} px left/right for this badge size`;
+            }
+        }
+
+        function scaleContentToAvery(fromCode, toCode) {
+            const fromCanvas = getCanvasForAvery(fromCode);
+            const toCanvas = getCanvasForAvery(toCode);
+            if (fromCanvas.width === toCanvas.width && fromCanvas.height === toCanvas.height) {
+                return;
+            }
+            elementLayout = BadgeScale.scaleElementLayout(
+                elementLayout, fromCanvas, toCanvas
+            );
+            BadgeScale.squareQrInLayout(elementLayout);
+            elementLayout._canvas = { width: toCanvas.width, height: toCanvas.height };
+            if (currentSvgContent) {
+                currentSvgContent = BadgeScale.scaleSvgContent(
+                    currentSvgContent, fromCanvas, toCanvas
+                );
+            }
+            badgeViewBox = { ...toCanvas };
+        }
+
+        async function onBadgeSizeChanged() {
+            const newCode = getSelectedAveryCode();
+            if (newCode === previousAveryCode) return;
+            scaleContentToAvery(previousAveryCode, newCode);
+            previousAveryCode = newCode;
+            syncMarginInputs();
+            updateMarginInputLimits();
+            updateBackgroundSizeLabels();
+            updatePreviewAspectRatio();
+            await loadBackgrounds();
+            reanchorAllPresets();
+            renderElementLocationControls();
+            refreshPreviewUi();
+        }
+
+        async function applyCanvasForAvery(code, savedElementLayout) {
+            const canvas = getCanvasForAvery(code);
+            const baseSvg = await loadBuiltinSvgContent();
+            const scaledSvg = BadgeScale.prepareSvgForCanvas(
+                baseSvg, canvas.width, canvas.height
+            );
+            const resolvedLayout = BadgeScale.resolveElementLayoutForCanvas(
+                savedElementLayout || {}, canvas
+            );
+            applyBuiltinSvgContent(scaledSvg, resolvedLayout);
+            badgeViewBox = { ...canvas };
+            updatePreviewAspectRatio();
+            updateMarginInputLimits();
+            updateBackgroundSizeLabels();
+        }
+
+        function extractPlaceholdersFromSvgContent(svgContent) {
+            const placeholderPattern = /\{\{([A-Z_0-9]+)\}\}/g;
+            const matches = svgContent.matchAll(placeholderPattern);
+            return [...new Set([...matches].map(m => '{{' + m[1] + '}}'))].sort();
+        }
+
+        async function loadBuiltinSvgContent() {
+            const response = await fetch(BUILTIN_BADGE_SVG_URL);
+            if (!response.ok) throw new Error('Failed to load built-in badge template');
+            return await response.text();
+        }
+
+        function applyBuiltinSvgContent(svgContent, savedElementLayout) {
+            currentSvgContent = svgContent;
+            const defaults = extractLayoutFromSvg(svgContent);
+            elementLayout = savedElementLayout
+                ? mergeElementLayout(defaults, savedElementLayout)
+                : defaults;
+            extractedPlaceholders = extractPlaceholdersFromSvgContent(svgContent);
+            svgSubEventPlaceholders = new Set(
+                extractedPlaceholders.filter(p => isSubEventPlaceholder(p))
+            );
+        }
+
+        async function initBuiltinBadgeTemplate(savedMappings = {}, savedElementLayout = null) {
+            try {
+                const code = getSelectedAveryCode();
+                await applyCanvasForAvery(code, savedElementLayout);
+                renderMappingInterface(savedMappings);
+                refreshPreviewUi();
+            } catch (error) {
+                console.error('Error initializing badge template:', error);
+                showToast('Could not load badge template', 'error');
+            }
+        }
+
+        function getPreviewPlaceholders() {
+            return extractedPlaceholders.length ? extractedPlaceholders : DEFAULT_PREVIEW_PLACEHOLDERS;
+        }
+
+        function getPreviewTogglePlaceholders() {
+            const placeholders = [...getPreviewPlaceholders()];
+            if (placeholders.includes('{{DISPLAY_NAME}}')) {
+                NAME_PART_PLACEHOLDERS.forEach(ph => {
+                    if (!placeholders.includes(ph)) placeholders.push(ph);
+                });
+            }
+            return placeholders.sort((a, b) => {
+                const labelA = PLACEHOLDER_LABELS[a] || a;
+                const labelB = PLACEHOLDER_LABELS[b] || b;
+                return labelA.localeCompare(labelB);
+            });
+        }
+
+        function isSubEventPlaceholder(ph) {
+            return ph.includes('SUBEVENT');
+        }
+
+        function hasMappingSelect(ph) {
+            return !!document.querySelector(`.mapping-select[data-placeholder="${ph}"]`);
+        }
+
+        function isPlaceholderMapped(ph) {
+            const select = document.querySelector(`.mapping-select[data-placeholder="${ph}"]`);
+            return !!(select && select.value);
+        }
+
+        function defaultColumnForPlaceholder(ph) {
+            const exact = {
+                '{{FIRST_NAME}}': 'First Name',
+                '{{MIDDLE_NAME}}': 'Middle Name',
+                '{{LAST_NAME}}': 'Last Name',
+                '{{MAIDEN_NAME}}': 'Maiden Name',
+                '{{MEMBER_ID}}': 'Member ID',
+                '{{LOCAL_CLUB}}': 'Local Club',
+                '{{MEAL_PREFERENCE}}': 'Meal Preference',
+                '{{QR_CODE}}': 'QR Code'
+            };
+            if (exact[ph]) return exact[ph];
+            if (ph === '{{TABLE_NUMBER}}') {
+                return sampleExcelColumns.find(col => /table/i.test(col)) || '';
+            }
+            return '';
+        }
+
+        function syncFieldVisibilityFromMappings() {
+            getPreviewTogglePlaceholders().forEach(ph => {
+                if (hasMappingSelect(ph)) {
+                    fieldVisibility[ph] = isPlaceholderMapped(ph);
+                } else if (isSubEventPlaceholder(ph)) {
+                    fieldVisibility[ph] = false;
+                } else if (fieldVisibility[ph] === undefined) {
+                    fieldVisibility[ph] = true;
+                }
+            });
+        }
+
+        function setupMappingSelectListeners() {
+            document.querySelectorAll('.mapping-select').forEach(select => {
+                select.addEventListener('change', () => {
+                    const ph = select.dataset.placeholder;
+                    fieldVisibility[ph] = !!select.value;
+                    renderPreviewFieldToggles();
+                    renderBadgePreview();
+                });
+            });
+        }
+
+        function setSubEventMappingEnabled(placeholder, enabled) {
+            if (enabled) {
+                fieldVisibility[placeholder] = true;
+                if (!hasMappingSelect(placeholder)) {
+                    manualSubEventPlaceholders.add(placeholder);
+                    renderMappingInterface(getMappings(), { skipVisibilitySync: true });
+                    return;
+                }
+            } else {
+                fieldVisibility[placeholder] = false;
+                manualSubEventPlaceholders.delete(placeholder);
+                const currentMappings = getMappings();
+                delete currentMappings[placeholder];
+                renderMappingInterface(currentMappings);
+                return;
+            }
+            renderPreviewFieldToggles();
+            renderBadgePreview();
+        }
+
+        function onPreviewFieldToggle(ph, checked) {
+            fieldVisibility[ph] = checked;
+
+            if (isSubEventPlaceholder(ph)) {
+                setSubEventMappingEnabled(ph, checked);
+                return;
+            }
+
+            const select = document.querySelector(`.mapping-select[data-placeholder="${ph}"]`);
+            if (select) {
+                if (!checked) {
+                    select.value = '';
+                } else if (!select.value) {
+                    const defaultCol = defaultColumnForPlaceholder(ph);
+                    if (defaultCol && sampleExcelColumns.includes(defaultCol)) {
+                        select.value = defaultCol;
+                    }
+                }
+            }
+
+            renderPreviewFieldToggles();
+            renderBadgePreview();
+        }
+
+        function renderPreviewFieldToggles() {
+            const container = document.getElementById('previewFieldToggles');
+            const toggles = getPreviewTogglePlaceholders();
+            if (!toggles.length) {
+                container.innerHTML = '<span style="color:#999;font-size:13px;">No placeholders in template</span>';
+                return;
+            }
+            container.innerHTML = toggles.map(ph => {
+                const label = PLACEHOLDER_LABELS[ph] || ph.replace(/[{}]/g, '');
+                const checked = fieldVisibility[ph] !== false;
+                const chipClass = checked ? '' : ' disabled-field';
+                return `
+                    <label class="preview-toggle-chip${chipClass}">
+                        <input type="checkbox" data-preview-field="${ph}" ${checked ? 'checked' : ''}>
+                        ${label}
+                    </label>
+                `;
+            }).join('');
+            container.querySelectorAll('input[data-preview-field]').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const ph = e.target.dataset.previewField;
+                    e.target.closest('.preview-toggle-chip').classList.toggle('disabled-field', !e.target.checked);
+                    onPreviewFieldToggle(ph, e.target.checked);
+                });
+            });
+        }
+
+        function isFieldVisible(ph) {
+            return fieldVisibility[ph] !== false;
+        }
+
+        function normalizeDisplayNameConfig(config) {
+            const merged = { ...DEFAULT_DISPLAY_NAME_CONFIG };
+            if (!config) return merged;
+            Object.keys(DEFAULT_DISPLAY_NAME_CONFIG).forEach(key => {
+                if (key in config) merged[key] = Boolean(config[key]);
+            });
+            return merged;
+        }
+
+        function formatDisplayNamePart(value, useParentheses) {
+            if (!value) return '';
+            return useParentheses ? `(${value})` : value;
+        }
+
+        function buildDisplayName() {
+            const cfg = displayNameConfig;
+            const parts = [
+                SAMPLE_BADGE_VALUES['{{FIRST_NAME}}']
+            ];
+            if (cfg.include_middle) {
+                const middle = SAMPLE_BADGE_VALUES['{{MIDDLE_NAME}}'];
+                if (middle) parts.push(formatDisplayNamePart(middle, cfg.parentheses_middle));
+            }
+            if (cfg.include_maiden) {
+                const maiden = SAMPLE_BADGE_VALUES['{{MAIDEN_NAME}}'];
+                if (maiden) parts.push(formatDisplayNamePart(maiden, cfg.parentheses_maiden));
+            }
+            parts.push(SAMPLE_BADGE_VALUES['{{LAST_NAME}}']);
+            return parts.filter(Boolean).join(' ');
+        }
+
+        function readDisplayNameConfigFromControls() {
+            return normalizeDisplayNameConfig({
+                include_middle: document.getElementById('displayNameIncludeMiddle').checked,
+                include_maiden: document.getElementById('displayNameIncludeMaiden').checked,
+                parentheses_middle: document.getElementById('displayNameParenMiddle').checked,
+                parentheses_maiden: document.getElementById('displayNameParenMaiden').checked
+            });
+        }
+
+        function syncDisplayNameControls() {
+            const customizer = document.getElementById('displayNameCustomizer');
+            const hasDisplayName = getPreviewPlaceholders().includes('{{DISPLAY_NAME}}');
+            customizer.hidden = !hasDisplayName;
+            if (!hasDisplayName) return;
+
+            document.getElementById('displayNameIncludeMiddle').checked = displayNameConfig.include_middle;
+            document.getElementById('displayNameIncludeMaiden').checked = displayNameConfig.include_maiden;
+            document.getElementById('displayNameParenMiddle').checked = displayNameConfig.parentheses_middle;
+            document.getElementById('displayNameParenMaiden').checked = displayNameConfig.parentheses_maiden;
+
+            const middleParenWrap = document.getElementById('displayNameParenMiddleWrap');
+            const maidenParenWrap = document.getElementById('displayNameParenMaidenWrap');
+            const middleParenInput = document.getElementById('displayNameParenMiddle');
+            const maidenParenInput = document.getElementById('displayNameParenMaiden');
+
+            middleParenWrap.classList.toggle('disabled', !displayNameConfig.include_middle);
+            middleParenInput.disabled = !displayNameConfig.include_middle;
+            maidenParenWrap.classList.toggle('disabled', !displayNameConfig.include_maiden);
+            maidenParenInput.disabled = !displayNameConfig.include_maiden;
+
+            document.getElementById('displayNameSampleText').textContent = buildDisplayName();
+        }
+
+        function onDisplayNameConfigChanged() {
+            displayNameConfig = readDisplayNameConfigFromControls();
+            if (!displayNameConfig.include_middle) {
+                displayNameConfig.parentheses_middle = false;
+            }
+            if (!displayNameConfig.include_maiden) {
+                displayNameConfig.parentheses_maiden = false;
+            }
+            syncDisplayNameControls();
+            renderBadgePreview();
+        }
+
+        function setupDisplayNameControls() {
+            [
+                'displayNameIncludeMiddle',
+                'displayNameIncludeMaiden',
+                'displayNameParenMiddle',
+                'displayNameParenMaiden'
+            ].forEach(id => {
+                document.getElementById(id).addEventListener('change', onDisplayNameConfigChanged);
+            });
+        }
+
+        function getClubLogoUrl() {
+            if (currentLogoPreviewUrl) return currentLogoPreviewUrl;
+            if (currentLogoFilename) return `/badge_logos/${currentLogoFilename}`;
+            return SAMPLE_BADGE_VALUES['{{CLUB_LOGO}}'];
+        }
+
+        function getEffectivePreviewValues() {
+            const values = { ...SAMPLE_BADGE_VALUES };
+            values['{{CLUB_LOGO}}'] = getClubLogoUrl();
+            values['{{AFRP_LOGO}}'] = AFRP_LOGO_URL;
+
+            getPreviewPlaceholders().forEach(ph => {
+                if (ph === '{{DISPLAY_NAME}}') {
+                    if (!isFieldVisible(ph)) {
+                        values[ph] = '';
+                    } else if (getPreviewPlaceholders().includes('{{DISPLAY_NAME}}')) {
+                        values[ph] = buildDisplayName();
+                    }
+                } else if (!IMAGE_PLACEHOLDERS.has(ph) && !isFieldVisible(ph)) {
+                    values[ph] = '';
+                }
+            });
+
+            NAME_PART_PLACEHOLDERS.forEach(ph => {
+                if (getPreviewPlaceholders().includes(ph) && !isFieldVisible(ph)) {
+                    values[ph] = '';
+                }
+            });
+
+            IMAGE_PLACEHOLDERS.forEach(ph => {
+                if (!isFieldVisible(ph)) {
+                    values[ph] = TRANSPARENT_PIXEL;
+                }
+            });
+
+            return values;
+        }
+
+        function escapeXml(text) {
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+
+        function getBackgroundImageUrl() {
+            const bg = backgroundCatalog.find(b => b.id === selectedBackgroundId);
+            if (!bg || !bg.file) return null;
+            return `/badge_background_templates/${bg.file}`;
+        }
+
+        function updatePreviewOutline() {
+            const stage = document.getElementById('badgePreviewStage');
+            stage.classList.toggle('show-outline', document.getElementById('showOutlines').checked);
+        }
+
+        async function fetchSvgContent() {
+            if (currentSvgContent) return currentSvgContent;
+            currentSvgContent = await loadBuiltinSvgContent();
+            return currentSvgContent;
+        }
+
+        function parseBadgeViewBox(svgContent) {
+            const viewBoxMatch = svgContent.match(/viewBox\s*=\s*"([^"]+)"/i);
+            if (viewBoxMatch) {
+                const parts = viewBoxMatch[1].replace(/,/g, ' ').trim().split(/\s+/);
+                if (parts.length >= 4) {
+                    return { width: parseFloat(parts[2]), height: parseFloat(parts[3]) };
+                }
+            }
+            const w = svgContent.match(/\bwidth\s*=\s*"([\d.]+)/i);
+            const h = svgContent.match(/\bheight\s*=\s*"([\d.]+)/i);
+            if (w && h) {
+                return { width: parseFloat(w[1]), height: parseFloat(h[1]) };
+            }
+            return { width: 384, height: 288 };
+        }
+
+        function parseImageSpecFromTag(tag, layoutKey) {
+            const attr = (name, fallback = 0) => {
+                const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*"([\\d.]+)"`, 'i'));
+                return m ? parseFloat(m[1]) : fallback;
+            };
+            return {
+                x: attr('x'),
+                y: attr('y'),
+                width: attr('width', 60),
+                height: attr('height', 60),
+                preset: DEFAULT_IMAGE_PRESETS[layoutKey] || 'custom'
+            };
+        }
+
+        function parseTextSpecFromTag(tag) {
+            const xM = tag.match(/\bx\s*=\s*"([\d.]+)"/i);
+            const yM = tag.match(/\by\s*=\s*"([\d.]+)"/i);
+            const anchorM = tag.match(/text-anchor\s*=\s*"([^"]+)"/i);
+            return {
+                x: xM ? parseFloat(xM[1]) : 0,
+                y: yM ? parseFloat(yM[1]) : 0,
+                textAnchor: anchorM ? anchorM[1] : 'start'
+            };
+        }
+
+        function extractQrCompanions(svgContent, qrSpec) {
+            const companions = {};
+            QR_COMPANION_PLACEHOLDERS.forEach(ph => {
+                const pattern = new RegExp(
+                    `(<text\\b[^>]*>)\\s*${ph.replace(/[{}]/g, '\\$&')}\\s*(</text>)`,
+                    'i'
+                );
+                const match = svgContent.match(pattern);
+                if (!match) return;
+                const textSpec = parseTextSpecFromTag(match[0]);
+                companions[ph] = {
+                    dx: textSpec.x - qrSpec.x,
+                    dy: textSpec.y - qrSpec.y,
+                    textAnchor: textSpec.textAnchor
+                };
+            });
+            return companions;
+        }
+
+        function applyQrCompanions(doc, qrX, qrY, companions) {
+            if (!companions) return;
+            Object.entries(companions).forEach(([ph, rel]) => {
+                doc.querySelectorAll('text').forEach(node => {
+                    if ((node.textContent || '').trim() !== ph) return;
+                    node.setAttribute('x', qrX + rel.dx);
+                    node.setAttribute('y', qrY + rel.dy);
+                    if (rel.textAnchor) node.setAttribute('text-anchor', rel.textAnchor);
+                    node.setAttribute('data-qr-companion', ph);
+                });
+            });
+        }
+
+        function extractLayoutFromSvg(svgContent) {
+            const layout = { margins: { ...RECOMMENDED_MARGINS } };
+            const m = layout.margins;
+            ['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}'].forEach(key => {
+                const pattern = new RegExp(
+                    `<image\\b[^>]*\\bhref\\s*=\\s*["']${key.replace(/[{}]/g, '\\$&')}["'][^>]*/?>`,
+                    'i'
+                );
+                const match = svgContent.match(pattern);
+                if (match) {
+                    layout[key] = parseImageSpecFromTag(match[0], key);
+                    if (key === '{{QR_CODE}}') {
+                        layout[key].companions = extractQrCompanions(svgContent, layout[key]);
+                    }
+                }
+            });
+
+            const subMatches = [];
+            SUBEVENT_LAYOUT_KEYS.forEach(key => {
+                const pattern = new RegExp(
+                    `(<text\\b[^>]*>)\\s*${key.replace(/[{}]/g, '\\$&')}\\s*(</text>)`,
+                    'i'
+                );
+                const match = svgContent.match(pattern);
+                if (match) subMatches.push(match[0]);
+            });
+            if (subMatches.length) {
+                const first = subMatches[0];
+                const xM = first.match(/\bx\s*=\s*"([\d.]+)"/i);
+                const yM = first.match(/\by\s*=\s*"([\d.]+)"/i);
+                const anchorM = first.match(/text-anchor\s*=\s*"([^"]+)"/i);
+                const ys = subMatches.map(tag => {
+                    const ym = tag.match(/\by\s*=\s*"([\d.]+)"/i);
+                    return ym ? parseFloat(ym[1]) : null;
+                }).filter(v => v !== null);
+                let lineHeight = SUBEVENT_LINE_HEIGHT;
+                if (ys.length >= 2) lineHeight = ys[1] - ys[0];
+                layout.subevents = {
+                    preset: 'custom',
+                    x: xM ? parseFloat(xM[1]) : m.left,
+                    baseY: yM ? parseFloat(yM[1]) : badgeViewBox.height - m.bottom - subMatches.length * lineHeight + 4,
+                    lineHeight,
+                    textAnchor: anchorM ? anchorM[1] : 'start'
+                };
+            }
+            return layout;
+        }
+
+        function getLayoutMargins() {
+            return { ...RECOMMENDED_MARGINS, ...(elementLayout.margins || {}) };
+        }
+
+        function syncMarginInputs() {
+            const m = getLayoutMargins();
+            document.getElementById('marginTop').value = m.top;
+            document.getElementById('marginRight').value = m.right;
+            document.getElementById('marginBottom').value = m.bottom;
+            document.getElementById('marginLeft').value = m.left;
+        }
+
+        function readMarginsFromInputs() {
+            return {
+                top: Math.max(0, parseInt(document.getElementById('marginTop').value, 10) || 0),
+                right: Math.max(0, parseInt(document.getElementById('marginRight').value, 10) || 0),
+                bottom: Math.max(0, parseInt(document.getElementById('marginBottom').value, 10) || 0),
+                left: Math.max(0, parseInt(document.getElementById('marginLeft').value, 10) || 0)
+            };
+        }
+
+        function reanchorAllPresets() {
+            const margins = getLayoutMargins();
+            Object.entries(elementLayout).forEach(([key, spec]) => {
+                if (key === 'margins' || !spec || spec.preset === 'custom') return;
+                if (key === 'subevents') {
+                    const anchor = subeventAnchorForPreset(spec.preset, margins);
+                    if (anchor) {
+                        spec.x = anchor.x;
+                        spec.textAnchor = anchor.textAnchor;
+                    }
+                    const count = SUBEVENT_LAYOUT_KEYS.filter(k => getPreviewPlaceholders().includes(k)).length;
+                    spec.baseY = subeventBaseYForPreset(
+                        spec.preset, count, spec.lineHeight || SUBEVENT_LINE_HEIGHT, margins
+                    );
+                } else {
+                    const pos = layoutPresetPosition(
+                        spec.preset, spec.width || 60, spec.height || 60, margins
+                    );
+                    if (pos) {
+                        spec.x = pos.x;
+                        spec.y = pos.y;
+                    }
+                }
+            });
+        }
+
+        function onMarginsChanged() {
+            elementLayout.margins = readMarginsFromInputs();
+            reanchorAllPresets();
+            renderBadgePreview();
+        }
+
+        function resetMarginsToRecommended() {
+            const canvas = getCanvasForAvery();
+            elementLayout.margins = BadgeScale.recommendedMargins(canvas.width, canvas.height);
+            syncMarginInputs();
+            reanchorAllPresets();
+            renderBadgePreview();
+            showToast('Margins reset to recommended for this badge size', 'success');
+        }
+
+        function setupMarginControls() {
+            ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].forEach(id => {
+                document.getElementById(id).addEventListener('change', onMarginsChanged);
+                document.getElementById(id).addEventListener('input', onMarginsChanged);
+            });
+            document.getElementById('resetMarginsBtn').addEventListener('click', resetMarginsToRecommended);
+        }
+
+        function mergeElementLayout(defaults, saved) {
+            const merged = { ...defaults };
+            merged.margins = {
+                ...RECOMMENDED_MARGINS,
+                ...(defaults.margins || {}),
+                ...((saved && saved.margins) || {})
+            };
+            Object.entries(saved || {}).forEach(([key, spec]) => {
+                if (key === 'margins') return;
+                merged[key] = { ...(merged[key] || {}), ...spec };
+                if (key === '{{QR_CODE}}' && defaults[key]?.companions && !spec.companions) {
+                    merged[key].companions = defaults[key].companions;
+                }
+            });
+            // AFRP logo is a fixed system asset — always anchor to top-right margins.
+            if (merged['{{AFRP_LOGO}}']) {
+                merged['{{AFRP_LOGO}}'].preset = 'top-right';
+            }
+            return merged;
+        }
+
+        function layoutPresetPosition(preset, width, height, margins) {
+            const m = margins || getLayoutMargins();
+            const bw = badgeViewBox.width;
+            const bh = badgeViewBox.height;
+            switch (preset) {
+                case 'top-left': return { x: m.left, y: m.top };
+                case 'top-right': return { x: bw - width - m.right, y: m.top };
+                case 'bottom-left': return { x: m.left, y: bh - height - m.bottom };
+                case 'bottom-right': return { x: bw - width - m.right, y: bh - height - m.bottom };
+                case 'bottom-center': return { x: (bw - width) / 2, y: bh - height - m.bottom };
+                default: return null;
+            }
+        }
+
+        function subeventAnchorForPreset(preset, margins) {
+            const m = margins || getLayoutMargins();
+            const bw = badgeViewBox.width;
+            switch (preset) {
+                case 'top-left': return { x: m.left, textAnchor: 'start' };
+                case 'top-right': return { x: bw - m.right, textAnchor: 'end' };
+                case 'bottom-left': return { x: m.left, textAnchor: 'start' };
+                case 'bottom-right': return { x: bw - m.right, textAnchor: 'end' };
+                case 'bottom-center': return { x: bw / 2, textAnchor: 'middle' };
+                default: return null;
+            }
+        }
+
+        function subeventBaseYForPreset(preset, count, lineHeight, margins) {
+            const m = margins || getLayoutMargins();
+            const bh = badgeViewBox.height;
+            if (preset.startsWith('bottom')) {
+                return bh - m.bottom - Math.max(count, 1) * lineHeight + 4;
+            }
+            if (preset.startsWith('top')) {
+                return m.top + lineHeight;
+            }
+            return bh - m.bottom - Math.max(count, 1) * lineHeight + 4;
+        }
+
+        function applyLayoutToDocument(doc) {
+            const margins = getLayoutMargins();
+            Object.entries(elementLayout).forEach(([key, spec]) => {
+                if (key === 'margins' || !spec) return;
+                if (key === 'subevents') {
+                    const subNodes = [];
+                    doc.querySelectorAll('text').forEach(node => {
+                        const text = (node.textContent || '').trim();
+                        if (SUBEVENT_LAYOUT_KEYS.includes(text)) {
+                            subNodes.push({ key: text, node });
+                        }
+                    });
+                    subNodes.sort((a, b) => SUBEVENT_LAYOUT_KEYS.indexOf(a.key) - SUBEVENT_LAYOUT_KEYS.indexOf(b.key));
+                    if (!subNodes.length) return;
+
+                    const lineHeight = spec.lineHeight || SUBEVENT_LINE_HEIGHT;
+                    let x = spec.x;
+                    let baseY = spec.baseY;
+                    let textAnchor = spec.textAnchor || 'start';
+                    if (spec.preset && spec.preset !== 'custom') {
+                        const anchor = subeventAnchorForPreset(spec.preset, margins);
+                        if (anchor) {
+                            x = anchor.x;
+                            textAnchor = anchor.textAnchor;
+                        }
+                        baseY = subeventBaseYForPreset(spec.preset, subNodes.length, lineHeight, margins);
+                    }
+                    subNodes.forEach((item, index) => {
+                        item.node.setAttribute('x', x);
+                        item.node.setAttribute('y', baseY + index * lineHeight);
+                        item.node.setAttribute('text-anchor', textAnchor);
+                        item.node.setAttribute('data-layout-key', 'subevents');
+                    });
+                    elementLayout.subevents = {
+                        ...spec,
+                        x,
+                        baseY,
+                        lineHeight,
+                        textAnchor,
+                        preset: spec.preset || 'custom'
+                    };
+                    return;
+                }
+
+                if (!DRAGGABLE_LAYOUT_KEYS.has(key)) return;
+                doc.querySelectorAll('image').forEach(img => {
+                    const href = img.getAttribute('href') ||
+                        img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
+                    if (href !== key) return;
+                    const width = parseFloat(spec.width || img.getAttribute('width') || 60);
+                    const height = parseFloat(spec.height || img.getAttribute('height') || 60);
+                    let x = spec.x;
+                    let y = spec.y;
+                    if (spec.preset && spec.preset !== 'custom') {
+                        const pos = layoutPresetPosition(spec.preset, width, height, margins);
+                        if (pos) {
+                            x = pos.x;
+                            y = pos.y;
+                        }
+                    }
+                    img.setAttribute('x', x);
+                    img.setAttribute('y', y);
+                    img.setAttribute('width', width);
+                    img.setAttribute('height', height);
+                    img.setAttribute('data-layout-key', key);
+                    img.classList.add('layout-draggable');
+                    elementLayout[key] = {
+                        ...spec,
+                        x,
+                        y,
+                        width,
+                        height,
+                        preset: spec.preset || 'custom'
+                    };
+                    if (key === '{{QR_CODE}}' && spec.companions) {
+                        applyQrCompanions(doc, x, y, spec.companions);
+                    }
+                });
+            });
+        }
+
+        function getLayoutControlKeys() {
+            const keys = [];
+            ['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}'].forEach(key => {
+                if (getPreviewPlaceholders().includes(key)) keys.push(key);
+            });
+            if (SUBEVENT_LAYOUT_KEYS.some(k => getPreviewPlaceholders().includes(k))) {
+                keys.push('subevents');
+            }
+            return keys;
+        }
+
+        function renderElementLocationControls() {
+            const container = document.getElementById('elementLocationControls');
+            const keys = getLayoutControlKeys();
+            if (!keys.length) {
+                container.innerHTML = '<span style="color:#999;font-size:13px;">No layout elements in this template</span>';
+                return;
+            }
+            container.innerHTML = keys.map(key => {
+                const label = LAYOUT_ELEMENT_LABELS[key] || key;
+                const currentPreset = (elementLayout[key] && elementLayout[key].preset) || 'custom';
+                const isFixedAfrp = key === '{{AFRP_LOGO}}';
+                const options = LAYOUT_PRESET_OPTIONS.map(opt => `
+                    <option value="${opt.value}" ${opt.value === currentPreset ? 'selected' : ''}>${opt.label}</option>
+                `).join('');
+                return `
+                    <div class="element-location-row">
+                        <label>${label}${isFixedAfrp ? ' (fixed)' : ''}</label>
+                        <select class="layout-preset-select" data-layout-key="${key}"${isFixedAfrp ? ' disabled title="AFRP logo is anchored to top-right margins"' : ''}>${options}</select>
+                    </div>
+                `;
+            }).join('');
+
+            container.querySelectorAll('.layout-preset-select').forEach(select => {
+                select.addEventListener('change', (e) => {
+                    const key = e.target.dataset.layoutKey;
+                    const preset = e.target.value;
+                    if (!elementLayout[key]) elementLayout[key] = {};
+                    elementLayout[key].preset = preset;
+                    if (preset !== 'custom') {
+                        const margins = getLayoutMargins();
+                        if (key === 'subevents') {
+                            const anchor = subeventAnchorForPreset(preset, margins);
+                            if (anchor) {
+                                elementLayout[key].x = anchor.x;
+                                elementLayout[key].textAnchor = anchor.textAnchor;
+                            }
+                            const count = SUBEVENT_LAYOUT_KEYS.filter(k => getPreviewPlaceholders().includes(k)).length;
+                            elementLayout[key].baseY = subeventBaseYForPreset(
+                                preset,
+                                count,
+                                elementLayout[key].lineHeight || SUBEVENT_LINE_HEIGHT,
+                                margins
+                            );
+                        } else {
+                            const spec = elementLayout[key];
+                            const pos = layoutPresetPosition(preset, spec.width || 60, spec.height || 60, margins);
+                            if (pos) {
+                                elementLayout[key].x = pos.x;
+                                elementLayout[key].y = pos.y;
+                            }
+                        }
+                    }
+                    renderBadgePreview();
+                });
+            });
+        }
+
+        function setupPreviewDrag(svgRoot) {
+            if (!svgRoot) return;
+            svgRoot.querySelectorAll('image[data-layout-key]').forEach(img => {
+                const key = img.getAttribute('data-layout-key');
+                if (!DRAGGABLE_LAYOUT_KEYS.has(key) || key === '{{AFRP_LOGO}}') return;
+                img.classList.add('layout-draggable');
+                img.addEventListener('mousedown', (e) => startLayoutDrag(e, svgRoot, img, key));
+            });
+        }
+
+        function moveQrCompanions(svgRoot, qrX, qrY) {
+            const companions = elementLayout['{{QR_CODE}}']?.companions;
+            if (!companions) return;
+            svgRoot.querySelectorAll('[data-qr-companion]').forEach(node => {
+                const ph = node.getAttribute('data-qr-companion');
+                const rel = companions[ph];
+                if (!rel) return;
+                node.setAttribute('x', qrX + rel.dx);
+                node.setAttribute('y', qrY + rel.dy);
+            });
+        }
+
+        function startLayoutDrag(event, svgRoot, img, key) {
+            event.preventDefault();
+            const svgPoint = clientPointToSvg(svgRoot, event.clientX, event.clientY);
+            const startX = parseFloat(img.getAttribute('x') || 0);
+            const startY = parseFloat(img.getAttribute('y') || 0);
+            dragState = {
+                svgRoot,
+                img,
+                key,
+                offsetX: svgPoint.x - startX,
+                offsetY: svgPoint.y - startY
+            };
+            img.classList.add('layout-dragging');
+            document.addEventListener('mousemove', onLayoutDragMove);
+            document.addEventListener('mouseup', onLayoutDragEnd);
+        }
+
+        function clientPointToSvg(svgRoot, clientX, clientY) {
+            const pt = svgRoot.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            const matrix = svgRoot.getScreenCTM();
+            if (!matrix) return { x: 0, y: 0 };
+            const svgPt = pt.matrixTransform(matrix.inverse());
+            return { x: svgPt.x, y: svgPt.y };
+        }
+
+        function onLayoutDragMove(event) {
+            if (!dragState) return;
+            const pt = clientPointToSvg(dragState.svgRoot, event.clientX, event.clientY);
+            const x = Math.max(0, pt.x - dragState.offsetX);
+            const y = Math.max(0, pt.y - dragState.offsetY);
+            dragState.img.setAttribute('x', x);
+            dragState.img.setAttribute('y', y);
+            if (dragState.key === '{{QR_CODE}}') {
+                moveQrCompanions(dragState.svgRoot, x, y);
+            }
+        }
+
+        function onLayoutDragEnd() {
+            if (!dragState) return;
+            const { img, key } = dragState;
+            img.classList.remove('layout-dragging');
+            if (!elementLayout[key]) elementLayout[key] = {};
+            elementLayout[key].x = parseFloat(img.getAttribute('x') || 0);
+            elementLayout[key].y = parseFloat(img.getAttribute('y') || 0);
+            elementLayout[key].preset = 'custom';
+            dragState = null;
+            document.removeEventListener('mousemove', onLayoutDragMove);
+            document.removeEventListener('mouseup', onLayoutDragEnd);
+            renderElementLocationControls();
+        }
+
+        async function renderBadgePreview() {
+            const svgContainer = document.getElementById('badgePreviewSvg');
+            const bgImg = document.getElementById('badgePreviewBackground');
+            const stage = document.getElementById('badgePreviewStage');
+
+            updatePreviewOutline();
+
+            const bgUrl = getBackgroundImageUrl();
+            if (bgUrl) {
+                bgImg.src = bgUrl;
+                bgImg.style.display = 'block';
+                stage.style.background = '#ffffff';
+            } else {
+                bgImg.style.display = 'none';
+                bgImg.removeAttribute('src');
+                stage.style.background = '#ffffff';
+            }
+
+            let svgContent = await fetchSvgContent();
+            if (!svgContent) {
+                svgContainer.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:13px;">No template to preview</div>';
+                return;
+            }
+
+            badgeViewBox = parseBadgeViewBox(svgContent);
+            updatePreviewAspectRatio();
+            if (!Object.keys(elementLayout).length) {
+                elementLayout = extractLayoutFromSvg(svgContent);
+                reanchorAllPresets();
+            } else if (!elementLayout.margins) {
+                elementLayout.margins = { ...RECOMMENDED_MARGINS };
+            }
+            if (elementLayout['{{AFRP_LOGO}}']) {
+                elementLayout['{{AFRP_LOGO}}'].preset = 'top-right';
+            }
+            if (elementLayout['{{QR_CODE}}'] && !elementLayout['{{QR_CODE}}'].companions) {
+                elementLayout['{{QR_CODE}}'].companions = extractQrCompanions(
+                    svgContent,
+                    elementLayout['{{QR_CODE}}']
+                );
+            }
+            syncMarginInputs();
+
+            const parser = new DOMParser();
+            const layoutDoc = parser.parseFromString(svgContent, 'image/svg+xml');
+            applyLayoutToDocument(layoutDoc);
+            let processed = new XMLSerializer().serializeToString(layoutDoc.documentElement);
+
+            const values = getEffectivePreviewValues();
+
+            Object.entries(values).forEach(([ph, val]) => {
+                if (IMAGE_PLACEHOLDERS.has(ph)) return;
+                processed = processed.split(ph).join(escapeXml(val));
+            });
+
+            const doc = parser.parseFromString(processed, 'image/svg+xml');
+            doc.querySelectorAll('image').forEach(img => {
+                const layoutKey = img.getAttribute('data-layout-key');
+                const href = img.getAttribute('href') ||
+                    img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
+                const key = layoutKey || (IMAGE_PLACEHOLDERS.has(href) ? href : null);
+                if (!key || !IMAGE_PLACEHOLDERS.has(key)) return;
+                if (!isFieldVisible(key)) {
+                    img.remove();
+                    return;
+                }
+                img.setAttribute('href', values[key]);
+                img.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                if (DRAGGABLE_LAYOUT_KEYS.has(key)) {
+                    img.setAttribute('data-layout-key', key);
+                    img.classList.add('layout-draggable');
+                }
+            });
+
+            svgContainer.innerHTML = new XMLSerializer().serializeToString(doc.documentElement);
+            const svgRoot = svgContainer.querySelector('svg');
+            setupPreviewDrag(svgRoot);
+            renderElementLocationControls();
+        }
+
+        function refreshPreviewUi() {
+            syncFieldVisibilityFromMappings();
+            renderPreviewFieldToggles();
+            syncDisplayNameControls();
+            renderBadgePreview();
+        }
 
         async function loadBackgrounds() {
             try {
-                const response = await fetch('/api/badge-backgrounds?avery=5392');
+                const avery = getSelectedAveryCode();
+                const response = await fetch(`/api/badge-backgrounds?avery=${encodeURIComponent(avery)}`);
                 if (!response.ok) throw new Error('Failed to load backgrounds');
                 const data = await response.json();
                 backgroundCatalog = data.backgrounds || [];
                 renderBackgroundGallery();
+                renderBadgePreview();
             } catch (error) {
                 console.error('Error loading backgrounds:', error);
                 document.getElementById('backgroundGallery').innerHTML =
@@ -758,12 +2224,13 @@
         function selectBackground(backgroundId) {
             selectedBackgroundId = backgroundId;
             renderBackgroundGallery();
+            renderBadgePreview();
         }
 
         async function handleBackgroundUpload(file) {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('avery', '5392');
+            formData.append('avery', getSelectedAveryCode());
             try {
                 const response = await fetch('/api/badge-backgrounds/upload', {
                     method: 'POST',
@@ -777,6 +2244,7 @@
                 backgroundCatalog.push(entry);
                 selectedBackgroundId = entry.id;
                 renderBackgroundGallery();
+                renderBadgePreview();
                 showToast('Background uploaded', 'success');
             } catch (error) {
                 showToast('Background upload failed: ' + error.message, 'error');
@@ -802,32 +2270,7 @@
                 if (e.dataTransfer.files.length > 0) handleBackgroundUpload(e.dataTransfer.files[0]);
             });
 
-            // SVG Upload
-            const svgArea = document.getElementById('svgUploadArea');
-            const svgInput = document.getElementById('svgFileInput');
-
-            svgArea.addEventListener('click', () => svgInput.click());
-            svgInput.addEventListener('change', handleSvgUpload);
-
-            svgArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                svgArea.classList.add('dragover');
-            });
-
-            svgArea.addEventListener('dragleave', () => {
-                svgArea.classList.remove('dragover');
-            });
-
-            svgArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                svgArea.classList.remove('dragover');
-                if (e.dataTransfer.files.length) {
-                    svgInput.files = e.dataTransfer.files;
-                    handleSvgUpload();
-                }
-            });
-
-            // Logo Upload (similar setup)
+            // Logo Upload
             const logoArea = document.getElementById('logoUploadArea');
             const logoInput = document.getElementById('logoFileInput');
 
@@ -862,57 +2305,16 @@
             document.getElementById('addSubEventBtn').addEventListener('click', addSubEventMapping);
         }
 
-        async function handleSvgUpload() {
-            const fileInput = document.getElementById('svgFileInput');
-            if (!fileInput.files || !fileInput.files[0]) return;
-
-            const file = fileInput.files[0];
-            if (!file.name.endsWith('.svg')) {
-                showToast('Please upload an SVG file', 'error');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const response = await fetch('/api/badge-templates/upload-svg', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Upload failed');
-                }
-
-                const data = await response.json();
-                currentSvgFilename = data.filename;
-                extractedPlaceholders = data.placeholders;
-
-                // Show current file
-                document.getElementById('currentSvgFile').innerHTML = `
-                    <div class="current-file">
-                        <i class="fas fa-file-code"></i>
-                        <span class="current-file-name">${data.filename}</span>
-                        <i class="fas fa-times remove-file" onclick="removeSvgFile()"></i>
-                    </div>
-                `;
-
-                // Render mapping interface
-                renderMappingInterface();
-
-                showToast('SVG template uploaded successfully', 'success');
-            } catch (error) {
-                showToast('Error uploading SVG: ' + error.message, 'error');
-            }
-        }
-
         async function handleLogoUpload() {
             const fileInput = document.getElementById('logoFileInput');
             if (!fileInput.files || !fileInput.files[0]) return;
 
             const file = fileInput.files[0];
+            if (currentLogoPreviewUrl && currentLogoPreviewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentLogoPreviewUrl);
+            }
+            currentLogoPreviewUrl = URL.createObjectURL(file);
+
             const formData = new FormData();
             formData.append('file', file);
 
@@ -941,39 +2343,27 @@
                     </div>
                 `;
 
+                renderBadgePreview();
                 showToast('Logo uploaded successfully', 'success');
             } catch (error) {
                 showToast('Error uploading logo: ' + error.message, 'error');
             }
         }
 
-        function removeSvgFile() {
-            currentSvgFilename = null;
-            extractedPlaceholders = [];
-            manualSubEventPlaceholders = new Set();
-            document.getElementById('currentSvgFile').innerHTML = '';
-            document.getElementById('svgFileInput').value = '';
-            document.getElementById('mappingArea').innerHTML = `
-                <div class="empty-state">
-                    <i class="fas fa-upload"></i>
-                    <p>Upload an SVG template to see placeholders</p>
-                </div>
-            `;
-        }
-
         function removeLogoFile() {
             currentLogoFilename = null;
             currentLogoWidth = null;
             currentLogoHeight = null;
+            if (currentLogoPreviewUrl && currentLogoPreviewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(currentLogoPreviewUrl);
+            }
+            currentLogoPreviewUrl = null;
             document.getElementById('currentLogoFile').innerHTML = '';
             document.getElementById('logoFileInput').value = '';
+            renderBadgePreview();
         }
 
-        function renderMappingInterface(savedMappings = {}) {
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:renderMappingInterface:entry',message:'renderMappingInterface called',data:{savedMappingsCount:Object.keys(savedMappings).length,savedMappings:savedMappings,extractedPlaceholdersCount:extractedPlaceholders.length,sampleExcelColumnsCount:sampleExcelColumns.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
-            
+        function renderMappingInterface(savedMappings = {}, options = {}) {
             console.log('renderMappingInterface called with savedMappings:', savedMappings);
             console.log('extractedPlaceholders:', extractedPlaceholders);
             
@@ -981,9 +2371,10 @@
                 document.getElementById('mappingArea').innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-upload"></i>
-                        <p>Upload an SVG template to see placeholders</p>
+                        <p>Loading column mappings...</p>
                     </div>
                 `;
+                refreshPreviewUi();
                 return;
             }
 
@@ -1054,11 +2445,14 @@
             
             html += '</div>';
             
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:renderMappingInterface:before_dom_insert',message:'About to insert HTML into DOM',data:{htmlLength:html.length,htmlPreview:html.substring(0,500),regularPlaceholdersCount:extractedPlaceholders.filter(p => !p.includes('SUBEVENT')).length,subEventCount:subEventCounter},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
-            
             document.getElementById('mappingArea').innerHTML = html;
+            setupMappingSelectListeners();
+            if (options.skipVisibilitySync) {
+                renderPreviewFieldToggles();
+                renderBadgePreview();
+            } else {
+                refreshPreviewUi();
+            }
         }
 
         function renderSubEventMapping(placeholder, savedValue) {
@@ -1086,27 +2480,28 @@
             const placeholder = '{{SUBEVENT_' + subEventCounter + '}}';
             
             manualSubEventPlaceholders.add(placeholder);
+            fieldVisibility[placeholder] = true;
             
-            // Re-render the interface
             const currentMappings = getMappings();
-            renderMappingInterface(currentMappings);
+            renderMappingInterface(currentMappings, { skipVisibilitySync: true });
             
             showToast('Added ' + placeholder + ' mapping', 'success');
         }
 
         function removeSubEventMapping(placeholder) {
-            // Remove user-added and extracted sub-event placeholder tracking
             manualSubEventPlaceholders.delete(placeholder);
-            const index = extractedPlaceholders.indexOf(placeholder);
-            if (index > -1) {
-                extractedPlaceholders.splice(index, 1);
+            if (!svgSubEventPlaceholders.has(placeholder)) {
+                const index = extractedPlaceholders.indexOf(placeholder);
+                if (index > -1) {
+                    extractedPlaceholders.splice(index, 1);
+                }
             }
-            
-            // Re-render
+            fieldVisibility[placeholder] = false;
+
             const currentMappings = getMappings();
             delete currentMappings[placeholder];
             renderMappingInterface(currentMappings);
-            
+
             showToast('Removed ' + placeholder + ' mapping', 'success');
         }
 
@@ -1128,6 +2523,7 @@
         function clearMappings() {
             const selects = document.querySelectorAll('.mapping-select');
             selects.forEach(select => select.value = '');
+            refreshPreviewUi();
         }
 
         async function saveTemplate() {
@@ -1141,11 +2537,6 @@
                 return;
             }
 
-            if (!currentSvgFilename) {
-                showToast('Please upload an SVG template', 'error');
-                return;
-            }
-
             if (Object.keys(mappings).length === 0) {
                 showToast('Please map at least one placeholder', 'error');
                 return;
@@ -1154,14 +2545,21 @@
             try {
                 const payload = {
                     name: templateName,
-                    svg_filename: currentSvgFilename,
                     club_logo_filename: currentLogoFilename,
                     club_logo_width: currentLogoWidth,
                     club_logo_height: currentLogoHeight,
                     column_mappings: mappings,
                     avery_template: averyTemplate || '5392',
                     background_id: selectedBackgroundId || 'white',
-                    show_outlines: document.getElementById('showOutlines').checked
+                    show_outlines: document.getElementById('showOutlines').checked,
+                    element_layout: {
+                        ...elementLayout,
+                        _canvas: {
+                            width: badgeViewBox.width,
+                            height: badgeViewBox.height,
+                        },
+                    },
+                    display_name_config: displayNameConfig
                 };
 
                 let response;
@@ -1186,11 +2584,10 @@
                     throw new Error(error.error || 'Save failed');
                 }
 
+                const saved = await response.json();
                 showToast(currentTemplateId ? 'Template updated successfully' : 'Template saved successfully', 'success');
-                loadSavedTemplates();
-
-                // Clear form
-                resetForm();
+                await loadSavedTemplates();
+                await loadTemplate(saved.id);
             } catch (error) {
                 showToast('Error saving template: ' + error.message, 'error');
             }
@@ -1200,15 +2597,23 @@
             currentTemplateId = null;
             subEventCounter = 0;
             manualSubEventPlaceholders = new Set();
+            svgSubEventPlaceholders = new Set();
+            fieldVisibility = {};
+            currentSvgContent = null;
+            extractedPlaceholders = [];
+            elementLayout = {};
+            displayNameConfig = { ...DEFAULT_DISPLAY_NAME_CONFIG };
             document.getElementById('templateName').value = '';
+            document.getElementById('averyTemplate').value = '5392';
+            previousAveryCode = '5392';
             document.getElementById('showOutlines').checked = false;
             selectedBackgroundId = 'white';
             renderBackgroundGallery();
             document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Save Template';
-            document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
-            clearMappings();
-            removeSvgFile();
+            document.getElementById('duplicateBtn').style.display = 'none';
             removeLogoFile();
+            syncDisplayNameControls();
+            initBuiltinBadgeTemplate();
         }
 
         async function loadAveryTemplates() {
@@ -1217,13 +2622,18 @@
                 if (!response.ok) throw new Error('Failed to load templates');
 
                 const data = await response.json();
+                averyTemplateCatalog = data.templates || [];
                 const select = document.getElementById('averyTemplate');
-                
-                select.innerHTML = data.templates.map(t => `
-                    <option value="${t.code}" ${t.code === '5392' ? 'selected' : ''}>
-                        ${t.name} (${t.size}) - ${t.layout}
-                    </option>
-                `).join('');
+
+                select.innerHTML = averyTemplateCatalog.map(t => {
+                    const custom = t.is_avery_standard === false ? ' (Custom)' : '';
+                    return `<option value="${t.code}" ${t.code === '5392' ? 'selected' : ''}>
+                        ${t.name}${custom} — ${t.size}
+                    </option>`;
+                }).join('');
+                previousAveryCode = select.value || '5392';
+                updateMarginInputLimits();
+                updateBackgroundSizeLabels();
             } catch (error) {
                 console.error('Error loading Avery templates:', error);
             }
@@ -1255,16 +2665,12 @@
             }
         }
 
-        async function loadTemplate(templateId) {
+        async function loadTemplate(templateId, options = {}) {
             try {
                 const response = await fetch(`/api/badge-templates/${templateId}`);
                 if (!response.ok) throw new Error('Failed to load template');
 
                 const template = await response.json();
-                
-                // #region agent log
-                fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:entry',message:'Template loaded from API',data:{templateId:templateId,hasColumnMappings:!!template.column_mappings,columnMappingsType:typeof template.column_mappings,columnMappingsKeys:template.column_mappings ? Object.keys(template.column_mappings).length : 0,rawColumnMappings:template.column_mappings},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-                // #endregion
 
                 // Set current template ID for updating
                 currentTemplateId = template.id;
@@ -1272,71 +2678,38 @@
 
                 // Populate form
                 document.getElementById('templateName').value = template.name;
-                document.getElementById('averyTemplate').value = template.avery_template;
+                document.getElementById('averyTemplate').value = normalizeAveryCode(template.avery_template);
+                previousAveryCode = normalizeAveryCode(template.avery_template);
 
                 // Change button text to indicate update mode
                 document.getElementById('saveTemplateBtn').innerHTML = '<i class="fas fa-save"></i> Update Template';
 
-                // Load SVG file and extract placeholders
-                if (template.svg_filename) {
-                    currentSvgFilename = template.svg_filename;
-                    document.getElementById('currentSvgFile').innerHTML = `
-                        <div class="current-file">
-                            <i class="fas fa-file-code"></i>
-                            <span class="current-file-name">${template.svg_filename}</span>
-                            <i class="fas fa-times remove-file" onclick="removeSvgFile()"></i>
-                        </div>
-                    `;
+                const columnMappings = typeof template.column_mappings === 'string'
+                    ? JSON.parse(template.column_mappings)
+                    : (template.column_mappings || {});
 
-                    // Fetch the SVG file to extract placeholders
-                    try {
-                        const svgResponse = await fetch(`/badge_templates/${template.svg_filename}`);
-                        if (svgResponse.ok) {
-                            const svgContent = await svgResponse.text();
-                            // Extract placeholders using regex
-                            const placeholderPattern = /\{\{([A-Z_0-9]+)\}\}/g;
-                            const matches = svgContent.matchAll(placeholderPattern);
-                            extractedPlaceholders = [...new Set([...matches].map(m => '{{' + m[1] + '}}'))].sort();
-                            
-                            // #region agent log
-                            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:svg_extracted',message:'Placeholders extracted from SVG',data:{extractedCount:extractedPlaceholders.length,extractedPlaceholders:extractedPlaceholders,svgContentLength:svgContent.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-                            // #endregion
-                            
-                            // Parse saved column mappings
-                            console.log('Raw template.column_mappings:', template.column_mappings);
-                            console.log('Type:', typeof template.column_mappings);
-                            
-                            const columnMappings = typeof template.column_mappings === 'string' 
-                                ? JSON.parse(template.column_mappings) 
-                                : (template.column_mappings || {});
-                            
-                            console.log('Parsed columnMappings:', columnMappings);
-                            console.log('Number of mappings:', Object.keys(columnMappings).length);
-                            
-                            // Also add any placeholders from saved mappings that might not be in the SVG anymore
-                            const savedPlaceholders = Object.keys(columnMappings);
-                            savedPlaceholders.forEach(ph => {
-                                if (!extractedPlaceholders.includes(ph)) {
-                                    extractedPlaceholders.push(ph);
-                                }
-                            });
-                            extractedPlaceholders.sort();
-                            
-                            console.log('Extracted placeholders:', extractedPlaceholders);
-                            console.log('Saved mappings:', columnMappings);
-                            console.log('Sample columns available:', sampleExcelColumns.length);
-                            
-                            // #region agent log
-                            fetch('http://127.0.0.1:7243/ingest/7f3690cb-f55a-4b8b-92b3-0ea4fd6f8b1e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'badge_mapping.html:loadTemplate:before_render',message:'About to call renderMappingInterface',data:{extractedPlaceholdersCount:extractedPlaceholders.length,extractedPlaceholders:extractedPlaceholders,columnMappingsCount:Object.keys(columnMappings).length,columnMappings:columnMappings,sampleExcelColumnsCount:sampleExcelColumns.length,sampleExcelColumns:sampleExcelColumns},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C,D,E'})}).catch(()=>{});
-                            // #endregion
-                            
-                            // Render mapping interface with saved mappings
-                            renderMappingInterface(columnMappings);
+                displayNameConfig = normalizeDisplayNameConfig(template.display_name_config);
+
+                try {
+                    await applyCanvasForAvery(template.avery_template, template.element_layout || {});
+
+                    Object.keys(columnMappings).forEach(ph => {
+                        if (!extractedPlaceholders.includes(ph)) {
+                            extractedPlaceholders.push(ph);
                         }
-                    } catch (svgError) {
-                        console.error('Error loading SVG content:', svgError);
-                        showToast('Loaded template but could not extract placeholders', 'error');
-                    }
+                    });
+                    extractedPlaceholders.sort();
+
+                    Object.keys(columnMappings).forEach(ph => {
+                        if (isSubEventPlaceholder(ph) && columnMappings[ph]) {
+                            manualSubEventPlaceholders.add(ph);
+                        }
+                    });
+
+                    renderMappingInterface(columnMappings);
+                } catch (svgError) {
+                    console.error('Error loading built-in badge template:', svgError);
+                    showToast('Loaded template but could not load badge layout', 'error');
                 }
 
                 // Load club logo if exists
@@ -1344,6 +2717,7 @@
                     currentLogoFilename = template.club_logo_filename;
                     currentLogoWidth = template.club_logo_width;
                     currentLogoHeight = template.club_logo_height;
+                    currentLogoPreviewUrl = `/badge_logos/${template.club_logo_filename}`;
                     const dimensionText = (template.club_logo_width && template.club_logo_height) 
                         ? ` (${template.club_logo_width}x${template.club_logo_height})` 
                         : '';
@@ -1356,11 +2730,17 @@
                     `;
                 }
 
-                document.getElementById('duplicateBtn').style.display = 'inline-flex'; // Show duplicate button
+                document.getElementById('duplicateBtn').style.display = 'inline-flex';
                 document.getElementById('showOutlines').checked = template.show_outlines || false;
                 selectedBackgroundId = template.background_id || 'white';
-                renderBackgroundGallery();
-                showToast('Template loaded for editing', 'success');
+                updateMarginInputLimits();
+                updateBackgroundSizeLabels();
+                await loadBackgrounds();
+                refreshPreviewUi();
+                await loadSavedTemplates();
+                if (!options.silent) {
+                    showToast('Template loaded for editing', 'success');
+                }
             } catch (error) {
                 showToast('Error loading template: ' + error.message, 'error');
             }

@@ -27,6 +27,17 @@ import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from utils.badges.background_templates import resolve_background_path
+from utils.badges.element_layout import apply_element_layout
+from utils.badges.badge_sizes import (
+    AVERY_TEMPLATES,
+    prepare_svg_for_avery,
+    resolve_avery_code,
+    list_dropdown_templates,
+    ensure_square_qr_image_tags,
+    resolve_element_layout_for_canvas,
+    canvas_pixels,
+)
+from utils.badges.display_name import build_display_name, normalize_display_name_config
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +54,9 @@ DEFAULT_MIN_SHRINK_FONT_SIZE = 10.0
 
 CLUB_LOGO_PLACEHOLDER = "{{CLUB_LOGO}}"
 AFRP_LOGO_PLACEHOLDER = "{{AFRP_LOGO}}"
+QR_CODE_PLACEHOLDER = "{{QR_CODE}}"
 MAX_STAGED_LOGO_EDGE = 512
+IMAGE_TAG_RE = re.compile(r"<image\b[^>]*/?>", re.IGNORECASE | re.DOTALL)
 
 
 def probe_image_dimensions(image_path):
@@ -111,6 +124,34 @@ def _read_image_tag_attrs(image_tag):
     }
 
 
+def _is_qr_image_tag(tag: str) -> bool:
+    if QR_CODE_PLACEHOLDER in tag:
+        return True
+    href = re.search(
+        r'(?:href|xlink:href)\s*=\s*"([^"]+)"', tag, re.IGNORECASE
+    )
+    return bool(href and re.search(r"qr_.*\.png", href.group(1), re.IGNORECASE))
+
+
+def _uniform_badge_scale(svg_w, svg_h, badge_w, badge_h) -> float:
+    """Single scale factor mapping SVG user units to PDF points (uniform)."""
+    if not svg_w or not svg_h:
+        return 1.0
+    scale_x = badge_w / svg_w
+    scale_y = badge_h / svg_h
+    if abs(scale_x - scale_y) > 0.02:
+        logger.warning(
+            "SVG/badge aspect mismatch (%.2fx%.2f svg vs %.2fpt x %.2fpt badge); "
+            "using uniform scale %.4f",
+            svg_w,
+            svg_h,
+            badge_w,
+            badge_h,
+            min(scale_x, scale_y),
+        )
+    return min(scale_x, scale_y)
+
+
 def _logo_slot_rect(svg_content, placeholder, img_w, img_h):
     """Contain-fit logo box in SVG user units, or None if slot/image missing."""
     if not img_w or not img_h:
@@ -159,7 +200,7 @@ def _svg_canvas_size(svg_content):
 def _svg_rect_to_pdf_points(rect, svg_w, svg_h, badge_w, badge_h):
     """Map SVG top-left rect to ReportLab coords inside a badge cell."""
     x, y, w, h = rect
-    scale = min(badge_w / svg_w, badge_h / svg_h)
+    scale = _uniform_badge_scale(svg_w, svg_h, badge_w, badge_h)
     x_pt = x * scale
     w_pt = w * scale
     h_pt = h * scale
@@ -541,26 +582,29 @@ def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, defaul
     return _clean_optional_name_part(_row_value_str(row, column))
 
 
-def _build_display_name(row: dict, column_mappings: dict) -> str:
-    """Full name for {{DISPLAY_NAME}}: First [Middle] [(Maiden)] Last."""
-    first = _mapped_row_value(row, column_mappings, "{{FIRST_NAME}}", "First Name")
-    middle = _mapped_row_value(row, column_mappings, "{{MIDDLE_NAME}}", "Middle Name")
-    maiden = _mapped_row_value(row, column_mappings, "{{MAIDEN_NAME}}", "Maiden Name")
-    last = _mapped_row_value(row, column_mappings, "{{LAST_NAME}}", "Last Name")
-    parts = [first]
-    if middle:
-        parts.append(middle)
-    if maiden:
-        parts.append(f"({maiden})")
-    if last:
-        parts.append(last)
-    return " ".join(p for p in parts if p)
+def _build_display_name(row: dict, column_mappings: dict, display_name_config: dict | None = None) -> str:
+    """Full name for {{DISPLAY_NAME}} using template formatting rules."""
+    def value_getter(placeholder: str, default_column: str) -> str:
+        return _mapped_row_value(row, column_mappings, placeholder, default_column)
+
+    return build_display_name(
+        row,
+        column_mappings,
+        display_name_config,
+        value_getter=value_getter,
+    )
 
 
-def _apply_column_mappings(svg_content: str, row: dict, column_mappings: dict) -> str:
+def _apply_column_mappings(
+    svg_content: str,
+    row: dict,
+    column_mappings: dict,
+    display_name_config: dict | None = None,
+) -> str:
     if "{{DISPLAY_NAME}}" in svg_content:
         svg_content = svg_content.replace(
-            "{{DISPLAY_NAME}}", _build_display_name(row, column_mappings)
+            "{{DISPLAY_NAME}}",
+            _build_display_name(row, column_mappings, display_name_config),
         )
     for placeholder, column_name in column_mappings.items():
         if placeholder == "{{QR_CODE}}":
@@ -603,7 +647,7 @@ def _replace_qr_placeholder(
             replaced = True
     if not replaced:
         svg_content = svg_content.replace("{{QR_CODE}}", "")
-    return svg_content
+    return ensure_square_qr_image_tags(svg_content)
 
 
 def _strip_remaining_placeholders(svg_content: str) -> str:
@@ -625,13 +669,16 @@ def _render_dynamic_drawing(args: dict):
     temp_dir = args["temp_dir"]
     dynamic_path = args["dynamic_svg_path"]
     column_mappings = args["column_mappings"]
+    display_name_config = args.get("display_name_config")
     row = args["row"]
     badge_w = args["badge_width"]
     badge_h = args["badge_height"]
     try:
         with open(dynamic_path, "r", encoding="utf-8") as f:
             svg_content = f.read()
-        svg_content = _apply_column_mappings(svg_content, row, column_mappings)
+        svg_content = _apply_column_mappings(
+            svg_content, row, column_mappings, display_name_config
+        )
         svg_content = _replace_qr_placeholder(svg_content, row, temp_dir, row_index)
         svg_content = _strip_remaining_placeholders(svg_content)
         svg_content = _finalize_svg_content(svg_content)
@@ -643,12 +690,6 @@ def _render_dynamic_drawing(args: dict):
             os.remove(out_svg)
         if not drawing:
             return (row_index, None, "svg2rlg returned None")
-        scale_x = badge_w / drawing.width
-        scale_y = badge_h / drawing.height
-        scale = min(scale_x, scale_y)
-        drawing.width = badge_w
-        drawing.height = badge_h
-        drawing.scale(scale, scale)
         return (
             row_index,
             pickle.dumps(drawing, protocol=pickle.HIGHEST_PROTOCOL),
@@ -665,60 +706,14 @@ def _render_dynamic_drawing(args: dict):
 
 class BadgeGenerator:
     """Generate print-ready badges from Excel data using SVG templates."""
-    
-    # Avery template specifications (width, height, cols, rows, margins in inches)
-    AVERY_TEMPLATES = {
-        '5392': {
-            'name': 'Avery 5392 - Name Badge Insert Refills',
-            'width': 4.0,
-            'height': 3.0,
-            'cols': 2,
-            'rows': 3,
-            'margin_left': 0.25,
-            'margin_top': 1.0,
-            'gap_horizontal': 0.0,
-            'gap_vertical': 0.0,
-            'orientation': 'portrait'
-        },
-        '5395': {
-            'name': 'Avery 5395 - Name Badge Insert Refills',
-            'width': 2.625,
-            'height': 3.625,
-            'cols': 2,
-            'rows': 2,
-            'margin_left': 0.875,
-            'margin_top': 0.6875,
-            'gap_horizontal': 0.625,
-            'gap_vertical': 0.6875
-        },
-        '8395': {
-            'name': 'Avery 8395 - Name Badge Labels',
-            'width': 2.625,
-            'height': 3.625,
-            'cols': 2,
-            'rows': 2,
-            'margin_left': 0.875,
-            'margin_top': 0.6875,
-            'gap_horizontal': 0.625,
-            'gap_vertical': 0.6875
-        },
-        '74459': {
-            'name': 'Avery 74459 - Removable Name Badge Labels',
-            'width': 2.25,
-            'height': 3.5,
-            'cols': 3,
-            'rows': 2,
-            'margin_left': 0.875,
-            'margin_top': 0.5,
-            'gap_horizontal': 0.125,
-            'gap_vertical': 1.0
-        }
-    }
+
+    AVERY_TEMPLATES = AVERY_TEMPLATES
     
     def __init__(self, excel_file, svg_template_path, column_mappings, 
                  afrp_logo_path, club_logo_path=None, club_logo_width=None, 
                  club_logo_height=None, avery_template='5392', show_outlines=False,
-                 background_id='white', backgrounds_folder=None):
+                 background_id='white', backgrounds_folder=None, element_layout=None,
+                 display_name_config=None):
         """
         Initialize the badge generator.
         
@@ -732,10 +727,14 @@ class BadgeGenerator:
             show_outlines: Draw badge outlines for alignment testing
             background_id: Badge background template id (default white)
             backgrounds_folder: Root path for badge_background_templates/
+            element_layout: Optional dict of corner/sub-event position overrides
+            display_name_config: Optional dict of {{DISPLAY_NAME}} formatting rules
         """
         self.excel_file = excel_file
         self.svg_template_path = svg_template_path
         self.column_mappings = column_mappings
+        self.element_layout = element_layout or {}
+        self.display_name_config = normalize_display_name_config(display_name_config)
         # Resolve logo paths to absolute paths up-front so they survive any
         # later os.chdir() the caller might do (e.g. the /pull-process-generate
         # endpoint chdir's into a temp working dir while preprocessing).
@@ -745,12 +744,13 @@ class BadgeGenerator:
         self.club_logo_height = club_logo_height
         self.afrp_logo_width = None
         self.afrp_logo_height = None
-        self.avery_template = avery_template
+        self.avery_template = resolve_avery_code(avery_template)
         self.show_outlines = show_outlines
         self.background_id = background_id or 'white'
         self.backgrounds_folder = backgrounds_folder
         self._bg_is_white = True
         self._bg_image_path = None
+        self._bg_draw_path = None
         self._logo_draw_specs = []
         if self.backgrounds_folder:
             self._bg_is_white, self._bg_image_path = resolve_background_path(
@@ -793,11 +793,17 @@ class BadgeGenerator:
         logger.info(f"Loaded {len(self.df)} rows from Excel")
         
         # Validate template exists
-        if avery_template not in self.AVERY_TEMPLATES:
+        if self.avery_template not in self.AVERY_TEMPLATES:
             raise ValueError(f"Unknown Avery template: {avery_template}")
-        
-        self.template_spec = self.AVERY_TEMPLATES[avery_template]
+
+        self.template_spec = self.AVERY_TEMPLATES[self.avery_template]
         logger.info(f"Using template: {self.template_spec['name']}")
+
+    def _read_scaled_base_svg(self) -> str:
+        """Load built-in SVG scaled to the selected Avery canvas size."""
+        with open(self.svg_template_path, "r", encoding="utf-8") as f:
+            raw = f.read()
+        return prepare_svg_for_avery(raw, self.avery_template)
     
     def generate_qr_code(self, data):
         """
@@ -930,18 +936,49 @@ class BadgeGenerator:
                 CLUB_LOGO_PLACEHOLDER,
             )
 
+    def _prepare_background_image(self, temp_dir):
+        """Resize fallback 5392 backgrounds to the target Avery canvas."""
+        self._bg_draw_path = None
+        if self._bg_is_white or not self._bg_image_path:
+            return
+        target_w, target_h = canvas_pixels(self.avery_template)
+        try:
+            with Image.open(self._bg_image_path) as im:
+                if im.size == (target_w, target_h):
+                    self._bg_draw_path = self._bg_image_path
+                    return
+                resized = im.resize((target_w, target_h), Image.Resampling.LANCZOS)
+                out_path = os.path.join(temp_dir, "_badge_background.png")
+                resized.save(out_path, format="PNG")
+                self._bg_draw_path = out_path
+                logger.info(
+                    "Resized background %s -> %dx%d for Avery %s",
+                    self._bg_image_path,
+                    target_w,
+                    target_h,
+                    self.avery_template,
+                )
+        except Exception as e:
+            logger.warning(
+                "Could not resize background %s: %s; using original",
+                self._bg_image_path,
+                e,
+            )
+            self._bg_draw_path = self._bg_image_path
+
     def _draw_badge_background(self, canvas_obj, badge_width, badge_height):
         if self._bg_is_white or not self._bg_image_path:
             canvas_obj.setFillColorRGB(1, 1, 1)
             canvas_obj.rect(0, 0, badge_width, badge_height, fill=1, stroke=0)
         else:
+            bg_path = self._bg_draw_path or self._bg_image_path
             canvas_obj.drawImage(
-                self._bg_image_path,
+                bg_path,
                 0,
                 0,
                 badge_width,
                 badge_height,
-                preserveAspectRatio=True,
+                preserveAspectRatio=False,
                 anchor="sw",
                 mask="auto",
             )
@@ -958,13 +995,16 @@ class BadgeGenerator:
             )
 
     def _scale_drawing_to_badge(self, drawing, badge_width, badge_height):
-        """Scale a ReportLab Drawing to fit the Avery badge cell (mutates drawing)."""
-        scale_x = badge_width / drawing.width
-        scale_y = badge_height / drawing.height
-        scale = min(scale_x, scale_y)
-        drawing.width = badge_width
-        drawing.height = badge_height
+        """Scale a ReportLab Drawing uniformly to fit the Avery badge cell."""
+        scale = _uniform_badge_scale(
+            drawing.width, drawing.height, badge_width, badge_height
+        )
+        scaled_w = drawing.width * scale
+        scaled_h = drawing.height * scale
+        offset_x = (badge_width - scaled_w) / 2
+        offset_y = (badge_height - scaled_h) / 2
         drawing.scale(scale, scale)
+        return offset_x, offset_y
 
     def render_svg_badge(self, row_data, temp_dir):
         """
@@ -981,8 +1021,9 @@ class BadgeGenerator:
         logger.debug(f"Row data columns: {list(row_data.index)}")
 
         with open(self.svg_template_path, 'r', encoding='utf-8') as f:
-            svg_content = f.read()
+            svg_content = prepare_svg_for_avery(f.read(), self.avery_template)
 
+        svg_content = apply_element_layout(svg_content, self.element_layout)
         svg_content = self.fit_logo_placeholders(svg_content)
 
         logger.debug(f"SVG template length: {len(svg_content)} characters")
@@ -999,7 +1040,7 @@ class BadgeGenerator:
                 )
 
         svg_content = _apply_column_mappings(
-            svg_content, row, self.column_mappings
+            svg_content, row, self.column_mappings, self.display_name_config
         )
         svg_content = _replace_qr_placeholder(
             svg_content, row, temp_dir, row_data.name
@@ -1076,9 +1117,13 @@ class BadgeGenerator:
             # Copy AFRP/Club logos into the temp dir once so every per-badge
             # SVG can reference them by relative filename.
             self._stage_static_assets(temp_dir)
+            self._prepare_background_image(temp_dir)
 
-            with open(self.svg_template_path, "r", encoding="utf-8") as tf:
-                svg_base = tf.read()
+            svg_base = self._read_scaled_base_svg()
+            layout = resolve_element_layout_for_canvas(
+                self.element_layout, canvas_pixels(self.avery_template)
+            )
+            svg_base = apply_element_layout(svg_base, layout)
             svg_fitted = self.fit_logo_placeholders(svg_base)
             svg_w, svg_h = _svg_canvas_size(svg_fitted)
 
@@ -1127,6 +1172,7 @@ class BadgeGenerator:
                             "temp_dir": temp_dir,
                             "dynamic_svg_path": dynamic_svg_path,
                             "column_mappings": self.column_mappings,
+                            "display_name_config": self.display_name_config,
                             "row": row.to_dict(),
                             "badge_width": badge_width,
                             "badge_height": badge_height,
@@ -1187,7 +1233,10 @@ class BadgeGenerator:
                         c.translate(x, y)
                         self._draw_badge_background(c, badge_width, badge_height)
                         self._draw_badge_logos(c, temp_dir)
-                        renderPDF.draw(drawing, c, 0, 0)
+                        ox, oy = self._scale_drawing_to_badge(
+                            drawing, badge_width, badge_height
+                        )
+                        renderPDF.draw(drawing, c, ox, oy)
                         c.restoreState()
                     else:
                         logger.warning(
@@ -1271,20 +1320,12 @@ class BadgeGenerator:
     @classmethod
     def get_available_templates(cls):
         """
-        Get list of available Avery templates.
-        
+        Get list of available Avery templates for the badge size dropdown.
+
         Returns:
             List of dicts with template information
         """
-        return [
-            {
-                'code': code,
-                'name': spec['name'],
-                'size': f"{spec['width']}\" x {spec['height']}\"",
-                'layout': f"{spec['cols']} x {spec['rows']}"
-            }
-            for code, spec in cls.AVERY_TEMPLATES.items()
-        ]
+        return list_dropdown_templates()
     
     @staticmethod
     def extract_placeholders_from_svg(svg_path):

@@ -22,7 +22,17 @@ import shutil
 import tempfile
 import traceback
 from utils.url_generator import extract_event_id, generate_event_registration_url, generate_event_summary_url
-from utils.auth import validate_password, validate_username, validate_email
+from utils.auth import (
+    validate_password,
+    validate_username,
+    validate_email,
+    FEATURES,
+    user_can_access_path,
+    permissions_from_form,
+    path_is_public,
+    path_requires_admin,
+    feature_for_path,
+)
 from utils.magazine.download_latest_magazine import main as magazine_main
 from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate, User, PreprocessingTemplate
 from utils.badges.pre_processing_module import PreprocessingBase
@@ -115,7 +125,7 @@ def _get_badge_job(job_id: str) -> dict:
 def _resolve_badge_club_logo(template, svg_path=None):
     """Resolve club logo path and validate template logo requirements."""
     if svg_path is None:
-        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+        svg_path = resolve_badge_svg_path(template)
     club_logo_path = None
     if template.club_logo_filename:
         candidate = os.path.join(app.config['BADGE_LOGOS_FOLDER'], template.club_logo_filename)
@@ -123,6 +133,20 @@ def _resolve_badge_club_logo(template, svg_path=None):
             club_logo_path = candidate
     error = validate_template_club_logo(svg_path, club_logo_path)
     return club_logo_path, error
+
+
+def _template_element_layout(template):
+    raw = getattr(template, 'element_layout', None) or '{}'
+    if isinstance(raw, str):
+        return json.loads(raw) if raw else {}
+    return raw or {}
+
+
+def _template_display_name_config(template):
+    raw = getattr(template, 'display_name_config', None) or '{}'
+    if isinstance(raw, str):
+        return json.loads(raw) if raw else {}
+    return raw or {}
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -281,6 +305,7 @@ atexit.register(cleanup_upload_folder, app.config['UPLOAD_FOLDER'])
 app.config['BADGE_TEMPLATES_FOLDER'] = os.path.join(BASE_PATH, 'badge_templates')
 app.config['BADGE_LOGOS_FOLDER'] = os.path.join(BASE_PATH, 'badge_logos')
 app.config['BADGE_BACKGROUNDS_FOLDER'] = os.path.join(BASE_PATH, 'badge_background_templates')
+app.config['HOUSEHOLD_CACHE_PATH'] = os.path.join(BASE_PATH, 'data', 'household_cache.json')
 # AFRP logo path from environment variable (defaults to PNG in static folder)
 afrp_logo_relative = os.environ.get('AFRP_LOGO_PATH', 'static/afrp_logo.png')
 # Always store an absolute path so logo lookups survive os.chdir() and so that
@@ -295,8 +320,49 @@ os.makedirs(app.config['BADGE_TEMPLATES_FOLDER'], mode=0o777, exist_ok=True)
 os.makedirs(app.config['BADGE_LOGOS_FOLDER'], mode=0o777, exist_ok=True)
 os.makedirs(app.config['BADGE_BACKGROUNDS_FOLDER'], mode=0o777, exist_ok=True)
 
+DEFAULT_BADGE_SVG_FILENAME = "minimal_badge_landscape.svg"
+DEFAULT_BADGE_SVG_PATH = os.path.join(BASE_PATH, "static", "svg", DEFAULT_BADGE_SVG_FILENAME)
+
+
+def resolve_badge_svg_path(template=None) -> str:
+    """Return path to the built-in Avery 5392 landscape badge SVG."""
+    return DEFAULT_BADGE_SVG_PATH
+
 # Log registered preprocessors at startup
 logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
+
+
+@app.before_request
+def enforce_feature_permissions():
+    """Gate routes by per-user feature permissions (admins bypass)."""
+    path = request.path
+    if path_is_public(path):
+        return None
+    if not current_user.is_authenticated:
+        return None
+    if current_user.is_admin:
+        return None
+    if path_requires_admin(path):
+        if path.startswith("/api"):
+            return jsonify({"error": "Admin access required"}), 403
+        flash("Access denied — Admin only", "error")
+        return redirect(url_for("home"))
+    if path == "/":
+        return None
+    feature_id = feature_for_path(path)
+    if feature_id is None:
+        if path.startswith("/api"):
+            return jsonify({"error": "Forbidden"}), 403
+        flash("Access denied", "error")
+        return redirect(url_for("home"))
+    if not current_user.has_feature(feature_id):
+        label = FEATURES[feature_id]["label"]
+        if path.startswith("/api"):
+            return jsonify({"error": f"Access denied: {label}"}), 403
+        flash(f"Access denied — you do not have access to {label}", "error")
+        return redirect(url_for("home"))
+    return None
+
 
 # ========================================
 # Authentication Routes
@@ -411,10 +477,13 @@ def login():
             
             logger.info(f"User logged in: {username}")
             
-            # Redirect to next page or home
+            # Redirect to next page or home (must be allowed for this user)
             next_page = request.args.get('next')
             if next_page and is_safe_url(next_page):
-                return redirect(next_page)
+                from urllib.parse import urlparse, urljoin
+                next_path = urlparse(urljoin(request.host_url, next_page)).path
+                if user_can_access_path(user, next_path):
+                    return redirect(next_page)
             return redirect(url_for('home'))
         else:
             flash('Invalid username or password', 'error')
@@ -445,7 +514,7 @@ def list_users():
         return redirect(url_for('home'))
     
     users = User.query.order_by(User.created_at.desc()).all()
-    return render_template('users.html', users=users)
+    return render_template('users.html', users=users, features=FEATURES)
 
 @app.route('/users/create', methods=['GET', 'POST'])
 @login_required
@@ -505,6 +574,10 @@ def create_user():
                 is_active=True
             )
             user.set_password(password)
+            if is_admin:
+                user.set_feature_permissions({fid: True for fid in FEATURES})
+            else:
+                user.set_feature_permissions(permissions_from_form(request.form))
             db.session.add(user)
             db.session.commit()
             
@@ -517,7 +590,39 @@ def create_user():
             logger.exception("Error creating user")
             flash(f'Error creating user: {str(e)}', 'error')
     
-    return render_template('create_user.html')
+    return render_template('create_user.html', features=FEATURES)
+
+@app.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_user(user_id):
+    """Edit user permissions (admin only)."""
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+
+    user = User.query.get(user_id)
+    if not user:
+        flash('User not found', 'error')
+        return redirect(url_for('list_users'))
+
+    if request.method == 'POST':
+        is_admin = request.form.get('is_admin') == 'on'
+        user.is_admin = is_admin
+        if is_admin:
+            user.set_feature_permissions({fid: True for fid in FEATURES})
+        else:
+            user.set_feature_permissions(permissions_from_form(request.form))
+        try:
+            db.session.commit()
+            logger.info(f"User updated: {user.username} by {current_user.username}")
+            flash(f'User {user.username} updated successfully', 'success')
+            return redirect(url_for('list_users'))
+        except Exception as e:
+            db.session.rollback()
+            logger.exception("Error updating user")
+            flash(f'Error updating user: {str(e)}', 'error')
+
+    return render_template('edit_user.html', user=user, features=FEATURES)
 
 @app.route('/users/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
@@ -579,7 +684,11 @@ def delete_user(user_id):
 @login_required
 def home():
     # This route displays the home page with tiles
-    return render_template('home.html')
+    return render_template(
+        'home.html',
+        allowed_features=current_user.allowed_features(),
+        features=FEATURES,
+    )
 
 @app.route('/qr', methods=['GET', 'POST'])
 @login_required
@@ -914,6 +1023,13 @@ def serve_badge_template(filename):
     return send_from_directory(app.config['BADGE_TEMPLATES_FOLDER'], filename)
 
 
+@app.route('/badge_logos/<path:filename>')
+@login_required
+def serve_badge_logo(filename):
+    """Serve uploaded club logo files for badge preview."""
+    return send_from_directory(app.config['BADGE_LOGOS_FOLDER'], filename)
+
+
 @app.route('/badge_background_templates/<path:filename>')
 @login_required
 def serve_badge_background(filename):
@@ -933,17 +1049,15 @@ def get_badge_backgrounds():
 @app.route('/api/badge-backgrounds/upload', methods=['POST'])
 @login_required
 def upload_badge_background():
-    """Upload a custom badge background (4:3, min 384×288)."""
+    """Upload a custom badge background sized for the selected Avery canvas."""
     avery = request.form.get('avery', '5392')
-    if avery != '5392':
-        return jsonify({'error': 'Only Avery 5392 backgrounds are supported currently'}), 400
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     file_storage = request.files['file']
     if not file_storage.filename:
         return jsonify({'error': 'No file selected'}), 400
 
-    img, error = validate_background_image(file_storage)
+    img, error = validate_background_image(file_storage, avery)
     if error:
         return jsonify({'error': error}), 400
 
@@ -1007,6 +1121,7 @@ def badges_pull_and_process():
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
         created_on_filter = data.get('createdOnFilter')
+        group_by_household = bool(data.get('groupByHousehold', False))
         preprocessing_template_id = data.get('preprocessingTemplateId')
         
         if not campaign_id and not campaign_name:
@@ -1162,7 +1277,9 @@ def badges_pull_and_process():
                     main_event=event_name,
                     sub_event=sub_event if sub_event else None,
                     inclusion_list=inclusion_list if inclusion_list else None,
-                    created_on_filter=created_on_filter if created_on_filter else None
+                    created_on_filter=created_on_filter if created_on_filter else None,
+                    group_by_household=group_by_household,
+                    household_cache_path=app.config['HOUSEHOLD_CACHE_PATH'],
                 )
                 logger.debug(f"Created preprocessing config: {config_obj.__dict__}")
                 
@@ -1227,8 +1344,6 @@ def create_badge_template():
         # Validate required fields
         if not data.get('name'):
             return jsonify({'error': 'Template name is required'}), 400
-        if not data.get('svg_filename'):
-            return jsonify({'error': 'SVG filename is required'}), 400
         if not data.get('column_mappings'):
             return jsonify({'error': 'Column mappings are required'}), 400
         
@@ -1240,14 +1355,16 @@ def create_badge_template():
         # Create new template
         template = BadgeTemplate(
             name=data['name'],
-            svg_filename=data['svg_filename'],
+            svg_filename=DEFAULT_BADGE_SVG_FILENAME,
             club_logo_filename=data.get('club_logo_filename'),
             club_logo_width=data.get('club_logo_width'),
             club_logo_height=data.get('club_logo_height'),
             column_mappings=json.dumps(data['column_mappings']),
             avery_template=data.get('avery_template', '5392'),
             background_id=data.get('background_id', 'white'),
-            show_outlines=bool(data.get('show_outlines', False))
+            show_outlines=bool(data.get('show_outlines', False)),
+            element_layout=json.dumps(data.get('element_layout') or {}),
+            display_name_config=json.dumps(data.get('display_name_config') or {})
         )
         
         db.session.add(template)
@@ -1296,8 +1413,6 @@ def update_badge_template(template_id):
                 return jsonify({'error': 'Template with this name already exists'}), 400
             template.name = data['name']
         
-        if 'svg_filename' in data:
-            template.svg_filename = data['svg_filename']
         if 'club_logo_filename' in data:
             template.club_logo_filename = data['club_logo_filename']
         if 'club_logo_width' in data:
@@ -1312,6 +1427,10 @@ def update_badge_template(template_id):
             template.background_id = data['background_id'] or 'white'
         if 'show_outlines' in data:
             template.show_outlines = bool(data['show_outlines'])
+        if 'element_layout' in data:
+            template.element_layout = json.dumps(data['element_layout'] or {})
+        if 'display_name_config' in data:
+            template.display_name_config = json.dumps(data['display_name_config'] or {})
         
         template.updated_at = datetime.utcnow()
         db.session.commit()
@@ -1366,14 +1485,16 @@ def duplicate_badge_template(template_id):
         # Create duplicate
         new_template = BadgeTemplate(
             name=new_name,
-            svg_filename=template.svg_filename,
+            svg_filename=DEFAULT_BADGE_SVG_FILENAME,
             club_logo_filename=template.club_logo_filename,
             club_logo_width=template.club_logo_width,
             club_logo_height=template.club_logo_height,
             column_mappings=template.column_mappings,
             avery_template=template.avery_template,
             background_id=template.background_id or 'white',
-            show_outlines=template.show_outlines
+            show_outlines=template.show_outlines,
+            element_layout=template.element_layout or '{}',
+            display_name_config=template.display_name_config or '{}'
         )
         
         db.session.add(new_template)
@@ -1389,39 +1510,6 @@ def duplicate_badge_template(template_id):
     except Exception as e:
         logger.exception(f"Error duplicating badge template {template_id}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/badge-templates/upload-svg', methods=['POST'])
-@login_required
-def upload_svg_template():
-    """Upload SVG template file."""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        if not file.filename.endswith('.svg'):
-            return jsonify({'error': 'File must be an SVG'}), 400
-        
-        # Save file with secure filename
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], filename)
-        file.save(filepath)
-        
-        # Extract placeholders from SVG
-        placeholders = BadgeGenerator.extract_placeholders_from_svg(filepath)
-        
-        logger.info(f"Uploaded SVG template: {filename}")
-        return jsonify({
-            'filename': filename,
-            'placeholders': placeholders
-        })
-        
-    except Exception as e:
-        logger.exception("Error uploading SVG template")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/badge-logos/upload', methods=['POST'])
@@ -1692,10 +1780,10 @@ def generate_badges():
         if not template:
             return jsonify({'error': 'Template not found'}), 404
         
-        # Get SVG template path
-        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+        # Get SVG template path (built-in Avery 5392 landscape)
+        svg_path = resolve_badge_svg_path(template)
         if not os.path.exists(svg_path):
-            return jsonify({'error': 'SVG template file not found'}), 404
+            return jsonify({'error': 'Built-in badge SVG template not found'}), 500
         
         club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
         if club_logo_error:
@@ -1722,6 +1810,8 @@ def generate_badges():
             show_outlines=template.show_outlines,
             background_id=template.background_id or 'white',
             backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
+            element_layout=_template_element_layout(template),
+            display_name_config=_template_display_name_config(template),
         )
         
         # Generate PDF
@@ -1762,9 +1852,9 @@ def generate_badges_async():
     if not template:
         return jsonify({'error': 'Template not found'}), 404
 
-    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+    svg_path = resolve_badge_svg_path(template)
     if not os.path.exists(svg_path):
-        return jsonify({'error': 'SVG template file not found'}), 404
+        return jsonify({'error': 'Built-in badge SVG template not found'}), 500
     club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
     if club_logo_error:
         return jsonify({'error': club_logo_error}), 400
@@ -1775,9 +1865,9 @@ def generate_badges_async():
     def run_job():
         try:
             with app.app_context():
-                svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+                svg_path = resolve_badge_svg_path(template)
                 if not os.path.exists(svg_path):
-                    raise FileNotFoundError("SVG template file not found")
+                    raise FileNotFoundError("Built-in badge SVG template not found")
 
                 column_mappings = json.loads(template.column_mappings)
 
@@ -1793,6 +1883,8 @@ def generate_badges_async():
                     show_outlines=template.show_outlines,
                     background_id=template.background_id or 'white',
                     backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
+                    element_layout=_template_element_layout(template),
+                    display_name_config=_template_display_name_config(template),
                 )
 
                 total = len(generator.df) if hasattr(generator, "df") else 0
@@ -1834,9 +1926,9 @@ def badges_pull_process_generate_async():
     if not badge_template:
         return jsonify({'error': 'Badge template not found'}), 404
 
-    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], badge_template.svg_filename)
+    svg_path = resolve_badge_svg_path(badge_template)
     if not os.path.exists(svg_path):
-        return jsonify({'error': 'SVG template file not found'}), 404
+        return jsonify({'error': 'Built-in badge SVG template not found'}), 500
 
     club_logo_path, club_logo_error = _resolve_badge_club_logo(badge_template, svg_path)
     if club_logo_error:
@@ -1859,6 +1951,7 @@ def badges_pull_process_generate_async():
                 sub_event = data.get('subEvent')
                 inclusion_list = data.get('inclusionList')
                 created_on_filter = data.get('createdOnFilter')
+                group_by_household = bool(data.get('groupByHousehold', False))
                 preprocessing_template_id = data.get('preprocessingTemplateId')
 
                 if not campaign_id and not campaign_name_local:
@@ -1910,7 +2003,9 @@ def badges_pull_process_generate_async():
                     main_event=event_name,
                     sub_event=sub_event,
                     inclusion_list=inclusion_list,
-                    created_on_filter=created_on_filter
+                    created_on_filter=created_on_filter,
+                    group_by_household=group_by_household,
+                    household_cache_path=app.config['HOUSEHOLD_CACHE_PATH'],
                 )
 
                 with tempfile.TemporaryDirectory() as temp_dir:
@@ -1932,7 +2027,7 @@ def badges_pull_process_generate_async():
                         processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
                         result_df.to_excel(processed_excel, index=False)
 
-                        svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], badge_template.svg_filename)
+                        svg_path = resolve_badge_svg_path(badge_template)
 
                         column_mappings = json.loads(badge_template.column_mappings)
 
@@ -1948,6 +2043,8 @@ def badges_pull_process_generate_async():
                             show_outlines=badge_template.show_outlines,
                             background_id=badge_template.background_id or 'white',
                             backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
+                            element_layout=_template_element_layout(badge_template),
+                            display_name_config=_template_display_name_config(badge_template),
                         )
 
                         total = len(generator.df) if hasattr(generator, "df") else 0
@@ -2043,6 +2140,7 @@ def badges_pull_process_generate():
         sub_event = data.get('subEvent')
         inclusion_list = data.get('inclusionList')
         created_on_filter = data.get('createdOnFilter')
+        group_by_household = bool(data.get('groupByHousehold', False))
         preprocessing_template_id = data.get('preprocessingTemplateId')
         
         if not campaign_id and not campaign_name:
@@ -2109,7 +2207,9 @@ def badges_pull_process_generate():
             main_event=event_name,
             sub_event=sub_event,
             inclusion_list=inclusion_list,
-            created_on_filter=created_on_filter
+            created_on_filter=created_on_filter,
+            group_by_household=group_by_household,
+            household_cache_path=app.config['HOUSEHOLD_CACHE_PATH'],
         )
         
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2139,7 +2239,7 @@ def badges_pull_process_generate():
                     if not template:
                         return jsonify({'error': 'Badge template not found'}), 404
                     
-                    svg_path = os.path.join(app.config['BADGE_TEMPLATES_FOLDER'], template.svg_filename)
+                    svg_path = resolve_badge_svg_path(template)
                     club_logo_path, club_logo_error = _resolve_badge_club_logo(template, svg_path)
                     if club_logo_error:
                         return jsonify({'error': club_logo_error}), 400
@@ -2161,6 +2261,8 @@ def badges_pull_process_generate():
                         show_outlines=template.show_outlines,
                         background_id=template.background_id or 'white',
                         backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
+                        element_layout=_template_element_layout(template),
+                        display_name_config=_template_display_name_config(template),
                     )
                     
                     output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')

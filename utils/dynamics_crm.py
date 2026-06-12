@@ -116,6 +116,45 @@ class DynamicsCRMClient:
         response.raise_for_status()
         return response.json()
 
+    def _paginate(self, endpoint: str, page_size: int = 500) -> List[Dict]:
+        """Follow @odata.nextLink until all records are retrieved."""
+        records: List[Dict] = []
+        api_base = f"{self.crm_url}/api/data/v9.2/"
+        next_endpoint: Optional[str] = endpoint
+        pages = 0
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            "Prefer": (
+                'odata.include-annotations="OData.Community.Display.V1.FormattedValue",'
+                f"odata.maxpagesize={page_size}"
+            ),
+        }
+        while next_endpoint:
+            if next_endpoint.startswith("http"):
+                response = requests.get(next_endpoint, headers=headers, timeout=120)
+            else:
+                response = requests.get(f"{api_base}{next_endpoint}", headers=headers, timeout=120)
+            response.raise_for_status()
+            data = response.json()
+            batch = data.get("value", [])
+            records.extend(batch)
+            pages += 1
+            next_link = data.get("@odata.nextLink")
+            if next_link:
+                next_endpoint = (
+                    next_link.replace(api_base, "")
+                    if next_link.startswith(api_base)
+                    else next_link
+                )
+            else:
+                next_endpoint = None
+        if pages > 1:
+            logger.info("Paginated CRM fetch: %d record(s) across %d page(s)", len(records), pages)
+        return records
+
     def get_event_guests(self, view_id: str) -> pd.DataFrame:
         """Fetch event guests data using a saved query/view."""
         # Expand to get related Contact entity data
@@ -147,9 +186,9 @@ class DynamicsCRMClient:
             endpoint = f"aha_eventguestqrcodeses?{filter_query}&{expand_query}"
         else:
             endpoint = f"aha_eventguestqrcodeses?{expand_query}"
-            
-        response = self._make_request(endpoint)
-        df = self._process_response(response, "aha_")
+
+        records = self._paginate(endpoint)
+        df = self._process_response({"value": records}, "aha_")
         
         # Flatten and map columns
         df = self._flatten_qr_code_columns(df)
@@ -242,6 +281,13 @@ class DynamicsCRMClient:
                             continue
                         # Check if there's a formatted value for this field
                         formatted_key = f"{key}{formatted_suffix}"
+                        if key == '_aha_householdid_value':
+                            processed_contact['_aha_householdid_guid'] = value
+                            if formatted_key in contact:
+                                processed_contact[key] = contact[formatted_key]
+                            else:
+                                processed_contact[key] = value
+                            continue
                         if formatted_key in contact:
                             processed_contact[key] = contact[formatted_key]
                         else:
@@ -316,6 +362,9 @@ class DynamicsCRMClient:
             'contact_aha_localclub2': 'Local Club (Existing Contact) (Contact)',  # Alternative mapping
             'contact_gendercode': 'Gender (Existing Contact) (Contact)',
             'contact_crca7_age': 'Age (Existing Contact) (Contact)',
+            'contact__aha_householdid_guid': 'Household ID (Existing Contact) (Contact)',
+            'contact__aha_householdid_value': 'Household (Existing Contact) (Contact)',
+            'contact_crca7_aretheheadofhousehold': 'Head of Household (Existing Contact) (Contact)',
             # Don't map _event_value - use expanded event name
             'event_name': 'Event',
             'statuscode': 'Status Reason',
@@ -788,8 +837,8 @@ class DynamicsCRMClient:
         expand_query = "$expand=crca7_ExistingContact,crca7_Event($select=name)"
         
         endpoint = f"crca7_eventguests?$filter={urllib.parse.quote(filter_clause)}&{expand_query}"
-        response = self._make_request(endpoint)
-        df = self._process_response(response, "crca7_")
+        records = self._paginate(endpoint)
+        df = self._process_response({"value": records}, "crca7_")
         
         df = self._flatten_expanded_columns(df)
         df = self._map_event_guest_columns(df)
@@ -806,8 +855,8 @@ class DynamicsCRMClient:
         expand_query = "$expand=aha_Contact($select=contactid),aha_Event($select=name),aha_Table($select=aha_name)"
         
         endpoint = f"aha_tablereservations?$filter={urllib.parse.quote(filter_clause)}&{expand_query}"
-        response = self._make_request(endpoint)
-        df = self._process_response(response, "aha_")
+        records = self._paginate(endpoint)
+        df = self._process_response({"value": records}, "aha_")
         
         df = self._flatten_seating_columns(df)
         df = self._map_seating_columns(df)
@@ -824,11 +873,35 @@ class DynamicsCRMClient:
         expand_query = "$expand=aha_Contact($select=contactid),aha_Campaign($select=name),aha_FormQuestion($select=aha_newcolumn)"
         
         endpoint = f"aha_eventformresponseses?$filter={urllib.parse.quote(filter_clause)}&{expand_query}"
-        response = self._make_request(endpoint)
-        df = self._process_response(response, "aha_")
+        records = self._paginate(endpoint)
+        df = self._process_response({"value": records}, "aha_")
         
         df = self._flatten_form_response_columns(df)
         df = self._map_form_response_columns(df)
         
         logger.info(f"Fetched {len(df)} form responses for campaign")
-        return df 
+        return df
+
+    def fetch_contact_households(self, contact_ids: List[str], chunk_size: int = 40) -> Dict[str, dict]:
+        """
+        Fetch household fields for a list of contact GUIDs (batched OData filter).
+        Used by the household file cache for cache-miss lookups only.
+        """
+        from utils.badges.household_cache import parse_contact_household_fields
+
+        import urllib.parse
+
+        results: Dict[str, dict] = {}
+        ids = [str(cid).strip() for cid in contact_ids if str(cid).strip()]
+        for i in range(0, len(ids), chunk_size):
+            chunk = ids[i : i + chunk_size]
+            filter_parts = [f"contactid eq {cid}" for cid in chunk]
+            filter_clause = " or ".join(filter_parts)
+            endpoint = f"contacts?$filter={urllib.parse.quote(filter_clause)}"
+            response = self._make_request(endpoint)
+            for contact in response.get("value", []):
+                contact_id = contact.get("contactid")
+                if not contact_id:
+                    continue
+                results[str(contact_id).strip()] = parse_contact_household_fields(contact)
+        return results

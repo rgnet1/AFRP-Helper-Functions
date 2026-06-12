@@ -40,6 +40,9 @@ class RegistrationColumns:
     EVENT = "Event"
     STATUS = "Status Reason"
     CREATED_ON = "Created On"
+    HOUSEHOLD_ID = "Household ID (Existing Contact) (Contact)"
+    HOUSEHOLD = "Household (Existing Contact) (Contact)"
+    HEAD_OF_HOUSEHOLD = "Head of Household (Existing Contact) (Contact)"
     
     # Map of standardized names to possible column names in file
     MAPPINGS = {
@@ -53,6 +56,9 @@ class RegistrationColumns:
         'Local Club': [LOCAL_CLUB],
         'Gender': [GENDER],
         'Age': [AGE],
+        'Household ID': [HOUSEHOLD_ID, 'Household ID'],
+        'Household': [HOUSEHOLD, 'Household'],
+        'Head of Household': [HEAD_OF_HOUSEHOLD, 'Head of Household'],
         'Event': [EVENT, 'Event '],  # Note the space variant
         'Status': [STATUS],
         'Created On': [CREATED_ON, 'Created On', 'CreatedOn', 'Date Created']
@@ -154,7 +160,7 @@ class EventRegistrationProcessorV3:
         # Standardize column names
         reg_df, missing_columns = self._standardize_columns(reg_df, RegistrationColumns.MAPPINGS)
         # Middle/Maiden Name are optional - older data files may not include them
-        optional_columns = {'Middle Name', 'Maiden Name'}
+        optional_columns = {'Middle Name', 'Maiden Name', 'Household ID', 'Household', 'Head of Household'}
         for col in [c for c in missing_columns if c in optional_columns]:
             logger.info(f"Optional column '{col}' not found in registration data, adding empty column")
             reg_df[col] = ''
@@ -176,8 +182,13 @@ class EventRegistrationProcessorV3:
             logger.info(f"  - {event}")
         
         # Create base DataFrame with unique contacts using only the key identifying columns
-        unique_columns = ['Contact ID', 'Member ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age']
-        transformed_df = paid_df[unique_columns].drop_duplicates(subset=['Contact ID']).reset_index(drop=True)
+        unique_columns = [
+            'Contact ID', 'Member ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name',
+            'Title', 'Local Club', 'Gender', 'Age',
+            'Household ID', 'Household', 'Head of Household',
+        ]
+        present_columns = [col for col in unique_columns if col in paid_df.columns]
+        transformed_df = paid_df[present_columns].drop_duplicates(subset=['Contact ID']).reset_index(drop=True)
         
         logger.info(f"\nFound {len(transformed_df)} unique contacts")
 
@@ -423,6 +434,57 @@ class EventRegistrationProcessorV3:
         logger.info(f"Added QR codes for {len(qr_code_dict)} contacts")
         return df
 
+    def _enrich_households_if_needed(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Load household fields from file cache (CRM fetch on cache miss only)."""
+        if not self.config or not getattr(self.config, 'group_by_household', False):
+            return df
+        cache_path = getattr(self.config, 'household_cache_path', None)
+        if not cache_path:
+            logger.warning("group_by_household enabled but household_cache_path not configured")
+            return df
+        from utils.badges.household_cache import enrich_dataframe
+        from utils.dynamics_crm import DynamicsCRMClient
+        try:
+            crm_client = DynamicsCRMClient()
+        except Exception as exc:
+            logger.warning("Could not initialize CRM client for household cache: %s", exc)
+            crm_client = None
+        return enrich_dataframe(df, crm_client, cache_path)
+
+    def _apply_attendee_sort(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Sort attendees for badge print order."""
+        if df.empty:
+            return df
+        group_by_household = (
+            self.config is not None
+            and getattr(self.config, 'group_by_household', False)
+        )
+        if not group_by_household:
+            return df.sort_values(by=['Last Name', 'First Name']).reset_index(drop=True)
+
+        for col in ('Household ID', 'Household', 'Head of Household'):
+            if col not in df.columns:
+                df[col] = ''
+
+        has_household_data = (
+            df['Household ID'].astype(str).str.strip().ne('').any()
+            or df['Household'].astype(str).str.strip().ne('').any()
+        )
+        if not has_household_data:
+            logger.warning(
+                "Group by household enabled but no household data available; using Last/First sort"
+            )
+            return df.sort_values(by=['Last Name', 'First Name']).reset_index(drop=True)
+
+        work = df.copy()
+        work['_hh_key'] = work['Household ID'].replace('', pd.NA).fillna(work['Contact ID'])
+        work['_hh_sort'] = work['Household'].replace('', pd.NA).fillna(work['Last Name'])
+        work['_head_sort'] = work['Head of Household'].map({'Yes': 0, 'No': 1}).fillna(1)
+        work = work.sort_values(
+            by=['_hh_sort', '_hh_key', '_head_sort', 'Last Name', 'First Name']
+        )
+        return work.drop(columns=['_hh_key', '_hh_sort', '_head_sort']).reset_index(drop=True)
+
     def transform_and_merge(self) -> pd.DataFrame:
         """Main function to transform and merge all data sources."""
         try:
@@ -447,11 +509,9 @@ class EventRegistrationProcessorV3:
             result_df = self.add_seating_info(result_df, seating_df)
             result_df = self.add_form_responses(result_df, forms_df)
             result_df = self.add_qr_codes(result_df, qr_df)
-            
-            # Sort by last name, first name and reset index
-            result_df = result_df.sort_values(
-                by=['Last Name', 'First Name']
-            ).reset_index(drop=True)
+
+            result_df = self._enrich_households_if_needed(result_df)
+            result_df = self._apply_attendee_sort(result_df)
             
             # Filter by sub-event BEFORE preprocessing (so we work with original column names)
             has_config = hasattr(self, 'config') and self.config is not None

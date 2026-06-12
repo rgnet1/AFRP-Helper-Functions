@@ -1,0 +1,244 @@
+/**
+ * Badge canvas scaling — mirrors utils/badges/badge_sizes.py for the mapping UI.
+ */
+(function (global) {
+    const BASE_CANVAS = { width: 384, height: 288 };
+    const BASE_RECOMMENDED_MARGIN = 20;
+
+    function round1(n) {
+        return Math.round(n * 10) / 10;
+    }
+
+    function scaleNum(value, factor) {
+        if (value === null || value === undefined || value === '') return value;
+        const n = Number(value);
+        if (Number.isNaN(n)) return value;
+        return round1(n * factor);
+    }
+
+    function recommendedMargins(canvasWidth, canvasHeight) {
+        return {
+            top: Math.round(BASE_RECOMMENDED_MARGIN * canvasHeight / BASE_CANVAS.height),
+            right: Math.round(BASE_RECOMMENDED_MARGIN * canvasWidth / BASE_CANVAS.width),
+            bottom: Math.round(BASE_RECOMMENDED_MARGIN * canvasHeight / BASE_CANVAS.height),
+            left: Math.round(BASE_RECOMMENDED_MARGIN * canvasWidth / BASE_CANVAS.width),
+        };
+    }
+
+    function marginInputMax(canvasWidth, canvasHeight) {
+        return Math.max(20, Math.round(Math.min(canvasWidth, canvasHeight) * 0.25));
+    }
+
+    function scaleElementLayout(layout, fromWh, toWh) {
+        if (!layout) return {};
+        const fromW = fromWh.width;
+        const fromH = fromWh.height;
+        const toW = toWh.width;
+        const toH = toWh.height;
+        if (fromW <= 0 || fromH <= 0) return JSON.parse(JSON.stringify(layout));
+        const sx = toW / fromW;
+        const sy = toH / fromH;
+        if (sx === 1 && sy === 1) return JSON.parse(JSON.stringify(layout));
+
+        const out = JSON.parse(JSON.stringify(layout));
+        if (out.margins) {
+            out.margins = {
+                top: scaleNum(out.margins.top ?? BASE_RECOMMENDED_MARGIN, sy),
+                right: scaleNum(out.margins.right ?? BASE_RECOMMENDED_MARGIN, sx),
+                bottom: scaleNum(out.margins.bottom ?? BASE_RECOMMENDED_MARGIN, sy),
+                left: scaleNum(out.margins.left ?? BASE_RECOMMENDED_MARGIN, sx),
+            };
+        }
+
+        Object.entries(out).forEach(([key, spec]) => {
+            if (key === 'margins' || !spec || typeof spec !== 'object') return;
+            if (key === 'subevents') {
+                if (spec.x !== undefined) spec.x = scaleNum(spec.x, sx);
+                if (spec.baseY !== undefined) spec.baseY = scaleNum(spec.baseY, sy);
+                if (spec.lineHeight !== undefined) spec.lineHeight = scaleNum(spec.lineHeight, sy);
+                return;
+            }
+            if (spec.x !== undefined) spec.x = scaleNum(spec.x, sx);
+            if (spec.y !== undefined) spec.y = scaleNum(spec.y, sy);
+            if (spec.width !== undefined) spec.width = scaleNum(spec.width, sx);
+            if (spec.height !== undefined) spec.height = scaleNum(spec.height, sy);
+            if (spec.companions) {
+                Object.values(spec.companions).forEach(rel => {
+                    if (rel.dx !== undefined) rel.dx = scaleNum(rel.dx, sx);
+                    if (rel.dy !== undefined) rel.dy = scaleNum(rel.dy, sy);
+                });
+            }
+        });
+        squareQrInLayout(out);
+        return out;
+    }
+
+    function setImageAttr(tag, attr, value) {
+        const re = new RegExp(`\\b${attr}\\s*=\\s*"[^"]*"`, 'i');
+        if (re.test(tag)) {
+            return tag.replace(re, `${attr}="${value}"`);
+        }
+        return tag.replace('<image', `<image ${attr}="${value}"`, 1);
+    }
+
+    function parseImageAttrs(tag) {
+        function attr(name, fallback) {
+            const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*"([\\d.]+)"`, 'i'));
+            return m ? parseFloat(m[1]) : fallback;
+        }
+        return {
+            x: attr('x', 0),
+            y: attr('y', 0),
+            width: attr('width', null),
+            height: attr('height', null),
+        };
+    }
+
+    function isQrImageTag(tag) {
+        if (tag.includes('{{QR_CODE}}')) return true;
+        const m = tag.match(/(?:href|xlink:href)\s*=\s*"([^"]+)"/i);
+        return Boolean(m && /qr_.*\.png/i.test(m[1]));
+    }
+
+    function squareImageTag(tag) {
+        const attrs = parseImageAttrs(tag);
+        const w = attrs.width;
+        const h = attrs.height;
+        if (!w || !h || Math.abs(w - h) < 0.05) return tag;
+        const size = Math.min(w, h);
+        const x = attrs.x + (w - size) / 2;
+        const y = attrs.y + (h - size) / 2;
+        let out = setImageAttr(tag, 'x', round1(x));
+        out = setImageAttr(out, 'y', round1(y));
+        out = setImageAttr(out, 'width', round1(size));
+        out = setImageAttr(out, 'height', round1(size));
+        return out;
+    }
+
+    function ensureSquareQrImageTags(svgContent) {
+        return svgContent.replace(/<image\b[^>]*\/?>/gi, tag =>
+            isQrImageTag(tag) ? squareImageTag(tag) : tag
+        );
+    }
+
+    function scaleAttr(tag, attr, sx, sy) {
+        const re = new RegExp(`\\b${attr}\\s*=\\s*"([\\d.]+)"`, 'i');
+        const m = tag.match(re);
+        if (!m) return tag;
+        const isX = ['x', 'width', 'data-max-width'].includes(attr);
+        const factor = isX ? sx : sy;
+        const scaled = round1(parseFloat(m[1]) * factor);
+        return tag.replace(re, `${attr}="${scaled}"`);
+    }
+
+    function scaleSvgContent(svgContent, fromWh, toWh) {
+        const fromW = fromWh.width;
+        const fromH = fromWh.height;
+        const toW = toWh.width;
+        const toH = toWh.height;
+        if (fromW <= 0 || fromH <= 0 || (fromW === toW && fromH === toH)) {
+            return svgContent;
+        }
+        const sx = toW / fromW;
+        const sy = toH / fromH;
+        let result = svgContent;
+
+        result = result.replace(/viewBox\s*=\s*"([^"]+)"/i, (match, vb) => {
+            const parts = vb.replace(/,/g, ' ').trim().split(/\s+/);
+            if (parts.length >= 4) {
+                parts[2] = String(round1(parseFloat(parts[2]) * sx));
+                parts[3] = String(round1(parseFloat(parts[3]) * sy));
+            }
+            return `viewBox="${parts.join(' ')}"`;
+        });
+
+        result = result.replace(/\bwidth\s*=\s*"([\d.]+)"/i, (m, v) =>
+            `width="${round1(parseFloat(v) * sx)}"`);
+        result = result.replace(/\bheight\s*=\s*"([\d.]+)"/i, (m, v) =>
+            `height="${round1(parseFloat(v) * sy)}"`);
+
+        const tagRe = /<(image|text)\b[^>]*\/?>/gi;
+        result = result.replace(tagRe, tag => {
+            let updated = tag;
+            const elem = tag.match(/^<(image|text)/i)[1].toLowerCase();
+            if (elem === 'image') {
+                ['x', 'y', 'width', 'height'].forEach(a => {
+                    updated = scaleAttr(updated, a, sx, sy);
+                });
+                if (isQrImageTag(updated)) {
+                    updated = squareImageTag(updated);
+                }
+            } else {
+                ['x', 'y', 'font-size', 'data-max-width', 'data-min-font-size'].forEach(a => {
+                    updated = scaleAttr(updated, a, sx, sy);
+                });
+            }
+            return updated;
+        });
+        return ensureSquareQrImageTags(result);
+    }
+
+    function squareQrInLayout(layout) {
+        if (!layout) return layout;
+        const qr = layout['{{QR_CODE}}'];
+        if (!qr || qr.width == null || qr.height == null) return layout;
+        const w = Number(qr.width);
+        const h = Number(qr.height);
+        if (Math.abs(w - h) < 0.05) return layout;
+        const size = Math.min(w, h);
+        qr.x = round1(Number(qr.x || 0) + (w - size) / 2);
+        qr.y = round1(Number(qr.y || 0) + (h - size) / 2);
+        qr.width = round1(size);
+        qr.height = round1(size);
+        return layout;
+    }
+
+    function resolveElementLayoutForCanvas(savedLayout, canvas) {
+        if (!savedLayout || !Object.keys(savedLayout).length) return savedLayout || {};
+        let layout = JSON.parse(JSON.stringify(savedLayout));
+        let fromCanvas;
+        if (layout._canvas?.width && layout._canvas?.height) {
+            fromCanvas = { width: layout._canvas.width, height: layout._canvas.height };
+        } else if (Number(layout['{{QR_CODE}}']?.width) >= 55) {
+            fromCanvas = { ...BASE_CANVAS };
+        } else {
+            fromCanvas = { ...canvas };
+        }
+        if (fromCanvas.width !== canvas.width || fromCanvas.height !== canvas.height) {
+            layout = scaleElementLayout(layout, fromCanvas, canvas);
+        }
+        squareQrInLayout(layout);
+        layout._canvas = { width: canvas.width, height: canvas.height };
+        return layout;
+    }
+
+    function prepareSvgForCanvas(svgContent, canvasWidth, canvasHeight) {
+        if (canvasWidth === BASE_CANVAS.width && canvasHeight === BASE_CANVAS.height) {
+            return svgContent;
+        }
+        return scaleSvgContent(svgContent, BASE_CANVAS, {
+            width: canvasWidth,
+            height: canvasHeight,
+        });
+    }
+
+    function canvasForTemplate(templates, code) {
+        const t = templates.find(x => x.code === code);
+        if (t) return { width: t.canvas_width, height: t.canvas_height };
+        return { ...BASE_CANVAS };
+    }
+
+    global.BadgeScale = {
+        BASE_CANVAS,
+        BASE_RECOMMENDED_MARGIN,
+        recommendedMargins,
+        marginInputMax,
+        scaleElementLayout,
+        scaleSvgContent,
+        ensureSquareQrImageTags,
+        squareQrInLayout,
+        resolveElementLayoutForCanvas,
+        prepareSvgForCanvas,
+        canvasForTemplate,
+    };
+})(typeof window !== 'undefined' ? window : globalThis);

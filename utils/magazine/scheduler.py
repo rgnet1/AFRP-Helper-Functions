@@ -204,6 +204,8 @@ class BadgeTemplate(db.Model):
     avery_template = db.Column(db.String(50), default='5392')  # Avery template number
     background_id = db.Column(db.String(50), default='white')  # Badge background template id
     show_outlines = db.Column(db.Boolean, default=False, nullable=False)  # Show badge outlines for alignment
+    element_layout = db.Column(db.Text, default='{}')  # JSON corner/sub-event positions
+    display_name_config = db.Column(db.Text, default='{}')  # JSON display-name formatting rules
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -221,6 +223,8 @@ class BadgeTemplate(db.Model):
             'avery_template': self.avery_template,
             'background_id': self.background_id or 'white',
             'show_outlines': self.show_outlines,
+            'element_layout': json.loads(self.element_layout) if self.element_layout else {},
+            'display_name_config': json.loads(self.display_name_config) if self.display_name_config else {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -262,6 +266,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=True)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    feature_permissions = db.Column(db.Text, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
     
@@ -283,7 +288,27 @@ class User(db.Model, UserMixin):
         if not bcrypt:
             raise RuntimeError("Bcrypt extension not initialized")
         return bcrypt.check_password_hash(self.password_hash, password)
-    
+
+    def get_feature_permissions(self):
+        from utils.auth.permissions import normalize_feature_permissions
+        return normalize_feature_permissions(self.feature_permissions)
+
+    def set_feature_permissions(self, permissions: dict):
+        from utils.auth.permissions import FEATURES, normalize_feature_permissions
+        merged = normalize_feature_permissions(permissions)
+        stored = {fid: merged[fid] for fid in FEATURES}
+        import json
+        self.feature_permissions = json.dumps(stored)
+
+    def has_feature(self, feature_id: str) -> bool:
+        if self.is_admin:
+            return True
+        return bool(self.get_feature_permissions().get(feature_id, False))
+
+    def allowed_features(self):
+        from utils.auth.permissions import FEATURES, allowed_features_for_user
+        return allowed_features_for_user(self)
+
     def to_dict(self):
         """Convert model to dictionary for JSON serialization (excluding password_hash)."""
         return {
@@ -292,6 +317,7 @@ class User(db.Model, UserMixin):
             'email': self.email,
             'is_admin': self.is_admin,
             'is_active': self.is_active,
+            'feature_permissions': self.get_feature_permissions(),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None
         }
