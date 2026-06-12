@@ -45,6 +45,7 @@ from utils.badges.badge_generator import (
     probe_image_dimensions,
     validate_template_club_logo,
 )
+from utils.badges.badge_assets import load_badge_scale_js
 from utils.badges.background_templates import (
     list_backgrounds,
     validate_background_image,
@@ -1008,7 +1009,15 @@ def badges():
 @login_required
 def badge_mapping():
     """Badge template mapping configuration page."""
-    return render_template('badge_mapping.html')
+    badge_scale_js = None
+    try:
+        badge_scale_js = load_badge_scale_js()
+    except OSError as exc:
+        logger.warning("Could not load bundled badge_scale.js: %s", exc)
+    return render_template(
+        'badge_mapping.html',
+        badge_scale_js=badge_scale_js,
+    )
 
 @app.route('/preprocessing-designer')
 @login_required

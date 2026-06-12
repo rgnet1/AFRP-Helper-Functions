@@ -130,7 +130,7 @@ Common mistakes:
 | `utils/badges/badge_sizes.py` | **Source of truth** — `AVERY_TEMPLATES`, aliases, validation, scaling |
 | `utils/badges/badge_generator.py` | PDF grid: `margin_left + col * (width + gap_h)` |
 | `utils/badges/background_templates.py` | Min upload size from `canvas_pixels` |
-| `static/js/badge_scale.js` | UI preview scaling (mirrors Python) |
+| `static/js/badge_scale.js` | Dev reference; bundled via `utils/badges/assets/` and `templates/partials/` |
 | `.cursor/rules/avery-layouts.mdc` | Agent rule — keep in sync |
 
 ## Additional resources

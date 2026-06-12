@@ -12,14 +12,12 @@ services:
       - ./downloads:/app/downloads
       - ./logs:/app/logs
       - ./data:/app/data
-      # Mount badge templates and logos for persistence
+      # User-uploaded badge assets (persist across redeploys)
       - ./badge_templates:/app/badge_templates
       - ./badge_logos:/app/badge_logos
       - ./badge_background_templates:/app/badge_background_templates
-      # Mount static folder for easy access to logos and SVG samples
-      - ./static:/app/static
-      # Mount templates so UI changes apply without rebuild
-      - ./templates:/app/templates
+      # templates/, static/, and utils/ come from the image (see Dockerfile).
+      # Use docker-compose.dev.yml for live-mount UI edits without rebuild.
       # Mount backups folder for backup/restore scripts
       - ./backups:/app/backups
     env_file:

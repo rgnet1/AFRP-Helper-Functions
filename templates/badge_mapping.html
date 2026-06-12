@@ -1021,7 +1021,11 @@
         <span id="toastMessage"></span>
     </div>
 
-    <script src="/static/js/badge_scale.js"></script>
+    {% if badge_scale_js %}
+    <script>{{ badge_scale_js | safe }}</script>
+    {% else %}
+    {% include 'partials/badge_scale_script.html' %}
+    {% endif %}
     <script>
     {% raw %}
         const BUILTIN_BADGE_SVG_URL = '/static/svg/minimal_badge_landscape.svg';

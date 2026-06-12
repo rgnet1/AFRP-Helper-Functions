@@ -1,6 +1,6 @@
-# Badge canvas scaling — mirrors utils/badges/badge_sizes.py for the mapping UI.
-# Canonical copy for Docker: utils/badges/assets/badge_scale.js
-# Template fallback: templates/partials/badge_scale_script.html (keep in sync)
+/**
+ * Badge canvas scaling — mirrors utils/badges/badge_sizes.py for the mapping UI.
+ */
 (function (global) {
     const BASE_CANVAS = { width: 384, height: 288 };
     const BASE_RECOMMENDED_MARGIN = 20;

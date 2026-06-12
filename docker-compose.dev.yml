@@ -1,0 +1,7 @@
+# Optional dev overrides: live-mount UI files from the working tree.
+# Usage: docker compose -f docker-compose.yaml -f docker-compose.dev.yml up -d --build
+services:
+  afrp-helper:
+    volumes:
+      - ./static:/app/static
+      - ./templates:/app/templates
