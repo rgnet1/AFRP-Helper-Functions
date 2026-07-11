@@ -96,8 +96,8 @@
          height="60" 
          href="{{QR_CODE}}"/>
   
-  <!-- Meal Preference (Below QR Code) — ~6px gap below QR box -->
-  <text x="334" y="283" 
+  <!-- Meal Preference (directly below QR, mirrors the Member ID gap above) -->
+  <text x="334" y="278" 
         text-anchor="middle" 
         font-family="Arial" 
         font-size="9" 

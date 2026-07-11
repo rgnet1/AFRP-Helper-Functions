@@ -239,6 +239,8 @@ class PreprocessingTemplate(db.Model):
     description = db.Column(db.Text, nullable=True)
     value_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for exact match replacements
     contains_mappings = db.Column(db.Text, nullable=False, default='{}')  # JSON string for substring replacements
+    meal_preference_mappings = db.Column(db.Text, default='{}')  # JSON raw CRM option -> badge label
+    meal_preference_sources = db.Column(db.Text, default='{}')  # JSON per-event meal source toggles
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -251,6 +253,8 @@ class PreprocessingTemplate(db.Model):
             'description': self.description or '',
             'value_mappings': json.loads(self.value_mappings) if self.value_mappings else {},
             'contains_mappings': json.loads(self.contains_mappings) if self.contains_mappings else {},
+            'meal_preference_mappings': json.loads(self.meal_preference_mappings) if getattr(self, 'meal_preference_mappings', None) else {},
+            'meal_preference_sources': json.loads(self.meal_preference_sources) if getattr(self, 'meal_preference_sources', None) else {},
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

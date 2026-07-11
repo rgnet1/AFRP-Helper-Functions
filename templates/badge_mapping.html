@@ -111,7 +111,8 @@
         }
 
         .badge-preview-bg {
-            object-fit: cover;
+            object-fit: contain;
+            object-position: center;
             z-index: 1;
         }
 
@@ -293,9 +294,34 @@
 
         .margin-inputs {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+            gap: 6px;
             margin-bottom: 10px;
+        }
+
+        .corner-margin-section-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            margin: 10px 0 4px;
+        }
+
+        .corner-margin-row {
+            display: grid;
+            grid-template-columns: 1fr 58px 58px;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .corner-margin-row-header {
+            font-size: 11px;
+            color: #777;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .corner-margin-row-header span:nth-child(2),
+        .corner-margin-row-header span:nth-child(3) {
+            text-align: center;
         }
 
         .margin-input-group {
@@ -791,6 +817,7 @@
             cursor: pointer;
             transition: border-color 0.2s ease, box-shadow 0.2s ease;
             background: #fafafa;
+            position: relative;
         }
 
         .background-card:hover {
@@ -815,6 +842,34 @@
             text-align: center;
             color: #444;
             font-weight: 600;
+        }
+
+        .background-card .delete-btn {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.92);
+            color: #dc3545;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+            z-index: 2;
+        }
+
+        .background-card .delete-btn:hover {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .sidebar-template-item .delete-btn.admin-visible {
+            display: block;
         }
     </style>
 </head>
@@ -861,6 +916,10 @@
                                 <p class="help-text" style="margin:0 0 8px;">Controls how &#123;&#123;DISPLAY_NAME&#125;&#125; is built from name columns.</p>
                                 <div class="display-name-options">
                                     <label class="display-name-option">
+                                        <input type="checkbox" id="displayNameIncludeTitle">
+                                        Include title
+                                    </label>
+                                    <label class="display-name-option">
                                         <input type="checkbox" id="displayNameIncludeMiddle">
                                         Include middle name
                                     </label>
@@ -893,33 +952,40 @@
                                 <div class="upload-icon"><i class="fas fa-palette"></i></div>
                                 <div class="upload-text">
                                     <strong>Upload custom background</strong><br>
-                                    PNG or JPEG, min size matches selected badge
+                                    PNG or JPEG &middot; recommended &ge;1200&times;900 px for crisp print &middot; up to 15&nbsp;MB
                                 </div>
                             </div>
                             <input type="file" id="backgroundFileInput" class="file-input" accept=".png,.jpg,.jpeg">
                             <div class="element-locations-section">
                                 <div class="margin-controls">
-                                    <div class="preview-toggles-label">Badge margins (px)</div>
+                                    <div class="preview-toggles-label">Corner margins (px)</div>
                                     <p class="margin-recommended">
                                         <i class="fas fa-info-circle"></i>
-                                        Recommended: 20 px on all sides (matches the minimal badge template)
+                                        Set horizontal and vertical inset for each corner (default 20 px)
                                     </p>
                                     <div class="margin-inputs">
-                                        <div class="margin-input-group">
-                                            <label for="marginTop">Top</label>
-                                            <input type="number" id="marginTop" min="0" max="80" step="1" value="20">
+                                        <div class="corner-margin-row corner-margin-row-header">
+                                            <span>Corner</span><span>H</span><span>V</span>
                                         </div>
-                                        <div class="margin-input-group">
-                                            <label for="marginRight">Right</label>
-                                            <input type="number" id="marginRight" min="0" max="80" step="1" value="20">
+                                        <div class="corner-margin-row">
+                                            <label for="marginTopLeftH">Top left</label>
+                                            <input type="number" id="marginTopLeftH" min="0" max="80" step="1" value="20" title="Horizontal">
+                                            <input type="number" id="marginTopLeftV" min="0" max="80" step="1" value="20" title="Vertical">
                                         </div>
-                                        <div class="margin-input-group">
-                                            <label for="marginBottom">Bottom</label>
-                                            <input type="number" id="marginBottom" min="0" max="80" step="1" value="20">
+                                        <div class="corner-margin-row">
+                                            <label for="marginTopRightH">Top right</label>
+                                            <input type="number" id="marginTopRightH" min="0" max="80" step="1" value="20" title="Horizontal">
+                                            <input type="number" id="marginTopRightV" min="0" max="80" step="1" value="20" title="Vertical">
                                         </div>
-                                        <div class="margin-input-group">
-                                            <label for="marginLeft">Left</label>
-                                            <input type="number" id="marginLeft" min="0" max="80" step="1" value="20">
+                                        <div class="corner-margin-row">
+                                            <label for="marginBottomLeftH">Bottom left</label>
+                                            <input type="number" id="marginBottomLeftH" min="0" max="80" step="1" value="20" title="Horizontal">
+                                            <input type="number" id="marginBottomLeftV" min="0" max="80" step="1" value="20" title="Vertical">
+                                        </div>
+                                        <div class="corner-margin-row">
+                                            <label for="marginBottomRightH">Bottom right</label>
+                                            <input type="number" id="marginBottomRightH" min="0" max="80" step="1" value="20" title="Horizontal">
+                                            <input type="number" id="marginBottomRightV" min="0" max="80" step="1" value="20" title="Vertical">
                                         </div>
                                     </div>
                                     <button type="button" class="margin-reset-btn" id="resetMarginsBtn">
@@ -1011,6 +1077,15 @@
                     </button>
                 </div>
             </div>
+
+            <div class="card">
+                <h2 class="card-title"><i class="fas fa-utensils"></i> Meal Preference</h2>
+                <p style="font-size: 13px; color: #666; line-height: 1.5;">
+                    Meal questionnaire toggles and response labels are configured in the
+                    <a href="/preprocessing-designer">Preprocessing Designer</a>
+                    (saved with your preprocessing template). Badge preview uses the preprocessing
+                    template selected on the Badge Generator page.
+                </p>
             </div>
         </div>
     </div>
@@ -1026,7 +1101,10 @@
     {% else %}
     {% include 'partials/badge_scale_script.html' %}
     {% endif %}
+    <script src="/static/js/meal_preference_config.js"></script>
     <script>
+        const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
+        const CURRENT_USER_ID = {{ current_user_id }};
     {% raw %}
         const BUILTIN_BADGE_SVG_URL = '/static/svg/minimal_badge_landscape.svg';
         let currentLogoFilename = null;
@@ -1044,6 +1122,7 @@
         let currentLogoPreviewUrl = null;
         let fieldVisibility = {};
         const DEFAULT_DISPLAY_NAME_CONFIG = {
+            include_title: false,
             include_middle: true,
             include_maiden: true,
             parentheses_middle: false,
@@ -1057,6 +1136,63 @@
         let previousAveryCode = '5392';
 
         const RECOMMENDED_MARGINS = { top: 20, right: 20, bottom: 20, left: 20 };
+        const RECOMMENDED_CORNER_MARGINS = {
+            top_left: { horizontal: 20, vertical: 20 },
+            top_right: { horizontal: 20, vertical: 20 },
+            bottom_left: { horizontal: 20, vertical: 20 },
+            bottom_right: { horizontal: 20, vertical: 20 },
+        };
+        const CORNER_MARGIN_KEYS = ['top_left', 'top_right', 'bottom_left', 'bottom_right'];
+        const CORNER_MARGIN_INPUTS = {
+            top_left: { h: 'marginTopLeftH', v: 'marginTopLeftV' },
+            top_right: { h: 'marginTopRightH', v: 'marginTopRightV' },
+            bottom_left: { h: 'marginBottomLeftH', v: 'marginBottomLeftV' },
+            bottom_right: { h: 'marginBottomRightH', v: 'marginBottomRightV' },
+        };
+
+        function marginsDictToCorners(margins) {
+            const m = { ...RECOMMENDED_MARGINS, ...(margins || {}) };
+            return {
+                top_left: { horizontal: m.left, vertical: m.top },
+                top_right: { horizontal: m.right, vertical: m.top },
+                bottom_left: { horizontal: m.left, vertical: m.bottom },
+                bottom_right: { horizontal: m.right, vertical: m.bottom },
+            };
+        }
+
+        function mergeCornerMargins(savedCorners, legacyMargins) {
+            let corners = JSON.parse(JSON.stringify(RECOMMENDED_CORNER_MARGINS));
+            if (legacyMargins) {
+                corners = marginsDictToCorners(legacyMargins);
+            }
+            if (savedCorners) {
+                CORNER_MARGIN_KEYS.forEach(key => {
+                    if (savedCorners[key]) {
+                        corners[key] = { ...corners[key], ...savedCorners[key] };
+                    }
+                });
+            }
+            return corners;
+        }
+
+        function getLayoutCornerMargins() {
+            if (elementLayout.corner_margins) {
+                return mergeCornerMargins(elementLayout.corner_margins);
+            }
+            return mergeCornerMargins(null, elementLayout.margins);
+        }
+
+        function bottomVerticalInset(corners) {
+            return (corners.bottom_left.vertical + corners.bottom_right.vertical) / 2;
+        }
+
+        function allCornerMarginInputIds() {
+            return CORNER_MARGIN_KEYS.flatMap(key => {
+                const ids = CORNER_MARGIN_INPUTS[key];
+                return [ids.h, ids.v];
+            });
+        }
+
         const SUBEVENT_LINE_HEIGHT = 15;
         const LAYOUT_PRESET_OPTIONS = [
             { value: 'top-left', label: 'Top left' },
@@ -1089,6 +1225,7 @@
         ];
 
         const SAMPLE_BADGE_VALUES = {
+            '{{TITLE}}': 'Ms.',
             '{{FIRST_NAME}}': 'Sarah',
             '{{MIDDLE_NAME}}': 'Marie',
             '{{LAST_NAME}}': 'Khoury',
@@ -1178,7 +1315,35 @@
             if (!currentTemplateId) {
                 initBuiltinBadgeTemplate();
             }
+            await loadMealConfigForPreview();
+            setupMealConfigRefresh();
         });
+
+        let lastLoadedPreprocessingTemplateId = null;
+
+        async function loadMealConfigForPreview(force = false) {
+            const preprocessingTemplateId = MealPreferenceConfig.getPreprocessingTemplateIdFromPreferences();
+            if (
+                !force &&
+                preprocessingTemplateId === lastLoadedPreprocessingTemplateId &&
+                preprocessingTemplateId
+            ) {
+                return;
+            }
+            lastLoadedPreprocessingTemplateId = preprocessingTemplateId || null;
+            await MealPreferenceConfig.loadFromPreprocessingTemplate(
+                preprocessingTemplateId,
+                { onChange: renderBadgePreview }
+            );
+        }
+
+        function setupMealConfigRefresh() {
+            window.addEventListener('storage', (event) => {
+                if (event.key !== BADGE_PREFS_CACHE_KEY) return;
+                loadMealConfigForPreview(true);
+            });
+            window.addEventListener('focus', () => loadMealConfigForPreview(true));
+        }
 
         const BADGE_PREFS_CACHE_KEY = 'badgeGenerator_preferences';
 
@@ -1237,13 +1402,13 @@
         function updateMarginInputLimits() {
             const canvas = getCanvasForAvery();
             const maxVal = BadgeScale.marginInputMax(canvas.width, canvas.height);
-            ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].forEach(id => {
+            allCornerMarginInputIds().forEach(id => {
                 document.getElementById(id).max = maxVal;
             });
-            const rec = BadgeScale.recommendedMargins(canvas.width, canvas.height);
+            const rec = BadgeScale.recommendedCornerMargins(canvas.width, canvas.height);
             const hint = document.querySelector('.margin-recommended');
             if (hint) {
-                hint.innerHTML = `<i class="fas fa-info-circle"></i> Recommended: ${rec.top} px top/bottom, ${rec.left} px left/right for this badge size`;
+                hint.innerHTML = `<i class="fas fa-info-circle"></i> Recommended: ${rec.top_left.horizontal} px horizontal, ${rec.top_left.vertical} px vertical on each corner for this badge size`;
             }
         }
 
@@ -1315,6 +1480,11 @@
             elementLayout = savedElementLayout
                 ? mergeElementLayout(defaults, savedElementLayout)
                 : defaults;
+            if (elementLayout['{{QR_CODE}}']?.companions) {
+                elementLayout['{{QR_CODE}}'].companions = normalizeQrCompanions(
+                    elementLayout['{{QR_CODE}}'].companions
+                );
+            }
             extractedPlaceholders = extractPlaceholdersFromSvgContent(svgContent);
             svgSubEventPlaceholders = new Set(
                 extractedPlaceholders.filter(p => isSubEventPlaceholder(p))
@@ -1496,9 +1666,12 @@
 
         function buildDisplayName() {
             const cfg = displayNameConfig;
-            const parts = [
-                SAMPLE_BADGE_VALUES['{{FIRST_NAME}}']
-            ];
+            const parts = [];
+            if (cfg.include_title) {
+                const title = SAMPLE_BADGE_VALUES['{{TITLE}}'];
+                if (title) parts.push(title);
+            }
+            parts.push(SAMPLE_BADGE_VALUES['{{FIRST_NAME}}']);
             if (cfg.include_middle) {
                 const middle = SAMPLE_BADGE_VALUES['{{MIDDLE_NAME}}'];
                 if (middle) parts.push(formatDisplayNamePart(middle, cfg.parentheses_middle));
@@ -1513,6 +1686,7 @@
 
         function readDisplayNameConfigFromControls() {
             return normalizeDisplayNameConfig({
+                include_title: document.getElementById('displayNameIncludeTitle').checked,
                 include_middle: document.getElementById('displayNameIncludeMiddle').checked,
                 include_maiden: document.getElementById('displayNameIncludeMaiden').checked,
                 parentheses_middle: document.getElementById('displayNameParenMiddle').checked,
@@ -1526,6 +1700,7 @@
             customizer.hidden = !hasDisplayName;
             if (!hasDisplayName) return;
 
+            document.getElementById('displayNameIncludeTitle').checked = displayNameConfig.include_title;
             document.getElementById('displayNameIncludeMiddle').checked = displayNameConfig.include_middle;
             document.getElementById('displayNameIncludeMaiden').checked = displayNameConfig.include_maiden;
             document.getElementById('displayNameParenMiddle').checked = displayNameConfig.parentheses_middle;
@@ -1558,6 +1733,7 @@
 
         function setupDisplayNameControls() {
             [
+                'displayNameIncludeTitle',
                 'displayNameIncludeMiddle',
                 'displayNameIncludeMaiden',
                 'displayNameParenMiddle',
@@ -1602,6 +1778,10 @@
                 }
             });
 
+            if (isFieldVisible('{{MEAL_PREFERENCE}}')) {
+                values['{{MEAL_PREFERENCE}}'] = MealPreferenceConfig.buildPreviewValue(SAMPLE_BADGE_VALUES);
+            }
+
             return values;
         }
 
@@ -1611,6 +1791,74 @@
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;');
+        }
+
+        /**
+         * Mirror of badge_generator._shrink_text_to_fit for the live preview.
+         * Shrinks <text data-shrink-to-fit="true"> so long names stay on one line.
+         */
+        function shrinkPreviewTextToFit(svgRoot) {
+            if (!svgRoot) return;
+
+            const viewBox = svgRoot.viewBox && svgRoot.viewBox.baseVal;
+            const svgWidth = (viewBox && viewBox.width)
+                || parseFloat(svgRoot.getAttribute('width'))
+                || badgeViewBox.width
+                || 384;
+            const margin = 12;
+            const WIDTH_SAFETY = 0.90;
+
+            svgRoot.querySelectorAll('text[data-shrink-to-fit]').forEach(textEl => {
+                const flag = (textEl.getAttribute('data-shrink-to-fit') || '').toLowerCase();
+                if (!['true', '1', 'yes'].includes(flag)) return;
+
+                const text = (textEl.textContent || '').trim();
+                if (!text) return;
+
+                let fontSize = parseFloat(textEl.getAttribute('font-size') || '12');
+                if (!Number.isFinite(fontSize) || fontSize <= 0) fontSize = 12;
+
+                let minFontSize = parseFloat(textEl.getAttribute('data-min-font-size') || '10');
+                if (!Number.isFinite(minFontSize) || minFontSize <= 0) minFontSize = 10;
+
+                let maxWidth = NaN;
+                const explicitMax = textEl.getAttribute('data-max-width');
+                if (explicitMax) {
+                    maxWidth = parseFloat(explicitMax);
+                }
+                if (!Number.isFinite(maxWidth) || maxWidth <= 0) {
+                    let x = parseFloat(textEl.getAttribute('x'));
+                    if (!Number.isFinite(x)) x = svgWidth / 2;
+                    const anchor = (textEl.getAttribute('text-anchor') || 'start').toLowerCase();
+                    if (anchor === 'middle') {
+                        maxWidth = Math.max(2 * Math.min(x - margin, svgWidth - x - margin), 0);
+                    } else if (anchor === 'end') {
+                        maxWidth = Math.max(x - margin, 0);
+                    } else {
+                        maxWidth = Math.max(svgWidth - x - margin, 0);
+                    }
+                }
+                if (!(maxWidth > 0)) return;
+
+                const usableWidth = maxWidth * WIDTH_SAFETY;
+                let fitted = fontSize;
+                textEl.setAttribute('font-size', String(fitted));
+
+                // getComputedTextLength requires the node to be in the live DOM
+                while (fitted > minFontSize) {
+                    let length = 0;
+                    try {
+                        length = textEl.getComputedTextLength();
+                    } catch (e) {
+                        break;
+                    }
+                    if (length <= usableWidth) break;
+                    fitted -= 0.5;
+                    textEl.setAttribute('font-size', String(fitted));
+                }
+                fitted = Math.max(fitted, minFontSize);
+                textEl.setAttribute('font-size', String(Number(fitted.toFixed(1))));
+            });
         }
 
 
@@ -1674,6 +1922,9 @@
 
         function extractQrCompanions(svgContent, qrSpec) {
             const companions = {};
+            const qrY = qrSpec.y;
+            const qrH = qrSpec.height || 60;
+            const qrBottom = qrY + qrH;
             QR_COMPANION_PLACEHOLDERS.forEach(ph => {
                 const pattern = new RegExp(
                     `(<text\\b[^>]*>)\\s*${ph.replace(/[{}]/g, '\\$&')}\\s*(</text>)`,
@@ -1682,31 +1933,70 @@
                 const match = svgContent.match(pattern);
                 if (!match) return;
                 const textSpec = parseTextSpecFromTag(match[0]);
-                companions[ph] = {
-                    dx: textSpec.x - qrSpec.x,
-                    dy: textSpec.y - qrSpec.y,
-                    textAnchor: textSpec.textAnchor
-                };
+                if (ph === '{{MEMBER_ID}}') {
+                    companions[ph] = {
+                        position: 'above',
+                        gap: Math.max(qrY - textSpec.y, 5)
+                    };
+                } else {
+                    companions[ph] = {
+                        position: 'below',
+                        gap: Math.max(textSpec.y - qrBottom, 6)
+                    };
+                }
             });
             return companions;
         }
 
-        function applyQrCompanions(doc, qrX, qrY, companions) {
+        function companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight) {
+            const centerX = qrX + qrWidth / 2;
+            const qrBottom = qrY + qrHeight;
+            if (rel.position === 'above') {
+                return { x: centerX, y: qrY - (rel.gap ?? 5) };
+            }
+            if (rel.position === 'below') {
+                return { x: centerX, y: qrBottom + (rel.gap ?? 6) };
+            }
+            const dy = rel.dy ?? 0;
+            if (ph === '{{MEMBER_ID}}') {
+                return { x: centerX, y: qrY - 5 };
+            }
+            return { x: centerX, y: qrBottom + 10 };
+        }
+
+        function normalizeQrCompanions(companions) {
+            if (!companions) return companions;
+            const out = { ...companions };
+            Object.entries(out).forEach(([ph, rel]) => {
+                if (rel.position) return;
+                if (ph === '{{MEMBER_ID}}') {
+                    out[ph] = { position: 'above', gap: 5 };
+                } else if (ph === '{{MEAL_PREFERENCE}}') {
+                    out[ph] = { position: 'below', gap: 10 };
+                }
+            });
+            return out;
+        }
+
+        function applyQrCompanions(doc, qrX, qrY, companions, qrWidth = 60, qrHeight = 60) {
             if (!companions) return;
             Object.entries(companions).forEach(([ph, rel]) => {
+                const pos = companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight);
                 doc.querySelectorAll('text').forEach(node => {
                     if ((node.textContent || '').trim() !== ph) return;
-                    node.setAttribute('x', qrX + rel.dx);
-                    node.setAttribute('y', qrY + rel.dy);
-                    if (rel.textAnchor) node.setAttribute('text-anchor', rel.textAnchor);
+                    node.setAttribute('x', pos.x);
+                    node.setAttribute('y', pos.y);
+                    node.setAttribute('text-anchor', 'middle');
                     node.setAttribute('data-qr-companion', ph);
                 });
             });
         }
 
         function extractLayoutFromSvg(svgContent) {
-            const layout = { margins: { ...RECOMMENDED_MARGINS } };
-            const m = layout.margins;
+            const layout = {
+                corner_margins: JSON.parse(JSON.stringify(RECOMMENDED_CORNER_MARGINS)),
+            };
+            const corners = layout.corner_margins;
             ['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}'].forEach(key => {
                 const pattern = new RegExp(
                     `<image\\b[^>]*\\bhref\\s*=\\s*["']${key.replace(/[{}]/g, '\\$&')}["'][^>]*/?>`,
@@ -1743,8 +2033,8 @@
                 if (ys.length >= 2) lineHeight = ys[1] - ys[0];
                 layout.subevents = {
                     preset: 'custom',
-                    x: xM ? parseFloat(xM[1]) : m.left,
-                    baseY: yM ? parseFloat(yM[1]) : badgeViewBox.height - m.bottom - subMatches.length * lineHeight + 4,
+                    x: xM ? parseFloat(xM[1]) : corners.bottom_left.horizontal,
+                    baseY: yM ? parseFloat(yM[1]) : badgeViewBox.height - corners.bottom_left.vertical - subMatches.length * lineHeight + 4,
                     lineHeight,
                     textAnchor: anchorM ? anchorM[1] : 'start'
                 };
@@ -1752,44 +2042,45 @@
             return layout;
         }
 
-        function getLayoutMargins() {
-            return { ...RECOMMENDED_MARGINS, ...(elementLayout.margins || {}) };
-        }
-
         function syncMarginInputs() {
-            const m = getLayoutMargins();
-            document.getElementById('marginTop').value = m.top;
-            document.getElementById('marginRight').value = m.right;
-            document.getElementById('marginBottom').value = m.bottom;
-            document.getElementById('marginLeft').value = m.left;
+            const corners = getLayoutCornerMargins();
+            CORNER_MARGIN_KEYS.forEach(key => {
+                const ids = CORNER_MARGIN_INPUTS[key];
+                const corner = corners[key];
+                document.getElementById(ids.h).value = corner.horizontal;
+                document.getElementById(ids.v).value = corner.vertical;
+            });
         }
 
         function readMarginsFromInputs() {
-            return {
-                top: Math.max(0, parseInt(document.getElementById('marginTop').value, 10) || 0),
-                right: Math.max(0, parseInt(document.getElementById('marginRight').value, 10) || 0),
-                bottom: Math.max(0, parseInt(document.getElementById('marginBottom').value, 10) || 0),
-                left: Math.max(0, parseInt(document.getElementById('marginLeft').value, 10) || 0)
-            };
+            const corners = {};
+            CORNER_MARGIN_KEYS.forEach(key => {
+                const ids = CORNER_MARGIN_INPUTS[key];
+                corners[key] = {
+                    horizontal: Math.max(0, parseInt(document.getElementById(ids.h).value, 10) || 0),
+                    vertical: Math.max(0, parseInt(document.getElementById(ids.v).value, 10) || 0),
+                };
+            });
+            return corners;
         }
 
         function reanchorAllPresets() {
-            const margins = getLayoutMargins();
+            const corners = getLayoutCornerMargins();
             Object.entries(elementLayout).forEach(([key, spec]) => {
-                if (key === 'margins' || !spec || spec.preset === 'custom') return;
+                if (key === 'margins' || key === 'corner_margins' || !spec || spec.preset === 'custom') return;
                 if (key === 'subevents') {
-                    const anchor = subeventAnchorForPreset(spec.preset, margins);
+                    const anchor = subeventAnchorForPreset(spec.preset, corners);
                     if (anchor) {
                         spec.x = anchor.x;
                         spec.textAnchor = anchor.textAnchor;
                     }
                     const count = SUBEVENT_LAYOUT_KEYS.filter(k => getPreviewPlaceholders().includes(k)).length;
                     spec.baseY = subeventBaseYForPreset(
-                        spec.preset, count, spec.lineHeight || SUBEVENT_LINE_HEIGHT, margins
+                        spec.preset, count, spec.lineHeight || SUBEVENT_LINE_HEIGHT, corners
                     );
                 } else {
                     const pos = layoutPresetPosition(
-                        spec.preset, spec.width || 60, spec.height || 60, margins
+                        spec.preset, spec.width || 60, spec.height || 60, corners
                     );
                     if (pos) {
                         spec.x = pos.x;
@@ -1800,14 +2091,18 @@
         }
 
         function onMarginsChanged() {
-            elementLayout.margins = readMarginsFromInputs();
+            elementLayout.corner_margins = readMarginsFromInputs();
+            delete elementLayout.margins;
             reanchorAllPresets();
             renderBadgePreview();
         }
 
         function resetMarginsToRecommended() {
             const canvas = getCanvasForAvery();
-            elementLayout.margins = BadgeScale.recommendedMargins(canvas.width, canvas.height);
+            elementLayout.corner_margins = BadgeScale.recommendedCornerMargins(
+                canvas.width, canvas.height
+            );
+            delete elementLayout.margins;
             syncMarginInputs();
             reanchorAllPresets();
             renderBadgePreview();
@@ -1815,7 +2110,7 @@
         }
 
         function setupMarginControls() {
-            ['marginTop', 'marginRight', 'marginBottom', 'marginLeft'].forEach(id => {
+            allCornerMarginInputIds().forEach(id => {
                 document.getElementById(id).addEventListener('change', onMarginsChanged);
                 document.getElementById(id).addEventListener('input', onMarginsChanged);
             });
@@ -1824,13 +2119,12 @@
 
         function mergeElementLayout(defaults, saved) {
             const merged = { ...defaults };
-            merged.margins = {
-                ...RECOMMENDED_MARGINS,
-                ...(defaults.margins || {}),
-                ...((saved && saved.margins) || {})
-            };
+            merged.corner_margins = mergeCornerMargins(
+                (saved && saved.corner_margins) || defaults.corner_margins,
+                (saved && !saved.corner_margins && saved.margins) || null
+            );
             Object.entries(saved || {}).forEach(([key, spec]) => {
-                if (key === 'margins') return;
+                if (key === 'margins' || key === 'corner_margins') return;
                 merged[key] = { ...(merged[key] || {}), ...spec };
                 if (key === '{{QR_CODE}}' && defaults[key]?.companions && !spec.companions) {
                     merged[key].companions = defaults[key].companions;
@@ -1843,49 +2137,65 @@
             return merged;
         }
 
-        function layoutPresetPosition(preset, width, height, margins) {
-            const m = margins || getLayoutMargins();
+        function layoutPresetPosition(preset, width, height, cornerMargins) {
+            const c = cornerMargins || getLayoutCornerMargins();
             const bw = badgeViewBox.width;
             const bh = badgeViewBox.height;
             switch (preset) {
-                case 'top-left': return { x: m.left, y: m.top };
-                case 'top-right': return { x: bw - width - m.right, y: m.top };
-                case 'bottom-left': return { x: m.left, y: bh - height - m.bottom };
-                case 'bottom-right': return { x: bw - width - m.right, y: bh - height - m.bottom };
-                case 'bottom-center': return { x: (bw - width) / 2, y: bh - height - m.bottom };
+                case 'top-left':
+                    return { x: c.top_left.horizontal, y: c.top_left.vertical };
+                case 'top-right':
+                    return { x: bw - width - c.top_right.horizontal, y: c.top_right.vertical };
+                case 'bottom-left':
+                    return { x: c.bottom_left.horizontal, y: bh - height - c.bottom_left.vertical };
+                case 'bottom-right':
+                    return { x: bw - width - c.bottom_right.horizontal, y: bh - height - c.bottom_right.vertical };
+                case 'bottom-center':
+                    return { x: (bw - width) / 2, y: bh - height - bottomVerticalInset(c) };
                 default: return null;
             }
         }
 
-        function subeventAnchorForPreset(preset, margins) {
-            const m = margins || getLayoutMargins();
+        function subeventAnchorForPreset(preset, cornerMargins) {
+            const c = cornerMargins || getLayoutCornerMargins();
             const bw = badgeViewBox.width;
             switch (preset) {
-                case 'top-left': return { x: m.left, textAnchor: 'start' };
-                case 'top-right': return { x: bw - m.right, textAnchor: 'end' };
-                case 'bottom-left': return { x: m.left, textAnchor: 'start' };
-                case 'bottom-right': return { x: bw - m.right, textAnchor: 'end' };
+                case 'top-left': return { x: c.top_left.horizontal, textAnchor: 'start' };
+                case 'top-right': return { x: bw - c.top_right.horizontal, textAnchor: 'end' };
+                case 'bottom-left': return { x: c.bottom_left.horizontal, textAnchor: 'start' };
+                case 'bottom-right': return { x: bw - c.bottom_right.horizontal, textAnchor: 'end' };
                 case 'bottom-center': return { x: bw / 2, textAnchor: 'middle' };
                 default: return null;
             }
         }
 
-        function subeventBaseYForPreset(preset, count, lineHeight, margins) {
-            const m = margins || getLayoutMargins();
+        function subeventBaseYForPreset(preset, count, lineHeight, cornerMargins) {
+            const c = cornerMargins || getLayoutCornerMargins();
             const bh = badgeViewBox.height;
+            if (preset === 'top-left') return c.top_left.vertical + lineHeight;
+            if (preset === 'top-right') return c.top_right.vertical + lineHeight;
+            if (preset === 'bottom-left') {
+                return bh - c.bottom_left.vertical - Math.max(count, 1) * lineHeight + 4;
+            }
+            if (preset === 'bottom-right') {
+                return bh - c.bottom_right.vertical - Math.max(count, 1) * lineHeight + 4;
+            }
+            if (preset === 'bottom-center') {
+                return bh - bottomVerticalInset(c) - Math.max(count, 1) * lineHeight + 4;
+            }
             if (preset.startsWith('bottom')) {
-                return bh - m.bottom - Math.max(count, 1) * lineHeight + 4;
+                return bh - c.bottom_left.vertical - Math.max(count, 1) * lineHeight + 4;
             }
             if (preset.startsWith('top')) {
-                return m.top + lineHeight;
+                return c.top_left.vertical + lineHeight;
             }
-            return bh - m.bottom - Math.max(count, 1) * lineHeight + 4;
+            return bh - c.bottom_left.vertical - Math.max(count, 1) * lineHeight + 4;
         }
 
         function applyLayoutToDocument(doc) {
-            const margins = getLayoutMargins();
+            const corners = getLayoutCornerMargins();
             Object.entries(elementLayout).forEach(([key, spec]) => {
-                if (key === 'margins' || !spec) return;
+                if (key === 'margins' || key === 'corner_margins' || !spec) return;
                 if (key === 'subevents') {
                     const subNodes = [];
                     doc.querySelectorAll('text').forEach(node => {
@@ -1902,12 +2212,12 @@
                     let baseY = spec.baseY;
                     let textAnchor = spec.textAnchor || 'start';
                     if (spec.preset && spec.preset !== 'custom') {
-                        const anchor = subeventAnchorForPreset(spec.preset, margins);
+                        const anchor = subeventAnchorForPreset(spec.preset, corners);
                         if (anchor) {
                             x = anchor.x;
                             textAnchor = anchor.textAnchor;
                         }
-                        baseY = subeventBaseYForPreset(spec.preset, subNodes.length, lineHeight, margins);
+                        baseY = subeventBaseYForPreset(spec.preset, subNodes.length, lineHeight, corners);
                     }
                     subNodes.forEach((item, index) => {
                         item.node.setAttribute('x', x);
@@ -1936,7 +2246,7 @@
                     let x = spec.x;
                     let y = spec.y;
                     if (spec.preset && spec.preset !== 'custom') {
-                        const pos = layoutPresetPosition(spec.preset, width, height, margins);
+                        const pos = layoutPresetPosition(spec.preset, width, height, corners);
                         if (pos) {
                             x = pos.x;
                             y = pos.y;
@@ -1957,7 +2267,7 @@
                         preset: spec.preset || 'custom'
                     };
                     if (key === '{{QR_CODE}}' && spec.companions) {
-                        applyQrCompanions(doc, x, y, spec.companions);
+                        applyQrCompanions(doc, x, y, spec.companions, width, height);
                     }
                 });
             });
@@ -2003,9 +2313,9 @@
                     if (!elementLayout[key]) elementLayout[key] = {};
                     elementLayout[key].preset = preset;
                     if (preset !== 'custom') {
-                        const margins = getLayoutMargins();
+                        const corners = getLayoutCornerMargins();
                         if (key === 'subevents') {
-                            const anchor = subeventAnchorForPreset(preset, margins);
+                            const anchor = subeventAnchorForPreset(preset, corners);
                             if (anchor) {
                                 elementLayout[key].x = anchor.x;
                                 elementLayout[key].textAnchor = anchor.textAnchor;
@@ -2015,11 +2325,11 @@
                                 preset,
                                 count,
                                 elementLayout[key].lineHeight || SUBEVENT_LINE_HEIGHT,
-                                margins
+                                corners
                             );
                         } else {
                             const spec = elementLayout[key];
-                            const pos = layoutPresetPosition(preset, spec.width || 60, spec.height || 60, margins);
+                            const pos = layoutPresetPosition(preset, spec.width || 60, spec.height || 60, corners);
                             if (pos) {
                                 elementLayout[key].x = pos.x;
                                 elementLayout[key].y = pos.y;
@@ -2042,14 +2352,19 @@
         }
 
         function moveQrCompanions(svgRoot, qrX, qrY) {
-            const companions = elementLayout['{{QR_CODE}}']?.companions;
+            const qrSpec = elementLayout['{{QR_CODE}}'] || {};
+            const companions = qrSpec.companions;
             if (!companions) return;
+            const qrWidth = parseFloat(qrSpec.width || 60);
+            const qrHeight = parseFloat(qrSpec.height || 60);
             svgRoot.querySelectorAll('[data-qr-companion]').forEach(node => {
                 const ph = node.getAttribute('data-qr-companion');
                 const rel = companions[ph];
                 if (!rel) return;
-                node.setAttribute('x', qrX + rel.dx);
-                node.setAttribute('y', qrY + rel.dy);
+                const pos = companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight);
+                node.setAttribute('x', pos.x);
+                node.setAttribute('y', pos.y);
+                node.setAttribute('text-anchor', 'middle');
             });
         }
 
@@ -2135,8 +2450,10 @@
             if (!Object.keys(elementLayout).length) {
                 elementLayout = extractLayoutFromSvg(svgContent);
                 reanchorAllPresets();
-            } else if (!elementLayout.margins) {
-                elementLayout.margins = { ...RECOMMENDED_MARGINS };
+            } else if (!elementLayout.corner_margins && !elementLayout.margins) {
+                elementLayout.corner_margins = JSON.parse(JSON.stringify(RECOMMENDED_CORNER_MARGINS));
+            } else if (!elementLayout.corner_margins && elementLayout.margins) {
+                elementLayout.corner_margins = marginsDictToCorners(elementLayout.margins);
             }
             if (elementLayout['{{AFRP_LOGO}}']) {
                 elementLayout['{{AFRP_LOGO}}'].preset = 'top-right';
@@ -2182,6 +2499,7 @@
 
             svgContainer.innerHTML = new XMLSerializer().serializeToString(doc.documentElement);
             const svgRoot = svgContainer.querySelector('svg');
+            shrinkPreviewTextToFit(svgRoot);
             setupPreviewDrag(svgRoot);
             renderElementLocationControls();
         }
@@ -2209,20 +2527,64 @@
             }
         }
 
+        function canDeleteBackground(bg) {
+            if (!bg || bg.id === 'white') return false;
+            if (IS_ADMIN) return true;
+            if (bg.builtin) return false;
+            return bg.uploaded_by_user_id === CURRENT_USER_ID;
+        }
+
         function renderBackgroundGallery() {
             const gallery = document.getElementById('backgroundGallery');
             if (!backgroundCatalog.length) {
                 gallery.innerHTML = '<div style="color:#999;font-size:13px;">No backgrounds available</div>';
                 return;
             }
-            gallery.innerHTML = backgroundCatalog.map(bg => `
+            gallery.innerHTML = backgroundCatalog.map(bg => {
+                const deletable = canDeleteBackground(bg);
+                const deleteBtn = deletable ? `
+                    <button type="button" class="delete-btn" title="Remove background"
+                            onclick="event.stopPropagation(); deleteBackground('${bg.id.replace(/'/g, "\\'")}', '${bg.name.replace(/'/g, "\\'")}')">
+                        <i class="fas fa-trash"></i>
+                    </button>` : '';
+                return `
                 <div class="background-card ${bg.id === selectedBackgroundId ? 'selected' : ''}"
                      onclick="selectBackground('${bg.id.replace(/'/g, "\\'")}')"
                      title="${bg.name}">
+                    ${deleteBtn}
                     <img src="${bg.thumbnail_url || ''}" alt="${bg.name}" loading="lazy">
                     <div class="background-card-label">${bg.name}</div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
+        }
+
+        async function deleteBackground(backgroundId, backgroundName) {
+            const promptName = backgroundName || backgroundId;
+            if (!confirm(`Remove background "${promptName}"?\n\nSaved badge templates using this background will switch to Plain White.`)) {
+                return;
+            }
+
+            try {
+                const avery = getSelectedAveryCode();
+                const response = await fetch(
+                    `/api/badge-backgrounds/${encodeURIComponent(backgroundId)}?avery=${encodeURIComponent(avery)}`,
+                    { method: 'DELETE' }
+                );
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Delete failed');
+                }
+
+                backgroundCatalog = backgroundCatalog.filter(bg => bg.id !== backgroundId);
+                if (selectedBackgroundId === backgroundId) {
+                    selectedBackgroundId = 'white';
+                }
+                renderBackgroundGallery();
+                renderBadgePreview();
+                showToast('Background removed', 'success');
+            } catch (error) {
+                showToast('Error removing background: ' + error.message, 'error');
+            }
         }
 
         function selectBackground(backgroundId) {
@@ -2563,7 +2925,7 @@
                             height: badgeViewBox.height,
                         },
                     },
-                    display_name_config: displayNameConfig
+                    display_name_config: displayNameConfig,
                 };
 
                 let response;
@@ -2618,6 +2980,7 @@
             removeLogoFile();
             syncDisplayNameControls();
             initBuiltinBadgeTemplate();
+            loadMealConfigForPreview();
         }
 
         async function loadAveryTemplates() {
@@ -2659,9 +3022,9 @@
                 container.innerHTML = data.templates.map(t => `
                     <li class="sidebar-template-item ${currentTemplateId === t.id ? 'active' : ''}" onclick="loadTemplate(${t.id})">
                         <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.name}</span>
-                        <button class="delete-btn" onclick="event.stopPropagation(); deleteTemplate(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
+                        ${IS_ADMIN ? `<button class="delete-btn admin-visible" onclick="event.stopPropagation(); deleteTemplate(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
                             <i class="fas fa-trash"></i>
-                        </button>
+                        </button>` : ''}
                     </li>
                 `).join('');
             } catch (error) {
@@ -2693,6 +3056,7 @@
                     : (template.column_mappings || {});
 
                 displayNameConfig = normalizeDisplayNameConfig(template.display_name_config);
+                await loadMealConfigForPreview();
 
                 try {
                     await applyCanvasForAvery(template.avery_template, template.element_layout || {});

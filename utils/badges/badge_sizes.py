@@ -6,6 +6,10 @@ import copy
 import re
 
 CANVAS_DPI = 96
+# Raster backgrounds/logos are stored and rendered at print resolution so they
+# stay crisp on paper. The 96 DPI canvas above is only the SVG coordinate space
+# used for layout math; it must not dictate the resolution of embedded images.
+PRINT_DPI = 300
 BASE_AVERY = "5392"
 BASE_CANVAS = (384, 288)
 BASE_RECOMMENDED_MARGIN = 20
@@ -212,9 +216,14 @@ def validate_avery_sheet_layout(
     }
 
 
-def canvas_pixels(avery_code: str) -> tuple[int, int]:
+def canvas_pixels(avery_code: str, dpi: int = CANVAS_DPI) -> tuple[int, int]:
     spec = get_template_spec(avery_code)
-    return round(spec["width"] * CANVAS_DPI), round(spec["height"] * CANVAS_DPI)
+    return round(spec["width"] * dpi), round(spec["height"] * dpi)
+
+
+def canvas_pixels_print(avery_code: str) -> tuple[int, int]:
+    """Pixel dimensions for print-quality raster assets (300 DPI)."""
+    return canvas_pixels(avery_code, dpi=PRINT_DPI)
 
 
 def canvas_inches(avery_code: str) -> tuple[float, float]:
@@ -224,13 +233,27 @@ def canvas_inches(avery_code: str) -> tuple[float, float]:
 
 def recommended_margins(avery_code: str) -> dict:
     """Recommended edge margins in canvas pixels for the given Avery code."""
+    corners = recommended_corner_margins(avery_code)
+    return {
+        "top": corners["top_left"]["vertical"],
+        "right": corners["top_right"]["horizontal"],
+        "bottom": corners["bottom_left"]["vertical"],
+        "left": corners["top_left"]["horizontal"],
+    }
+
+
+def recommended_corner_margins(avery_code: str) -> dict:
+    """Recommended per-corner insets in canvas pixels for the given Avery code."""
     w, h = canvas_pixels(avery_code)
     base_w, base_h = BASE_CANVAS
+    horizontal = round(BASE_RECOMMENDED_MARGIN * w / base_w)
+    vertical = round(BASE_RECOMMENDED_MARGIN * h / base_h)
+    corner = {"horizontal": horizontal, "vertical": vertical}
     return {
-        "top": round(BASE_RECOMMENDED_MARGIN * h / base_h),
-        "right": round(BASE_RECOMMENDED_MARGIN * w / base_w),
-        "bottom": round(BASE_RECOMMENDED_MARGIN * h / base_h),
-        "left": round(BASE_RECOMMENDED_MARGIN * w / base_w),
+        "top_left": dict(corner),
+        "top_right": dict(corner),
+        "bottom_left": dict(corner),
+        "bottom_right": dict(corner),
     }
 
 
@@ -327,6 +350,22 @@ def scale_element_layout(
         return copy.deepcopy(layout)
 
     out = copy.deepcopy(layout)
+    corner_margins = out.get("corner_margins")
+    if isinstance(corner_margins, dict):
+        scaled_corners = {}
+        for key, corner in corner_margins.items():
+            if not isinstance(corner, dict):
+                continue
+            scaled_corners[key] = {
+                "horizontal": _scale_num(
+                    corner.get("horizontal", BASE_RECOMMENDED_MARGIN), sx
+                ),
+                "vertical": _scale_num(
+                    corner.get("vertical", BASE_RECOMMENDED_MARGIN), sy
+                ),
+            }
+        out["corner_margins"] = scaled_corners
+
     margins = out.get("margins")
     if isinstance(margins, dict):
         out["margins"] = {
@@ -337,7 +376,7 @@ def scale_element_layout(
         }
 
     for key, spec in list(out.items()):
-        if key == "margins" or not isinstance(spec, dict):
+        if key in ("margins", "corner_margins") or not isinstance(spec, dict):
             continue
         if key == "subevents":
             if "x" in spec:
@@ -358,6 +397,8 @@ def scale_element_layout(
         companions = spec.get("companions")
         if isinstance(companions, dict):
             for rel in companions.values():
+                if "gap" in rel:
+                    rel["gap"] = _scale_num(rel["gap"], sy)
                 if "dx" in rel:
                     rel["dx"] = _scale_num(rel["dx"], sx)
                 if "dy" in rel:

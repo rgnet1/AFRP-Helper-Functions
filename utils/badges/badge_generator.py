@@ -36,8 +36,13 @@ from utils.badges.badge_sizes import (
     ensure_square_qr_image_tags,
     resolve_element_layout_for_canvas,
     canvas_pixels,
+    canvas_pixels_print,
 )
 from utils.badges.display_name import build_display_name, normalize_display_name_config
+from utils.badges.meal_options import (
+    apply_meal_preference_mapping,
+    build_meal_preference_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -600,6 +605,8 @@ def _apply_column_mappings(
     row: dict,
     column_mappings: dict,
     display_name_config: dict | None = None,
+    meal_preference_mappings: dict | None = None,
+    meal_preference_sources: dict | None = None,
 ) -> str:
     if "{{DISPLAY_NAME}}" in svg_content:
         svg_content = svg_content.replace(
@@ -619,6 +626,13 @@ def _apply_column_mappings(
             value = "\n".join(sub_events)
         else:
             value = _row_value_str(row, column_name)
+        if placeholder == "{{MEAL_PREFERENCE}}":
+            if meal_preference_sources:
+                value = build_meal_preference_value(
+                    row, meal_preference_sources, meal_preference_mappings
+                )
+            else:
+                value = apply_meal_preference_mapping(value, meal_preference_mappings)
         if placeholder in svg_content:
             svg_content = svg_content.replace(placeholder, value)
     return _collapse_empty_maiden_parentheses(svg_content)
@@ -670,6 +684,8 @@ def _render_dynamic_drawing(args: dict):
     dynamic_path = args["dynamic_svg_path"]
     column_mappings = args["column_mappings"]
     display_name_config = args.get("display_name_config")
+    meal_preference_mappings = args.get("meal_preference_mappings")
+    meal_preference_sources = args.get("meal_preference_sources")
     row = args["row"]
     badge_w = args["badge_width"]
     badge_h = args["badge_height"]
@@ -677,7 +693,12 @@ def _render_dynamic_drawing(args: dict):
         with open(dynamic_path, "r", encoding="utf-8") as f:
             svg_content = f.read()
         svg_content = _apply_column_mappings(
-            svg_content, row, column_mappings, display_name_config
+            svg_content,
+            row,
+            column_mappings,
+            display_name_config,
+            meal_preference_mappings,
+            meal_preference_sources,
         )
         svg_content = _replace_qr_placeholder(svg_content, row, temp_dir, row_index)
         svg_content = _strip_remaining_placeholders(svg_content)
@@ -713,7 +734,8 @@ class BadgeGenerator:
                  afrp_logo_path, club_logo_path=None, club_logo_width=None, 
                  club_logo_height=None, avery_template='5392', show_outlines=False,
                  background_id='white', backgrounds_folder=None, element_layout=None,
-                 display_name_config=None):
+                 display_name_config=None, meal_preference_mappings=None,
+                 meal_preference_sources=None):
         """
         Initialize the badge generator.
         
@@ -729,12 +751,16 @@ class BadgeGenerator:
             backgrounds_folder: Root path for badge_background_templates/
             element_layout: Optional dict of corner/sub-event position overrides
             display_name_config: Optional dict of {{DISPLAY_NAME}} formatting rules
+            meal_preference_mappings: Optional dict mapping raw meal responses to badge labels
+            meal_preference_sources: Optional per-event source toggles for meal badge text
         """
         self.excel_file = excel_file
         self.svg_template_path = svg_template_path
         self.column_mappings = column_mappings
         self.element_layout = element_layout or {}
         self.display_name_config = normalize_display_name_config(display_name_config)
+        self.meal_preference_mappings = meal_preference_mappings or {}
+        self.meal_preference_sources = meal_preference_sources or {}
         # Resolve logo paths to absolute paths up-front so they survive any
         # later os.chdir() the caller might do (e.g. the /pull-process-generate
         # endpoint chdir's into a temp working dir while preprocessing).
@@ -937,14 +963,22 @@ class BadgeGenerator:
             )
 
     def _prepare_background_image(self, temp_dir):
-        """Resize fallback 5392 backgrounds to the target Avery canvas."""
+        """Re-fit backgrounds to the target Avery canvas at print resolution.
+
+        Uses 300 DPI pixel dimensions so the embedded raster stays sharp on paper;
+        resizing to the 96 DPI layout canvas here would re-introduce blur.
+        """
         self._bg_draw_path = None
         if self._bg_is_white or not self._bg_image_path:
             return
-        target_w, target_h = canvas_pixels(self.avery_template)
+        target_w, target_h = canvas_pixels_print(self.avery_template)
         try:
             with Image.open(self._bg_image_path) as im:
-                if im.size == (target_w, target_h):
+                # Already sized for this canvas (or larger): draw as-is, don't
+                # downscale a high-res source.
+                if im.size == (target_w, target_h) or (
+                    im.width >= target_w and im.height >= target_h
+                ):
                     self._bg_draw_path = self._bg_image_path
                     return
                 resized = im.resize((target_w, target_h), Image.Resampling.LANCZOS)
@@ -1040,7 +1074,12 @@ class BadgeGenerator:
                 )
 
         svg_content = _apply_column_mappings(
-            svg_content, row, self.column_mappings, self.display_name_config
+            svg_content,
+            row,
+            self.column_mappings,
+            self.display_name_config,
+            self.meal_preference_mappings,
+            self.meal_preference_sources,
         )
         svg_content = _replace_qr_placeholder(
             svg_content, row, temp_dir, row_data.name
@@ -1173,6 +1212,8 @@ class BadgeGenerator:
                             "dynamic_svg_path": dynamic_svg_path,
                             "column_mappings": self.column_mappings,
                             "display_name_config": self.display_name_config,
+                            "meal_preference_mappings": self.meal_preference_mappings,
+                            "meal_preference_sources": self.meal_preference_sources,
                             "row": row.to_dict(),
                             "badge_width": badge_width,
                             "badge_height": badge_height,

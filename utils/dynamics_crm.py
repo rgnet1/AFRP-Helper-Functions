@@ -13,6 +13,26 @@ from dotenv import load_dotenv
 # Set up logging
 logger = logging.getLogger(__name__)
 
+
+def parse_choice_labels(raw: str | None) -> list[str]:
+    """
+    Parse CRM aha_choicelabels into a list of option strings.
+
+    Separators vary by question: tilde (~), comma, or semicolon.
+    """
+    if not raw or not str(raw).strip():
+        return []
+    text = str(raw).strip()
+    if "~" in text:
+        parts = text.split("~")
+    elif ";" in text:
+        parts = text.split(";")
+    elif "," in text:
+        parts = text.split(",")
+    else:
+        parts = [text]
+    return [p.strip() for p in parts if p and p.strip()]
+
 # Cache decorator with TTL (Time To Live)
 def cache_with_ttl(ttl_seconds=300):
     """
@@ -110,7 +130,8 @@ class DynamicsCRMClient:
             method=method,
             url=url,
             headers=headers,
-            json=data
+            json=data,
+            timeout=120,
         )
         
         response.raise_for_status()
@@ -882,22 +903,96 @@ class DynamicsCRMClient:
         logger.info(f"Fetched {len(df)} form responses for campaign")
         return df
 
+    def get_form_questions(self, campaign_id: str) -> list[dict]:
+        """
+        Fetch form question definitions for a main event and its sub-events.
+
+        Returns list of dicts with campaign_name, question, question_type,
+        choice_labels (parsed list), and campaign_id.
+        """
+        import urllib.parse
+
+        filter_clause = (
+            f"aha_Campaign/campaignid eq {campaign_id} "
+            f"or aha_Campaign/_aha_parentcampaign_value eq {campaign_id}"
+        )
+        select = (
+            "aha_newcolumn,aha_choicelabels,aha_questiontype,_aha_campaign_value"
+        )
+        endpoint = (
+            f"aha_eventformquestionses?"
+            f"$filter={urllib.parse.quote(filter_clause)}"
+            f"&$select={select}"
+        )
+        records = self._paginate(endpoint)
+        formatted_suffix = "@OData.Community.Display.V1.FormattedValue"
+        results: list[dict] = []
+
+        for record in records:
+            question = (record.get("aha_newcolumn") or "").strip()
+            if not question:
+                continue
+            campaign_name = record.get(
+                f"_aha_campaign_value{formatted_suffix}",
+                record.get("_aha_campaign_value"),
+            )
+            question_type = record.get(
+                f"aha_questiontype{formatted_suffix}",
+                record.get("aha_questiontype"),
+            )
+            raw_labels = record.get("aha_choicelabels") or ""
+            results.append(
+                {
+                    "campaign_id": record.get("_aha_campaign_value"),
+                    "campaign_name": campaign_name or "",
+                    "question": question,
+                    "question_type": str(question_type or ""),
+                    "choice_labels": parse_choice_labels(raw_labels),
+                    "raw_choice_labels": raw_labels,
+                }
+            )
+
+        logger.info(
+            "Fetched %d form questions for campaign %s",
+            len(results),
+            campaign_id,
+        )
+        return results
+
     def fetch_contact_households(self, contact_ids: List[str], chunk_size: int = 40) -> Dict[str, dict]:
         """
         Fetch household fields for a list of contact GUIDs (batched OData filter).
         Used by the household file cache for cache-miss lookups only.
         """
         from utils.badges.household_cache import parse_contact_household_fields
+        from utils.stats.crm_fields import (
+            CONTACT_HEAD_OF_HOUSEHOLD_FIELD,
+            CONTACT_HOUSEHOLD_FIELD,
+        )
 
         import urllib.parse
 
         results: Dict[str, dict] = {}
         ids = [str(cid).strip() for cid in contact_ids if str(cid).strip()]
+        select = (
+            f"contactid,{CONTACT_HOUSEHOLD_FIELD},{CONTACT_HEAD_OF_HOUSEHOLD_FIELD}"
+        )
+        total_chunks = (len(ids) + chunk_size - 1) // chunk_size if ids else 0
         for i in range(0, len(ids), chunk_size):
             chunk = ids[i : i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+            logger.info(
+                "Household CRM fetch chunk %d/%d (%d contact id(s))",
+                chunk_num,
+                total_chunks,
+                len(chunk),
+            )
             filter_parts = [f"contactid eq {cid}" for cid in chunk]
             filter_clause = " or ".join(filter_parts)
-            endpoint = f"contacts?$filter={urllib.parse.quote(filter_clause)}"
+            endpoint = (
+                f"contacts?$select={select}"
+                f"&$filter={urllib.parse.quote(filter_clause)}"
+            )
             response = self._make_request(endpoint)
             for contact in response.get("value", []):
                 contact_id = contact.get("contactid")

@@ -8,6 +8,19 @@ BADGE_WIDTH = 384
 BADGE_HEIGHT = 288
 LAYOUT_MARGIN = 20  # legacy single-margin default
 RECOMMENDED_MARGINS = {"top": 20, "right": 20, "bottom": 20, "left": 20}
+RECOMMENDED_CORNER_MARGINS = {
+    "top_left": {"horizontal": 20, "vertical": 20},
+    "top_right": {"horizontal": 20, "vertical": 20},
+    "bottom_left": {"horizontal": 20, "vertical": 20},
+    "bottom_right": {"horizontal": 20, "vertical": 20},
+}
+CORNER_MARGIN_KEYS = ("top_left", "top_right", "bottom_left", "bottom_right")
+PRESET_TO_CORNER = {
+    "top-left": "top_left",
+    "top-right": "top_right",
+    "bottom-left": "bottom_left",
+    "bottom-right": "bottom_right",
+}
 SUBEVENT_LINE_HEIGHT = 15
 SUBEVENT_PLACEHOLDERS = [f"{{{{SUBEVENT_{i}}}}}" for i in range(1, 5)]
 
@@ -43,11 +56,65 @@ def _parse_svg_size(svg_content: str) -> tuple[float, float]:
 
 
 def margins_from_layout(layout: dict | None) -> dict:
-    """Return normalized top/right/bottom/left margins from a layout dict."""
+    """Return normalized top/right/bottom/left margins derived from corner settings."""
+    corners = corner_margins_from_layout(layout)
+    return {
+        "top": corners["top_left"]["vertical"],
+        "right": corners["top_right"]["horizontal"],
+        "bottom": corners["bottom_left"]["vertical"],
+        "left": corners["top_left"]["horizontal"],
+    }
+
+
+def _merge_corner_margins(saved: dict | None) -> dict:
+    merged = {
+        key: dict(RECOMMENDED_CORNER_MARGINS[key]) for key in CORNER_MARGIN_KEYS
+    }
+    if not saved:
+        return merged
+    for key in CORNER_MARGIN_KEYS:
+        corner = saved.get(key) or {}
+        if isinstance(corner, dict):
+            merged[key] = {
+                **merged[key],
+                **{
+                    k: corner[k]
+                    for k in ("horizontal", "vertical")
+                    if k in corner
+                },
+            }
+    return merged
+
+
+def _margins_dict_to_corners(margins: dict) -> dict:
+    m = {**RECOMMENDED_MARGINS, **(margins or {})}
+    return {
+        "top_left": {"horizontal": m["left"], "vertical": m["top"]},
+        "top_right": {"horizontal": m["right"], "vertical": m["top"]},
+        "bottom_left": {"horizontal": m["left"], "vertical": m["bottom"]},
+        "bottom_right": {"horizontal": m["right"], "vertical": m["bottom"]},
+    }
+
+
+def corner_margins_from_layout(layout: dict | None) -> dict:
+    """Return per-corner horizontal/vertical insets from a layout dict."""
     if not layout:
-        return dict(RECOMMENDED_MARGINS)
-    saved = layout.get("margins") or {}
-    return {**RECOMMENDED_MARGINS, **saved}
+        return _merge_corner_margins(None)
+    if layout.get("corner_margins"):
+        return _merge_corner_margins(layout["corner_margins"])
+    if layout.get("margins"):
+        return _margins_dict_to_corners(layout["margins"])
+    return _merge_corner_margins(None)
+
+
+def _corner_for_preset(preset: str) -> str | None:
+    return PRESET_TO_CORNER.get(preset)
+
+
+def _bottom_vertical_inset(corner_margins: dict) -> float:
+    bl = corner_margins["bottom_left"]["vertical"]
+    br = corner_margins["bottom_right"]["vertical"]
+    return (bl + br) / 2.0
 
 
 def preset_position(
@@ -56,44 +123,87 @@ def preset_position(
     elem_h: float,
     badge_w: float = BADGE_WIDTH,
     badge_h: float = BADGE_HEIGHT,
+    corner_margins: dict | None = None,
     margins: dict | None = None,
 ) -> tuple[float, float]:
-    m = margins or RECOMMENDED_MARGINS
+    if margins is not None and corner_margins is None:
+        corner_margins = _margins_dict_to_corners(margins)
+    c = corner_margins or RECOMMENDED_CORNER_MARGINS
     if preset == "top-left":
-        return m["left"], m["top"]
+        corner = c["top_left"]
+        return corner["horizontal"], corner["vertical"]
     if preset == "top-right":
-        return badge_w - elem_w - m["right"], m["top"]
+        corner = c["top_right"]
+        return badge_w - elem_w - corner["horizontal"], corner["vertical"]
     if preset == "bottom-left":
-        return m["left"], badge_h - elem_h - m["bottom"]
+        corner = c["bottom_left"]
+        return corner["horizontal"], badge_h - elem_h - corner["vertical"]
     if preset == "bottom-right":
-        return badge_w - elem_w - m["right"], badge_h - elem_h - m["bottom"]
+        corner = c["bottom_right"]
+        return badge_w - elem_w - corner["horizontal"], badge_h - elem_h - corner["vertical"]
     if preset == "bottom-center":
-        return (badge_w - elem_w) / 2, badge_h - elem_h - m["bottom"]
+        return (badge_w - elem_w) / 2, badge_h - elem_h - _bottom_vertical_inset(c)
     raise ValueError(f"Unknown preset: {preset}")
 
 
-def _subevent_anchor(preset: str, badge_w: float, margins: dict) -> tuple[float, str]:
+def _subevent_anchor(
+    preset: str, badge_w: float, corner_margins: dict
+) -> tuple[float, str]:
     if preset == "top-left":
-        return margins["left"], "start"
+        return corner_margins["top_left"]["horizontal"], "start"
     if preset == "top-right":
-        return badge_w - margins["right"], "end"
+        return badge_w - corner_margins["top_right"]["horizontal"], "end"
     if preset == "bottom-left":
-        return margins["left"], "start"
+        return corner_margins["bottom_left"]["horizontal"], "start"
     if preset == "bottom-right":
-        return badge_w - margins["right"], "end"
+        return badge_w - corner_margins["bottom_right"]["horizontal"], "end"
     if preset == "bottom-center":
         return badge_w / 2, "middle"
-    return margins["left"], "start"
+    return corner_margins["top_left"]["horizontal"], "start"
 
 
 def _subevent_base_y(
-    preset: str, count: int, badge_h: float, line_height: float, margins: dict
+    preset: str,
+    count: int,
+    badge_h: float,
+    line_height: float,
+    corner_margins: dict,
 ) -> float:
+    if preset == "top-left":
+        return corner_margins["top_left"]["vertical"] + line_height
+    if preset == "top-right":
+        return corner_margins["top_right"]["vertical"] + line_height
+    if preset == "bottom-left":
+        return (
+            badge_h
+            - corner_margins["bottom_left"]["vertical"]
+            - max(count, 1) * line_height
+            + 4
+        )
+    if preset == "bottom-right":
+        return (
+            badge_h
+            - corner_margins["bottom_right"]["vertical"]
+            - max(count, 1) * line_height
+            + 4
+        )
+    if preset == "bottom-center":
+        return badge_h - _bottom_vertical_inset(corner_margins) - max(count, 1) * line_height + 4
     if preset.startswith("bottom"):
-        return badge_h - margins["bottom"] - max(count, 1) * line_height + 4
+        return (
+            badge_h
+            - corner_margins["bottom_left"]["vertical"]
+            - max(count, 1) * line_height
+            + 4
+        )
     if preset.startswith("top"):
-        return margins["top"] + line_height
-    return badge_h - margins["bottom"] - max(count, 1) * line_height + 4
+        return corner_margins["top_left"]["vertical"] + line_height
+    return (
+        badge_h
+        - corner_margins["bottom_left"]["vertical"]
+        - max(count, 1) * line_height
+        + 4
+    )
 
 
 def _set_tag_attr(tag: str, attr: str, value) -> str:
@@ -158,24 +268,59 @@ def _parse_text_xy(tag: str) -> tuple[float, float, str]:
 
 
 def _extract_qr_companions(svg_content: str, qr_spec: dict) -> dict:
-    """Offsets for text labels that move with the QR code image."""
+    """Vertical offsets for text labels that stay centered above/below the QR image."""
     companions = {}
     qr_x = float(qr_spec.get("x", 0))
     qr_y = float(qr_spec.get("y", 0))
+    qr_h = float(qr_spec.get("height", 60))
+    qr_bottom = qr_y + qr_h
+
     for ph in QR_COMPANION_PLACEHOLDERS:
         tag = _find_text_tag(svg_content, ph)
         if not tag:
             continue
-        tx, ty, text_anchor = _parse_text_xy(tag)
-        companions[ph] = {
-            "dx": tx - qr_x,
-            "dy": ty - qr_y,
-            "textAnchor": text_anchor,
-        }
+        _tx, ty, _text_anchor = _parse_text_xy(tag)
+        if ph == "{{MEMBER_ID}}":
+            gap = max(qr_y - ty, 5.0)
+            companions[ph] = {"position": "above", "gap": round(gap, 1)}
+        else:
+            gap = max(ty - qr_bottom, 6.0)
+            companions[ph] = {"position": "below", "gap": round(gap, 1)}
     return companions
 
 
-def _apply_qr_companions(svg_content: str, qr_x: float, qr_y: float, companions: dict) -> str:
+def _companion_xy(
+    ph: str,
+    rel: dict,
+    qr_x: float,
+    qr_y: float,
+    qr_width: float,
+    qr_height: float,
+) -> tuple[float, float]:
+    """Place companion text centered on the QR box (legacy dx/dy layouts included)."""
+    center_x = qr_x + qr_width / 2
+    qr_bottom = qr_y + qr_height
+
+    if rel.get("position") == "above":
+        return center_x, qr_y - float(rel.get("gap", 5))
+    if rel.get("position") == "below":
+        return center_x, qr_bottom + float(rel.get("gap", 6))
+
+    # Legacy layouts stored dx/dy from the QR top-left; ignore stale absolute dy
+    # and hug the QR edges with standard gaps (fixes saved templates after resize).
+    if ph == "{{MEMBER_ID}}":
+        return center_x, qr_y - 5.0
+    return center_x, qr_bottom + 10.0
+
+
+def _apply_qr_companions(
+    svg_content: str,
+    qr_x: float,
+    qr_y: float,
+    companions: dict,
+    qr_width: float = 60,
+    qr_height: float = 60,
+) -> str:
     if not companions:
         return svg_content
     result = svg_content
@@ -183,20 +328,20 @@ def _apply_qr_companions(svg_content: str, qr_x: float, qr_y: float, companions:
         tag = _find_text_tag(result, ph)
         if not tag:
             continue
+        x, y = _companion_xy(ph, rel, qr_x, qr_y, qr_width, qr_height)
         updated = tag
-        updated = _set_tag_attr(updated, "x", qr_x + float(rel.get("dx", 0)))
-        updated = _set_tag_attr(updated, "y", qr_y + float(rel.get("dy", 0)))
-        text_anchor = rel.get("textAnchor")
-        if text_anchor and re.search(r"text-anchor\s*=", updated, re.IGNORECASE):
+        updated = _set_tag_attr(updated, "x", x)
+        updated = _set_tag_attr(updated, "y", y)
+        if re.search(r"text-anchor\s*=", updated, re.IGNORECASE):
             updated = re.sub(
                 r'(text-anchor\s*=\s*")[^"]*(")',
-                rf'\g<1>{text_anchor}\g<2>',
+                r'\g<1>middle\g<2>',
                 updated,
                 count=1,
                 flags=re.IGNORECASE,
             )
-        elif text_anchor:
-            updated = updated.replace("<text", f'<text text-anchor="{text_anchor}"', 1)
+        else:
+            updated = updated.replace("<text", '<text text-anchor="middle"', 1)
         result = result.replace(tag, updated, 1)
     return result
 
@@ -217,8 +362,8 @@ def _find_subevent_tags(svg_content: str) -> list[tuple[str, str]]:
 def extract_layout_from_svg(svg_content: str) -> dict:
     """Read default element positions from an SVG template."""
     badge_w, badge_h = _parse_svg_size(svg_content)
-    margins = dict(RECOMMENDED_MARGINS)
-    layout = {"margins": margins}
+    corner_margins = corner_margins_from_layout(None)
+    layout = {"corner_margins": corner_margins}
 
     for key in IMAGE_LAYOUT_KEYS:
         tag = _find_image_tag(svg_content, key)
@@ -245,9 +390,9 @@ def extract_layout_from_svg(svg_content: str) -> dict:
             line_height = ys[1] - ys[0]
         layout["subevents"] = {
             "preset": "custom",
-            "x": float(x.group(1)) if x else margins["left"],
+            "x": float(x.group(1)) if x else corner_margins["bottom_left"]["horizontal"],
             "baseY": float(y.group(1)) if y else _subevent_base_y(
-                "bottom-left", len(sub_tags), badge_h, line_height, margins
+                "bottom-left", len(sub_tags), badge_h, line_height, corner_margins
             ),
             "lineHeight": line_height,
             "textAnchor": anchor.group(1) if anchor else "start",
@@ -257,7 +402,7 @@ def extract_layout_from_svg(svg_content: str) -> dict:
 
 
 def _apply_image_layout(
-    svg_content: str, placeholder: str, spec: dict, margins: dict
+    svg_content: str, placeholder: str, spec: dict, corner_margins: dict
 ) -> str:
     tag = _find_image_tag(svg_content, placeholder)
     if not tag:
@@ -268,10 +413,12 @@ def _apply_image_layout(
     preset = spec.get("preset", "custom")
     badge_w, badge_h = _parse_svg_size(svg_content)
     if preset and preset != "custom":
-        x, y = preset_position(preset, width, height, badge_w, badge_h, margins)
+        x, y = preset_position(
+            preset, width, height, badge_w, badge_h, corner_margins=corner_margins
+        )
     else:
-        x = float(spec.get("x", margins["left"]))
-        y = float(spec.get("y", margins["top"]))
+        x = float(spec.get("x", corner_margins["top_left"]["horizontal"]))
+        y = float(spec.get("y", corner_margins["top_left"]["vertical"]))
 
     if placeholder == "{{QR_CODE}}" and abs(width - height) > 0.05:
         size = min(width, height)
@@ -286,12 +433,12 @@ def _apply_image_layout(
     updated = _set_tag_attr(updated, "height", height)
     result = svg_content.replace(tag, updated, 1)
     if placeholder == "{{QR_CODE}}" and spec.get("companions"):
-        result = _apply_qr_companions(result, x, y, spec["companions"])
+        result = _apply_qr_companions(result, x, y, spec["companions"], width, height)
     return result
 
 
 def _apply_subevent_layout(
-    svg_content: str, spec: dict, badge_w: float, badge_h: float, margins: dict
+    svg_content: str, spec: dict, badge_w: float, badge_h: float, corner_margins: dict
 ) -> str:
     sub_tags = _find_subevent_tags(svg_content)
     if not sub_tags:
@@ -302,14 +449,16 @@ def _apply_subevent_layout(
     count = len(sub_tags)
 
     if preset and preset != "custom":
-        x, text_anchor = _subevent_anchor(preset, badge_w, margins)
-        base_y = _subevent_base_y(preset, count, badge_h, line_height, margins)
+        x, text_anchor = _subevent_anchor(preset, badge_w, corner_margins)
+        base_y = _subevent_base_y(preset, count, badge_h, line_height, corner_margins)
     else:
-        x = float(spec.get("x", margins["left"]))
+        x = float(spec.get("x", corner_margins["bottom_left"]["horizontal"]))
         base_y = float(
             spec.get(
                 "baseY",
-                _subevent_base_y("bottom-left", count, badge_h, line_height, margins),
+                _subevent_base_y(
+                    "bottom-left", count, badge_h, line_height, corner_margins
+                ),
             )
         )
         text_anchor = spec.get("textAnchor", "start")
@@ -345,13 +494,13 @@ def apply_element_layout(svg_content: str, layout: dict | None) -> str:
         afrp_spec["preset"] = "top-right"
 
     badge_w, badge_h = _parse_svg_size(svg_content)
-    margins = margins_from_layout(layout)
+    corner_margins = corner_margins_from_layout(layout)
     result = svg_content
     for key, spec in layout.items():
-        if key == "margins" or not spec:
+        if key in ("margins", "corner_margins") or not spec:
             continue
         if key == "subevents":
-            result = _apply_subevent_layout(result, spec, badge_w, badge_h, margins)
+            result = _apply_subevent_layout(result, spec, badge_w, badge_h, corner_margins)
         elif key in IMAGE_LAYOUT_KEYS:
-            result = _apply_image_layout(result, key, spec, margins)
+            result = _apply_image_layout(result, key, spec, corner_margins)
     return ensure_square_qr_image_tags(result)

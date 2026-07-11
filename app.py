@@ -50,8 +50,10 @@ from utils.badges.background_templates import (
     list_backgrounds,
     validate_background_image,
     register_upload,
+    delete_background,
 )
 from utils.dynamics_crm import DynamicsCRMClient
+from utils.badges.meal_options import aggregate_meal_options
 import os
 import json
 import pandas as pd
@@ -148,6 +150,75 @@ def _template_display_name_config(template):
     if isinstance(raw, str):
         return json.loads(raw) if raw else {}
     return raw or {}
+
+
+def _template_meal_preference_mappings(template):
+    raw = getattr(template, 'meal_preference_mappings', None) or '{}'
+    if isinstance(raw, str):
+        return json.loads(raw) if raw else {}
+    return raw or {}
+
+
+def _template_meal_preference_sources(template):
+    raw = getattr(template, 'meal_preference_sources', None) or '{}'
+    if isinstance(raw, str):
+        return json.loads(raw) if raw else {}
+    return raw or {}
+
+
+def _preprocessing_template_by_id(preprocessing_template_id):
+    if not preprocessing_template_id:
+        return None
+    try:
+        from utils.magazine.scheduler import PreprocessingTemplate
+        return PreprocessingTemplate.query.get(int(preprocessing_template_id))
+    except (TypeError, ValueError):
+        return None
+
+
+def _meal_config_from_preprocessing_template_id(preprocessing_template_id):
+    template = _preprocessing_template_by_id(preprocessing_template_id)
+    if not template:
+        return {}, {}
+    return (
+        _template_meal_preference_mappings(template),
+        _template_meal_preference_sources(template),
+    )
+
+
+def _badge_generator_meal_kwargs(preprocessing_template_id):
+    mappings, sources = _meal_config_from_preprocessing_template_id(
+        preprocessing_template_id
+    )
+    return {
+        'meal_preference_mappings': mappings,
+        'meal_preference_sources': sources,
+    }
+
+
+def _preprocessing_config_with_meal(
+    preprocessing_template_id,
+    *,
+    main_event,
+    sub_event=None,
+    inclusion_list=None,
+    created_on_filter=None,
+    group_by_household=False,
+    household_cache_path=None,
+):
+    mappings, sources = _meal_config_from_preprocessing_template_id(
+        preprocessing_template_id
+    )
+    return PreprocessingConfig(
+        main_event=main_event,
+        sub_event=sub_event,
+        inclusion_list=inclusion_list,
+        created_on_filter=created_on_filter,
+        group_by_household=group_by_household,
+        household_cache_path=household_cache_path,
+        meal_preference_mappings=mappings or None,
+        meal_preference_sources=sources or None,
+    )
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -1017,13 +1088,15 @@ def badge_mapping():
     return render_template(
         'badge_mapping.html',
         badge_scale_js=badge_scale_js,
+        is_admin=current_user.is_admin,
+        current_user_id=current_user.id,
     )
 
 @app.route('/preprocessing-designer')
 @login_required
 def preprocessing_designer():
     """Preprocessing template designer page."""
-    return render_template('preprocessing_designer.html')
+    return render_template('preprocessing_designer.html', is_admin=current_user.is_admin)
 
 @app.route('/badge_templates/<path:filename>')
 @login_required
@@ -1076,10 +1149,73 @@ def upload_badge_background():
             img,
             file_storage.filename,
             avery,
+            uploaded_by_user_id=current_user.id,
         )
         return jsonify(entry), 201
     except Exception as e:
         logger.exception("Error uploading badge background")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/badge-backgrounds/<background_id>', methods=['DELETE'])
+@login_required
+def delete_badge_background(background_id):
+    """Remove a background. Admins may remove any; users only their own uploads."""
+    avery = request.args.get('avery', '5392')
+
+    entry, error = delete_background(
+        app.config['BADGE_BACKGROUNDS_FOLDER'],
+        background_id,
+        avery,
+        user_id=current_user.id,
+        is_admin=current_user.is_admin,
+    )
+    if error:
+        lowered = error.lower()
+        if (
+            "administrator" in lowered
+            or "only remove backgrounds you uploaded" in lowered
+            or "without an owner" in lowered
+        ):
+            status = 403
+        elif "not found" in lowered:
+            status = 404
+        else:
+            status = 400
+        return jsonify({'error': error}), status
+
+    templates_reset = BadgeTemplate.query.filter_by(
+        background_id=background_id
+    ).update({'background_id': 'white'}, synchronize_session=False)
+    db.session.commit()
+
+    logger.info(
+        "Removed badge background %s (%s); reset %d template(s) to white",
+        background_id,
+        entry.get('name'),
+        templates_reset,
+    )
+    return jsonify({
+        'message': 'Background removed successfully',
+        'templates_reset': templates_reset,
+    })
+
+
+@app.route('/api/badges/meal-options', methods=['GET'])
+@login_required
+def get_badge_meal_options():
+    """Detect meal-preference questions and choice labels for a main event."""
+    campaign_id = (request.args.get('campaign_id') or '').strip()
+    if not campaign_id:
+        return jsonify({'error': 'campaign_id is required'}), 400
+    try:
+        crm_client = DynamicsCRMClient()
+        questions = crm_client.get_form_questions(campaign_id)
+        payload = aggregate_meal_options(questions)
+        payload['campaign_id'] = campaign_id
+        return jsonify(payload)
+    except Exception as e:
+        logger.exception("Error fetching meal options for campaign %s", campaign_id)
         return jsonify({'error': str(e)}), 500
 
 
@@ -1282,7 +1418,8 @@ def badges_pull_and_process():
             
             try:
                 # Create preprocessing config
-                config_obj = PreprocessingConfig(
+                config_obj = _preprocessing_config_with_meal(
+                    preprocessing_template_id,
                     main_event=event_name,
                     sub_event=sub_event if sub_event else None,
                     inclusion_list=inclusion_list if inclusion_list else None,
@@ -1373,7 +1510,7 @@ def create_badge_template():
             background_id=data.get('background_id', 'white'),
             show_outlines=bool(data.get('show_outlines', False)),
             element_layout=json.dumps(data.get('element_layout') or {}),
-            display_name_config=json.dumps(data.get('display_name_config') or {})
+            display_name_config=json.dumps(data.get('display_name_config') or {}),
         )
         
         db.session.add(template)
@@ -1455,7 +1592,9 @@ def update_badge_template(template_id):
 @app.route('/api/badge-templates/<int:template_id>', methods=['DELETE'])
 @login_required
 def delete_badge_template(template_id):
-    """Delete a badge template."""
+    """Delete a badge template (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied - Admin only'}), 403
     try:
         template = BadgeTemplate.query.get(template_id)
         if not template:
@@ -1503,7 +1642,7 @@ def duplicate_badge_template(template_id):
             background_id=template.background_id or 'white',
             show_outlines=template.show_outlines,
             element_layout=template.element_layout or '{}',
-            display_name_config=template.display_name_config or '{}'
+            display_name_config=template.display_name_config or '{}',
         )
         
         db.session.add(new_template)
@@ -1617,7 +1756,9 @@ def create_preprocessing_template():
             name=data['name'],
             description=data.get('description', ''),
             value_mappings=json.dumps(data.get('value_mappings', {})),
-            contains_mappings=json.dumps(data.get('contains_mappings', {}))
+            contains_mappings=json.dumps(data.get('contains_mappings', {})),
+            meal_preference_mappings=json.dumps(data.get('meal_preference_mappings') or {}),
+            meal_preference_sources=json.dumps(data.get('meal_preference_sources') or {}),
         )
         
         db.session.add(template)
@@ -1681,6 +1822,14 @@ def update_preprocessing_template(template_id):
             template.value_mappings = json.dumps(data['value_mappings'])
         if 'contains_mappings' in data:
             template.contains_mappings = json.dumps(data['contains_mappings'])
+        if 'meal_preference_mappings' in data:
+            template.meal_preference_mappings = json.dumps(
+                data['meal_preference_mappings'] or {}
+            )
+        if 'meal_preference_sources' in data:
+            template.meal_preference_sources = json.dumps(
+                data['meal_preference_sources'] or {}
+            )
         
         template.updated_at = datetime.utcnow()
         db.session.commit()
@@ -1700,7 +1849,9 @@ def update_preprocessing_template(template_id):
 @app.route('/api/preprocessing-templates/<int:template_id>', methods=['DELETE'])
 @login_required
 def delete_preprocessing_template(template_id):
-    """Delete a preprocessing template."""
+    """Delete a preprocessing template (admin only)."""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied - Admin only'}), 403
     try:
         from utils.magazine.scheduler import PreprocessingTemplate
         template = PreprocessingTemplate.query.get(template_id)
@@ -1746,7 +1897,9 @@ def duplicate_preprocessing_template(template_id):
             name=new_name,
             description=template.description,
             value_mappings=template.value_mappings,
-            contains_mappings=template.contains_mappings
+            contains_mappings=template.contains_mappings,
+            meal_preference_mappings=template.meal_preference_mappings or '{}',
+            meal_preference_sources=template.meal_preference_sources or '{}',
         )
         
         db.session.add(new_template)
@@ -1774,6 +1927,7 @@ def generate_badges():
         # Validate required fields
         excel_file = data.get('excel_file')
         template_id = data.get('template_id')
+        preprocessing_template_id = data.get('preprocessingTemplateId')
         
         if not excel_file:
             return jsonify({'error': 'Excel file path is required'}), 400
@@ -1821,6 +1975,7 @@ def generate_badges():
             backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
             element_layout=_template_element_layout(template),
             display_name_config=_template_display_name_config(template),
+            **_badge_generator_meal_kwargs(preprocessing_template_id),
         )
         
         # Generate PDF
@@ -1849,6 +2004,7 @@ def generate_badges_async():
     data = request.get_json() or {}
     excel_file = data.get('excel_file')
     template_id = data.get('template_id')
+    preprocessing_template_id = data.get('preprocessingTemplateId')
 
     if not excel_file:
         return jsonify({'error': 'Excel file path is required'}), 400
@@ -1894,6 +2050,7 @@ def generate_badges_async():
                     backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                     element_layout=_template_element_layout(template),
                     display_name_config=_template_display_name_config(template),
+                    **_badge_generator_meal_kwargs(preprocessing_template_id),
                 )
 
                 total = len(generator.df) if hasattr(generator, "df") else 0
@@ -2008,7 +2165,8 @@ def badges_pull_process_generate_async():
                 if not preprocessor_class:
                     preprocessor_class = DefaultPreprocessing
 
-                config_obj = PreprocessingConfig(
+                config_obj = _preprocessing_config_with_meal(
+                    preprocessing_template_id,
                     main_event=event_name,
                     sub_event=sub_event,
                     inclusion_list=inclusion_list,
@@ -2054,6 +2212,7 @@ def badges_pull_process_generate_async():
                             backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                             element_layout=_template_element_layout(badge_template),
                             display_name_config=_template_display_name_config(badge_template),
+                            **_badge_generator_meal_kwargs(preprocessing_template_id),
                         )
 
                         total = len(generator.df) if hasattr(generator, "df") else 0
@@ -2212,7 +2371,8 @@ def badges_pull_process_generate():
             logger.info("No preprocessing template selected, using default (no custom transformations)")
             preprocessor_class = DefaultPreprocessing
         
-        config_obj = PreprocessingConfig(
+        config_obj = _preprocessing_config_with_meal(
+            preprocessing_template_id,
             main_event=event_name,
             sub_event=sub_event,
             inclusion_list=inclusion_list,
@@ -2272,6 +2432,7 @@ def badges_pull_process_generate():
                         backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
                         element_layout=_template_element_layout(template),
                         display_name_config=_template_display_name_config(template),
+                        **_badge_generator_meal_kwargs(preprocessing_template_id),
                     )
                     
                     output_pdf = os.path.join(tempfile.gettempdir(), f'badges_{int(datetime.utcnow().timestamp())}.pdf')

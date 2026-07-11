@@ -9,6 +9,13 @@ import pytz
 import logging
 from typing import Dict, List, Tuple, Optional, Type
 from utils.badges.event_statistics import EventStatisticsReport
+from utils.badges.meal_options import (
+    MEAL_PREFERENCE_COLUMN,
+    MEAL_QUESTION_EXCLUDE,
+    MEAL_QUESTION_INCLUDE,
+    build_meal_preference_value,
+    default_source_config,
+)
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.pre_processing_module import PreprocessingConfig, PreprocessingBase
 from utils.badges.file_validator import FileValidator, FileTypes
@@ -380,6 +387,74 @@ class EventRegistrationProcessorV3:
         
         return df
 
+    def _find_meal_preference_columns(self, df: pd.DataFrame) -> List[str]:
+        """Return per-event form-response columns that represent a meal choice.
+
+        Columns look like ``{event} ~ {question}``; we keep the ones whose
+        question matches a meal-preference keyword and skip logistics questions
+        (children's meal, allergies, t-shirt size, ...).
+        """
+        meal_cols = []
+        for col in df.columns:
+            if " ~ " not in str(col):
+                continue
+            question = str(col).split(" ~ ", 1)[1]
+            if MEAL_QUESTION_INCLUDE.search(question) and not MEAL_QUESTION_EXCLUDE.search(question):
+                meal_cols.append(col)
+        return meal_cols
+
+    def merge_meal_preferences(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Build a default merged ``Meal Preference`` column for Excel export.
+
+        Uses registered-banquet-only logic (one banquet room per attendee).
+        Non-banquet meal questions stay as separate ``{event} ~ {question}``
+        columns; preprocessing templates can enable them via meal_preference_sources.
+        """
+        meal_cols = self._find_meal_preference_columns(df)
+        if not meal_cols:
+            logger.info("No meal-preference columns found - skipping meal merge")
+            return df
+
+        questions = []
+        for index, col in enumerate(meal_cols):
+            event_name, question = str(col).split(" ~ ", 1)
+            questions.append(
+                {
+                    "campaign_name": event_name,
+                    "question": question,
+                    "order": index,
+                }
+            )
+        mappings = None
+        sources_config = None
+        if self.config:
+            mappings = getattr(self.config, 'meal_preference_mappings', None) or None
+            sources_config = getattr(self.config, 'meal_preference_sources', None) or None
+        if not sources_config:
+            sources_config = default_source_config(questions)
+
+        logger.info("Merging meal-preference columns into '%s':", MEAL_PREFERENCE_COLUMN)
+        for col in meal_cols:
+            logger.info("  - %s", col)
+
+        merged = df.apply(
+            lambda row: build_meal_preference_value(
+                row.to_dict(), sources_config, mappings
+            ),
+            axis=1,
+        )
+        if MEAL_PREFERENCE_COLUMN in df.columns:
+            existing = df[MEAL_PREFERENCE_COLUMN].astype(str).str.strip()
+            df[MEAL_PREFERENCE_COLUMN] = existing.where(existing != '', merged)
+        else:
+            df[MEAL_PREFERENCE_COLUMN] = merged
+
+        assigned = df[df[MEAL_PREFERENCE_COLUMN].astype(str).str.strip() != ''].shape[0]
+        logger.info(
+            "Meal preference assigned for %d of %d contacts", assigned, len(df)
+        )
+        return df
+
     def add_qr_codes(self, df: pd.DataFrame, qr_df: pd.DataFrame) -> pd.DataFrame:
         """Add QR code information."""
         # Check if qr_df is empty - some events may not have QR codes yet
@@ -508,6 +583,7 @@ class EventRegistrationProcessorV3:
             # Add information from other sources
             result_df = self.add_seating_info(result_df, seating_df)
             result_df = self.add_form_responses(result_df, forms_df)
+            result_df = self.merge_meal_preferences(result_df)
             result_df = self.add_qr_codes(result_df, qr_df)
 
             result_df = self._enrich_households_if_needed(result_df)
@@ -537,7 +613,7 @@ class EventRegistrationProcessorV3:
                 logger.info(f"Found {len(result_df)} contacts registered for {self.config.sub_event}")
                 
                 # Filter columns to only include relevant ones for this sub-event
-                contact_columns = ['Contact ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age']
+                contact_columns = ['Contact ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age', MEAL_PREFERENCE_COLUMN]
                 relevant_columns = [col for col in contact_columns if col in result_df.columns]
                 
                 # Add the sub-event column itself

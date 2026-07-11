@@ -1,6 +1,7 @@
 """Display name formatting for {{DISPLAY_NAME}} badge placeholders."""
 
 DEFAULT_DISPLAY_NAME_CONFIG = {
+    "include_title": False,
     "include_middle": True,
     "include_maiden": True,
     "parentheses_middle": False,
@@ -34,12 +35,15 @@ def build_display_name(
 ) -> str:
     """Build the full display name from row data and template formatting rules."""
     cfg = normalize_display_name_config(config)
+    title = value_getter("{{TITLE}}", "Title")
     first = value_getter("{{FIRST_NAME}}", "First Name")
     middle = value_getter("{{MIDDLE_NAME}}", "Middle Name")
     maiden = value_getter("{{MAIDEN_NAME}}", "Maiden Name")
     last = value_getter("{{LAST_NAME}}", "Last Name")
 
     parts = []
+    if cfg["include_title"] and title:
+        parts.append(title)
     if first:
         parts.append(first)
     if cfg["include_middle"] and middle:

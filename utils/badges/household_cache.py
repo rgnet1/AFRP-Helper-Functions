@@ -119,6 +119,51 @@ def merge_fetched_into_cache(cache: dict, fetched: Dict[str, dict]) -> None:
         contacts[str(contact_id).strip()] = entry
 
 
+def _nonempty(value: Any) -> str:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+    return text
+
+
+def seed_cache_from_dataframe(
+    df: pd.DataFrame,
+    cache: dict,
+    contact_id_column: str = "Contact ID",
+) -> int:
+    """
+    Populate cache entries from household columns already present on the dataframe
+    (e.g. from the event-guest CRM export). Returns how many contacts were seeded.
+    """
+    if contact_id_column not in df.columns:
+        return 0
+    if not any(col in df.columns for col in HOUSEHOLD_COLUMNS):
+        return 0
+
+    seeded = 0
+    contacts = cache.setdefault("contacts", {})
+    now = _utc_now_iso()
+    for _, row in df[[c for c in [contact_id_column, *HOUSEHOLD_COLUMNS] if c in df.columns]].iterrows():
+        contact_id = _nonempty(row.get(contact_id_column))
+        if not contact_id or contact_id in contacts:
+            continue
+        household_id = _nonempty(row.get("Household ID"))
+        household = _nonempty(row.get("Household"))
+        head = _nonempty(row.get("Head of Household"))
+        if not (household_id or household or head):
+            continue
+        contacts[contact_id] = {
+            "household_id": household_id,
+            "household": household,
+            "head_of_household": head,
+            "cached_at": now,
+        }
+        seeded += 1
+    return seeded
+
+
 def enrich_dataframe(
     df: pd.DataFrame,
     crm_client: Optional["DynamicsCRMClient"],
@@ -127,7 +172,8 @@ def enrich_dataframe(
 ) -> pd.DataFrame:
     """
     Add Household ID / Household / Head of Household columns using the file cache.
-    Fetches only cache misses from CRM when crm_client is provided.
+    Prefers values already on the dataframe (event-guest export), then cache hits,
+    and only then fetches remaining misses from CRM.
     """
     if df.empty or contact_id_column not in df.columns:
         return df
@@ -145,6 +191,14 @@ def enrich_dataframe(
         return df
 
     cache = load_cache(cache_path)
+    seeded = seed_cache_from_dataframe(df, cache, contact_id_column)
+    if seeded:
+        save_cache(cache_path, cache)
+        logger.info(
+            "Seeded household cache with %d contact(s) from registration data",
+            seeded,
+        )
+
     cached_contacts = cache.get("contacts") or {}
     missing = get_missing_contact_ids(contact_ids, cache)
 
@@ -164,6 +218,11 @@ def enrich_dataframe(
             merge_fetched_into_cache(cache, fetched)
             save_cache(cache_path, cache)
             cached_contacts = cache.get("contacts") or {}
+            logger.info(
+                "Household CRM fetch complete: cached %d of %d requested contact(s)",
+                len(fetched),
+                len(missing),
+            )
     else:
         logger.info("Household cache hit for all %d contacts", len(contact_ids))
 
@@ -172,7 +231,13 @@ def enrich_dataframe(
         val = entry.get(field, "")
         return "" if val is None else str(val)
 
-    df["Household ID"] = df[contact_id_column].map(lambda cid: _lookup(cid, "household_id"))
-    df["Household"] = df[contact_id_column].map(lambda cid: _lookup(cid, "household"))
-    df["Head of Household"] = df[contact_id_column].map(lambda cid: _lookup(cid, "head_of_household"))
+    # Prefer non-empty values already on the dataframe; fill gaps from cache.
+    for col, cache_field in (
+        ("Household ID", "household_id"),
+        ("Household", "household"),
+        ("Head of Household", "head_of_household"),
+    ):
+        existing = df[col].map(_nonempty)
+        from_cache = df[contact_id_column].map(lambda cid: _lookup(cid, cache_field))
+        df[col] = existing.where(existing.ne(""), from_cache)
     return df

@@ -6,6 +6,7 @@
 (function (global) {
     const BASE_CANVAS = { width: 384, height: 288 };
     const BASE_RECOMMENDED_MARGIN = 20;
+    const CORNER_MARGIN_KEYS = ['top_left', 'top_right', 'bottom_left', 'bottom_right'];
 
     function round1(n) {
         return Math.round(n * 10) / 10;
@@ -18,12 +19,25 @@
         return round1(n * factor);
     }
 
-    function recommendedMargins(canvasWidth, canvasHeight) {
+    function recommendedCornerMargins(canvasWidth, canvasHeight) {
+        const horizontal = Math.round(BASE_RECOMMENDED_MARGIN * canvasWidth / BASE_CANVAS.width);
+        const vertical = Math.round(BASE_RECOMMENDED_MARGIN * canvasHeight / BASE_CANVAS.height);
+        const corner = { horizontal, vertical };
         return {
-            top: Math.round(BASE_RECOMMENDED_MARGIN * canvasHeight / BASE_CANVAS.height),
-            right: Math.round(BASE_RECOMMENDED_MARGIN * canvasWidth / BASE_CANVAS.width),
-            bottom: Math.round(BASE_RECOMMENDED_MARGIN * canvasHeight / BASE_CANVAS.height),
-            left: Math.round(BASE_RECOMMENDED_MARGIN * canvasWidth / BASE_CANVAS.width),
+            top_left: { ...corner },
+            top_right: { ...corner },
+            bottom_left: { ...corner },
+            bottom_right: { ...corner },
+        };
+    }
+
+    function recommendedMargins(canvasWidth, canvasHeight) {
+        const corners = recommendedCornerMargins(canvasWidth, canvasHeight);
+        return {
+            top: corners.top_left.vertical,
+            right: corners.top_right.horizontal,
+            bottom: corners.bottom_left.vertical,
+            left: corners.top_left.horizontal,
         };
     }
 
@@ -43,6 +57,17 @@
         if (sx === 1 && sy === 1) return JSON.parse(JSON.stringify(layout));
 
         const out = JSON.parse(JSON.stringify(layout));
+        if (out.corner_margins) {
+            const scaledCorners = {};
+            CORNER_MARGIN_KEYS.forEach(key => {
+                const corner = out.corner_margins[key] || {};
+                scaledCorners[key] = {
+                    horizontal: scaleNum(corner.horizontal ?? BASE_RECOMMENDED_MARGIN, sx),
+                    vertical: scaleNum(corner.vertical ?? BASE_RECOMMENDED_MARGIN, sy),
+                };
+            });
+            out.corner_margins = scaledCorners;
+        }
         if (out.margins) {
             out.margins = {
                 top: scaleNum(out.margins.top ?? BASE_RECOMMENDED_MARGIN, sy),
@@ -53,7 +78,7 @@
         }
 
         Object.entries(out).forEach(([key, spec]) => {
-            if (key === 'margins' || !spec || typeof spec !== 'object') return;
+            if (key === 'margins' || key === 'corner_margins' || !spec || typeof spec !== 'object') return;
             if (key === 'subevents') {
                 if (spec.x !== undefined) spec.x = scaleNum(spec.x, sx);
                 if (spec.baseY !== undefined) spec.baseY = scaleNum(spec.baseY, sy);
@@ -66,6 +91,7 @@
             if (spec.height !== undefined) spec.height = scaleNum(spec.height, sy);
             if (spec.companions) {
                 Object.values(spec.companions).forEach(rel => {
+                    if (rel.gap !== undefined) rel.gap = scaleNum(rel.gap, sy);
                     if (rel.dx !== undefined) rel.dx = scaleNum(rel.dx, sx);
                     if (rel.dy !== undefined) rel.dy = scaleNum(rel.dy, sy);
                 });
@@ -233,6 +259,8 @@
     global.BadgeScale = {
         BASE_CANVAS,
         BASE_RECOMMENDED_MARGIN,
+        CORNER_MARGIN_KEYS,
+        recommendedCornerMargins,
         recommendedMargins,
         marginInputMax,
         scaleElementLayout,

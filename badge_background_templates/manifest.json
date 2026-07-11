@@ -15,18 +15,18 @@
       "thumbnail": "5392/thumbnails/afrp_green_header.png"
     },
     {
-      "id": "formal_gold_accent",
-      "name": "Formal Gold Accent",
-      "builtin": true,
-      "file": "5392/formal_gold_accent.png",
-      "thumbnail": "5392/thumbnails/formal_gold_accent.png"
-    },
-    {
       "id": "light_gray",
       "name": "Light Gray",
       "builtin": true,
       "file": "5392/light_gray.png",
       "thumbnail": "5392/thumbnails/light_gray.png"
+    },
+    {
+      "id": "uploads_1783667652_Palestinian_keffiyeh_2",
+      "name": "Palestinian Keffiyeh 2",
+      "builtin": false,
+      "file": "5392/uploads/1783667652_Palestinian_keffiyeh_2.png",
+      "thumbnail": "5392/thumbnails/1783667652_Palestinian_keffiyeh_2.png"
     }
   ]
 }

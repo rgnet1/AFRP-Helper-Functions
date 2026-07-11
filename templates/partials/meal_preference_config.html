@@ -1,0 +1,108 @@
+<style>
+    .meal-mapping-section {
+        margin-top: 20px;
+        padding: 16px;
+        background: #f8f9ff;
+        border-left: 4px solid #4b904b;
+        border-radius: 6px;
+    }
+
+    .meal-mapping-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .meal-mapping-row label {
+        font-size: 13px;
+        color: #444;
+    }
+
+    .meal-mapping-row input {
+        padding: 8px 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+
+    .meal-option-source {
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        color: #555;
+        background: #fff;
+        padding: 6px 8px;
+        border-radius: 4px;
+        border: 1px solid #e8e8e8;
+    }
+
+    .meal-source-list {
+        margin-bottom: 16px;
+    }
+
+    .meal-source-row {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 12px;
+        align-items: start;
+        padding: 10px 0;
+        border-bottom: 1px solid #e8ecf0;
+    }
+
+    .meal-source-row:last-child {
+        border-bottom: none;
+    }
+
+    .meal-source-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #444;
+        white-space: nowrap;
+        padding-top: 2px;
+    }
+
+    .meal-source-toggle input {
+        width: auto;
+    }
+
+    .meal-source-label {
+        font-size: 13px;
+        color: #333;
+        line-height: 1.4;
+    }
+
+    .meal-source-tag {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        background: #e8f5e9;
+        color: #2e7d32;
+    }
+
+    .meal-mapping-heading {
+        font-size: 13px;
+        font-weight: 600;
+        color: #444;
+        margin: 12px 0 8px;
+    }
+</style>
+
+<div class="mapping-type meal-mapping-section" id="mealPreferenceCard" style="display: none;">
+    <h4><i class="fas fa-utensils"></i> Meal Preference Mapping</h4>
+    <p style="font-size: 13px; color: #666; margin-bottom: 12px;">
+        Choose which meal questionnaires appear on badges, then map CRM responses to short labels.
+        Banquet rooms are mutually exclusive; other events can be combined (e.g. <code>S V</code>).
+        Select a main event on the Badge Generator page so CRM meal options can load.
+    </p>
+    <div id="mealQuestionsSummary" class="meal-source-list"></div>
+    <div class="meal-mapping-heading">Response labels</div>
+    <div id="mealPreferenceMappings"></div>
+    <button type="button" class="add-mapping-btn" id="refreshMealOptionsBtn" style="margin-top: 8px;">
+        <i class="fas fa-sync"></i> Refresh options from CRM
+    </button>
+</div>

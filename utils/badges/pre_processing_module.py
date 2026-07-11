@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Mapping
 import pandas as pd
 import logging
 from dataclasses import dataclass
@@ -18,6 +18,8 @@ class PreprocessingConfig:
     created_on_filter: Optional[str] = None  # Optional "on or after" date filter (format: "6/11/2025" or "6/11/2025 2:56:51 PM")
     group_by_household: bool = False  # Group badge order by family household
     household_cache_path: Optional[str] = None  # Path to household_cache.json
+    meal_preference_mappings: Optional[Mapping[str, str]] = None
+    meal_preference_sources: Optional[Mapping[str, Any]] = None
     
     def __post_init__(self):
         self.tz = pytz.timezone(self.timezone)

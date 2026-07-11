@@ -868,6 +868,33 @@
             return null;
         }
 
+        async function fetchAndCacheMealOptions(campaignId) {
+            if (!campaignId) {
+                const prefs = loadFromCache() || {};
+                delete prefs.mealOptions;
+                localStorage.setItem(CACHE_KEY, JSON.stringify(prefs));
+                return null;
+            }
+            try {
+                const response = await fetch(
+                    `/api/badges/meal-options?campaign_id=${encodeURIComponent(campaignId)}`
+                );
+                if (!response.ok) {
+                    throw new Error('Failed to load meal options');
+                }
+                const data = await response.json();
+                const prefs = loadFromCache() || {};
+                prefs.campaignId = campaignId;
+                prefs.mealOptions = data;
+                localStorage.setItem(CACHE_KEY, JSON.stringify(prefs));
+                console.log('Cached meal options for campaign', campaignId, data);
+                return data;
+            } catch (error) {
+                console.error('Error fetching meal options:', error);
+                return null;
+            }
+        }
+
         function restorePreferences(preferences) {
             if (!preferences) return;
 
@@ -1072,6 +1099,7 @@
                     const campaignId = this.value;
                     if (campaignId) {
                         await loadSubEvents(campaignId);
+                        fetchAndCacheMealOptions(campaignId);
                     } else {
                         // Reset sub-events dropdown if no campaign selected
                         const subEventSelect = document.getElementById('subEventSelect');
@@ -1395,7 +1423,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         excel_file: lastProcessedExcelPath,
-                        template_id: parseInt(templateId)
+                        template_id: parseInt(templateId),
+                        preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null,
                     })
                 });
 

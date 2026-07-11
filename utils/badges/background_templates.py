@@ -9,12 +9,16 @@ from io import BytesIO
 from PIL import Image
 from werkzeug.utils import secure_filename
 
-from utils.badges.badge_sizes import canvas_pixels, resolve_avery_code
+from utils.badges.badge_sizes import (
+    canvas_pixels,
+    canvas_pixels_print,
+    resolve_avery_code,
+)
 
 MANIFEST_FILENAME = "manifest.json"
 FALLBACK_AVERY = "5392"
 ASPECT_TOLERANCE = 0.01
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 THUMB_SIZE = (128, 96)
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
@@ -78,6 +82,79 @@ def find_background(root_dir, background_id, avery_code=FALLBACK_AVERY):
     return None
 
 
+def _entry_references_path(entry, rel_path):
+    if not rel_path:
+        return False
+    return entry.get("file") == rel_path or entry.get("thumbnail") == rel_path
+
+
+def delete_background(
+    root_dir,
+    background_id,
+    avery_code=FALLBACK_AVERY,
+    *,
+    user_id=None,
+    is_admin=False,
+):
+    """
+    Remove a background from the manifest and delete its files when unreferenced.
+
+    Admins may remove any background except plain white. Non-admins may only
+    remove uploads they created (matched by uploaded_by_user_id).
+
+    Returns (removed_entry, error_message).
+    """
+    if not background_id or background_id == "white":
+        return None, "Cannot delete the default white background"
+
+    manifest = load_manifest(root_dir)
+    code = resolve_avery_code(avery_code)
+    entries = manifest.get(code, [])
+
+    entry = None
+    entry_index = None
+    for index, candidate in enumerate(entries):
+        if candidate.get("id") == background_id:
+            entry = candidate
+            entry_index = index
+            break
+
+    if entry is None:
+        return None, "Background not found"
+
+    if is_admin:
+        pass
+    elif entry.get("builtin"):
+        return None, "Only administrators can remove built-in backgrounds"
+    else:
+        owner_id = entry.get("uploaded_by_user_id")
+        if owner_id is None:
+            return None, "Only administrators can remove backgrounds without an owner"
+        if user_id is None or owner_id != user_id:
+            return None, "You can only remove backgrounds you uploaded"
+
+    file_rel = entry.get("file")
+    thumb_rel = entry.get("thumbnail")
+
+    entries.pop(entry_index)
+    manifest[code] = entries
+    save_manifest(root_dir, manifest)
+
+    for rel_path in {file_rel, thumb_rel}:
+        if not rel_path:
+            continue
+        if any(_entry_references_path(other, rel_path) for other in entries):
+            continue
+        full_path = os.path.join(root_dir, rel_path)
+        if os.path.isfile(full_path):
+            try:
+                os.remove(full_path)
+            except OSError:
+                pass
+
+    return entry, None
+
+
 def resolve_background_path(root_dir, background_id, avery_code=FALLBACK_AVERY):
     """Return (is_builtin_white, absolute_image_path or None)."""
     entry = find_background(root_dir, background_id, avery_code)
@@ -92,13 +169,46 @@ def resolve_background_path(root_dir, background_id, avery_code=FALLBACK_AVERY):
     return True, None
 
 
+def _flatten_on_white(img: Image.Image) -> Image.Image:
+    """Composite image onto white so transparent pixels are not saved as black."""
+    if img.mode == "P":
+        if "transparency" in img.info:
+            img = img.convert("RGBA")
+        else:
+            return img.convert("RGB")
+    if img.mode in ("RGBA", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        alpha = img.split()[-1]
+        bg.paste(img, mask=alpha)
+        return bg
+    return img.convert("RGB")
+
+
+def normalize_background_image(img: Image.Image, avery_code=FALLBACK_AVERY) -> Image.Image:
+    """
+    Flatten transparency onto white and contain-fit to the print-resolution Avery
+    canvas (300 DPI), centered. Backgrounds are stored at print resolution so they
+    stay sharp on paper instead of being crushed to the 96 DPI layout canvas.
+    """
+    img = _flatten_on_white(img)
+    cw, ch = canvas_pixels_print(avery_code)
+    iw, ih = img.size
+    scale = min(cw / iw, ch / ih)
+    nw = max(1, int(round(iw * scale)))
+    nh = max(1, int(round(ih * scale)))
+    resized = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (cw, ch), (255, 255, 255))
+    canvas.paste(resized, ((cw - nw) // 2, (ch - nh) // 2))
+    return canvas
+
+
 def _min_dimensions_for_avery(avery_code):
     w, h = canvas_pixels(avery_code)
     return w, h, w / h
 
 
 def validate_background_image(file_storage, avery_code=FALLBACK_AVERY):
-    """Validate uploaded image; return (pil_image, error_message)."""
+    """Validate uploaded image; return (normalized_pil_image, error_message)."""
     filename = secure_filename(file_storage.filename or "")
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -106,7 +216,7 @@ def validate_background_image(file_storage, avery_code=FALLBACK_AVERY):
 
     data = file_storage.read()
     if len(data) > MAX_UPLOAD_BYTES:
-        return None, "File exceeds 5 MB limit"
+        return None, f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit"
 
     try:
         img = Image.open(BytesIO(data))
@@ -114,22 +224,23 @@ def validate_background_image(file_storage, avery_code=FALLBACK_AVERY):
     except Exception:
         return None, "Invalid image file"
 
-    min_w, min_h, aspect = _min_dimensions_for_avery(avery_code)
+    min_w, min_h, _aspect = _min_dimensions_for_avery(avery_code)
     w, h = img.size
-    if w < min_w or h < min_h:
-        return None, f"Image must be at least {min_w}×{min_h} px"
+    # Allow smaller art; it will be upscaled. Reject tiny images that would look awful.
+    if w < min_w // 2 or h < min_h // 2:
+        return None, f"Image must be at least {min_w // 2}×{min_h // 2} px"
 
-    ratio = w / h
-    if abs(ratio - aspect) / aspect > ASPECT_TOLERANCE:
-        return None, (
-            f"Image aspect ratio must match badge size "
-            f"({min_w}×{min_h}, ≈{aspect:.2f}:1)"
-        )
-
-    return img.convert("RGB"), None
+    return normalize_background_image(img, avery_code), None
 
 
-def register_upload(root_dir, img, original_filename, avery_code=FALLBACK_AVERY):
+def register_upload(
+    root_dir,
+    img,
+    original_filename,
+    avery_code=FALLBACK_AVERY,
+    *,
+    uploaded_by_user_id=None,
+):
     """Save uploaded background + thumbnail; append to manifest. Returns entry dict."""
     code = resolve_avery_code(avery_code)
     uploads_dir = os.path.join(root_dir, code, "uploads")
@@ -158,6 +269,8 @@ def register_upload(root_dir, img, original_filename, avery_code=FALLBACK_AVERY)
         "file": rel_path,
         "thumbnail": thumb_rel,
     }
+    if uploaded_by_user_id is not None:
+        entry["uploaded_by_user_id"] = uploaded_by_user_id
 
     manifest = load_manifest(root_dir)
     manifest.setdefault(code, []).append(entry)
