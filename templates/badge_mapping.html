@@ -2924,6 +2924,7 @@
                             width: badgeViewBox.width,
                             height: badgeViewBox.height,
                         },
+                        _field_visibility: { ...fieldVisibility },
                     },
                     display_name_config: displayNameConfig,
                 };
@@ -3074,7 +3075,12 @@
                         }
                     });
 
-                    renderMappingInterface(columnMappings);
+                    renderMappingInterface(columnMappings, { skipVisibilitySync: true });
+
+                    const savedFieldVisibility = (template.element_layout || {})._field_visibility;
+                    if (savedFieldVisibility && typeof savedFieldVisibility === 'object') {
+                        fieldVisibility = { ...savedFieldVisibility };
+                    }
                 } catch (svgError) {
                     console.error('Error loading built-in badge template:', svgError);
                     showToast('Loaded template but could not load badge layout', 'error');

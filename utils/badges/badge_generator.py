@@ -60,6 +60,8 @@ DEFAULT_MIN_SHRINK_FONT_SIZE = 10.0
 CLUB_LOGO_PLACEHOLDER = "{{CLUB_LOGO}}"
 AFRP_LOGO_PLACEHOLDER = "{{AFRP_LOGO}}"
 QR_CODE_PLACEHOLDER = "{{QR_CODE}}"
+DISPLAY_NAME_PLACEHOLDER = "{{DISPLAY_NAME}}"
+FIELD_VISIBILITY_KEY = "_field_visibility"
 MAX_STAGED_LOGO_EDGE = 512
 IMAGE_TAG_RE = re.compile(r"<image\b[^>]*/?>", re.IGNORECASE | re.DOTALL)
 
@@ -580,6 +582,36 @@ def _finalize_svg_content(svg_content: str) -> str:
     return _shrink_text_to_fit(svg_content)
 
 
+def _field_visibility_from_layout(layout: dict | None) -> dict:
+    if not layout:
+        return {}
+    raw = layout.get(FIELD_VISIBILITY_KEY)
+    return raw if isinstance(raw, dict) else {}
+
+
+def _is_field_enabled(
+    placeholder: str,
+    column_mappings: dict,
+    field_visibility: dict | None,
+) -> bool:
+    """Match badge designer preview toggles in final badge output."""
+    if field_visibility and placeholder in field_visibility:
+        return field_visibility[placeholder] is not False
+    if placeholder in column_mappings:
+        return True
+    if placeholder == QR_CODE_PLACEHOLDER:
+        return False
+    if placeholder.startswith("{{SUBEVENT_"):
+        return False
+    if placeholder in (
+        AFRP_LOGO_PLACEHOLDER,
+        CLUB_LOGO_PLACEHOLDER,
+        DISPLAY_NAME_PLACEHOLDER,
+    ):
+        return True
+    return True
+
+
 def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, default_column: str) -> str:
     column = column_mappings.get(placeholder, default_column)
     if isinstance(column, list):
@@ -587,7 +619,12 @@ def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, defaul
     return _clean_optional_name_part(_row_value_str(row, column))
 
 
-def _build_display_name(row: dict, column_mappings: dict, display_name_config: dict | None = None) -> str:
+def _build_display_name(
+    row: dict,
+    column_mappings: dict,
+    display_name_config: dict | None = None,
+    field_visibility: dict | None = None,
+) -> str:
     """Full name for {{DISPLAY_NAME}} using template formatting rules."""
     def value_getter(placeholder: str, default_column: str) -> str:
         return _mapped_row_value(row, column_mappings, placeholder, default_column)
@@ -597,6 +634,7 @@ def _build_display_name(row: dict, column_mappings: dict, display_name_config: d
         column_mappings,
         display_name_config,
         value_getter=value_getter,
+        field_visibility=field_visibility,
     )
 
 
@@ -607,14 +645,27 @@ def _apply_column_mappings(
     display_name_config: dict | None = None,
     meal_preference_mappings: dict | None = None,
     meal_preference_sources: dict | None = None,
+    field_visibility: dict | None = None,
 ) -> str:
-    if "{{DISPLAY_NAME}}" in svg_content:
-        svg_content = svg_content.replace(
-            "{{DISPLAY_NAME}}",
-            _build_display_name(row, column_mappings, display_name_config),
-        )
+    if DISPLAY_NAME_PLACEHOLDER in svg_content:
+        if _is_field_enabled(
+            DISPLAY_NAME_PLACEHOLDER, column_mappings, field_visibility
+        ):
+            svg_content = svg_content.replace(
+                DISPLAY_NAME_PLACEHOLDER,
+                _build_display_name(
+                    row,
+                    column_mappings,
+                    display_name_config,
+                    field_visibility,
+                ),
+            )
+        else:
+            svg_content = svg_content.replace(DISPLAY_NAME_PLACEHOLDER, "")
     for placeholder, column_name in column_mappings.items():
-        if placeholder == "{{QR_CODE}}":
+        if placeholder == QR_CODE_PLACEHOLDER:
+            continue
+        if not _is_field_enabled(placeholder, column_mappings, field_visibility):
             continue
         if isinstance(column_name, list):
             sub_events = []
@@ -639,10 +690,19 @@ def _apply_column_mappings(
 
 
 def _replace_qr_placeholder(
-    svg_content: str, row: dict, temp_dir: str, row_index
+    svg_content: str,
+    row: dict,
+    temp_dir: str,
+    row_index,
+    column_mappings: dict | None = None,
+    field_visibility: dict | None = None,
 ) -> str:
-    if "{{QR_CODE}}" not in svg_content:
+    if QR_CODE_PLACEHOLDER not in svg_content:
         return svg_content
+
+    if not _is_field_enabled(QR_CODE_PLACEHOLDER, column_mappings or {}, field_visibility):
+        return _image_tag_pattern(QR_CODE_PLACEHOLDER).sub("", svg_content)
+
     replaced = False
     qr_data = row.get("QR Code", "")
     if qr_data is not None and qr_data != "":
@@ -686,6 +746,7 @@ def _render_dynamic_drawing(args: dict):
     display_name_config = args.get("display_name_config")
     meal_preference_mappings = args.get("meal_preference_mappings")
     meal_preference_sources = args.get("meal_preference_sources")
+    field_visibility = args.get("field_visibility")
     row = args["row"]
     badge_w = args["badge_width"]
     badge_h = args["badge_height"]
@@ -699,8 +760,11 @@ def _render_dynamic_drawing(args: dict):
             display_name_config,
             meal_preference_mappings,
             meal_preference_sources,
+            field_visibility,
         )
-        svg_content = _replace_qr_placeholder(svg_content, row, temp_dir, row_index)
+        svg_content = _replace_qr_placeholder(
+            svg_content, row, temp_dir, row_index, column_mappings, field_visibility
+        )
         svg_content = _strip_remaining_placeholders(svg_content)
         svg_content = _finalize_svg_content(svg_content)
         out_svg = os.path.join(temp_dir, f"badge_dynamic_{row_index}.svg")
@@ -758,6 +822,7 @@ class BadgeGenerator:
         self.svg_template_path = svg_template_path
         self.column_mappings = column_mappings
         self.element_layout = element_layout or {}
+        self.field_visibility = _field_visibility_from_layout(self.element_layout)
         self.display_name_config = normalize_display_name_config(display_name_config)
         self.meal_preference_mappings = meal_preference_mappings or {}
         self.meal_preference_sources = meal_preference_sources or {}
@@ -1080,15 +1145,36 @@ class BadgeGenerator:
             self.display_name_config,
             self.meal_preference_mappings,
             self.meal_preference_sources,
+            self.field_visibility,
         )
         svg_content = _replace_qr_placeholder(
-            svg_content, row, temp_dir, row_data.name
+            svg_content,
+            row,
+            temp_dir,
+            row_data.name,
+            self.column_mappings,
+            self.field_visibility,
         )
 
         # AFRP logo and Club logo: just point at the staged file in temp_dir.
         # svglib will resolve the relative href against the SVG's directory.
-        svg_content = svg_content.replace("{{AFRP_LOGO}}", self._afrp_logo_filename)
-        svg_content = svg_content.replace("{{CLUB_LOGO}}", self._club_logo_filename)
+        if _is_field_enabled(
+            AFRP_LOGO_PLACEHOLDER, self.column_mappings, self.field_visibility
+        ):
+            svg_content = svg_content.replace(
+                AFRP_LOGO_PLACEHOLDER, self._afrp_logo_filename
+            )
+        else:
+            svg_content = _image_tag_pattern(AFRP_LOGO_PLACEHOLDER).sub("", svg_content)
+
+        if _is_field_enabled(
+            CLUB_LOGO_PLACEHOLDER, self.column_mappings, self.field_visibility
+        ):
+            svg_content = svg_content.replace(
+                CLUB_LOGO_PLACEHOLDER, self._club_logo_filename
+            )
+        else:
+            svg_content = _image_tag_pattern(CLUB_LOGO_PLACEHOLDER).sub("", svg_content)
 
         svg_content = _strip_remaining_placeholders(svg_content)
         svg_content = _finalize_svg_content(svg_content)
@@ -1167,7 +1253,9 @@ class BadgeGenerator:
             svg_w, svg_h = _svg_canvas_size(svg_fitted)
 
             self._logo_draw_specs = []
-            if self._club_logo_filename:
+            if self._club_logo_filename and _is_field_enabled(
+                CLUB_LOGO_PLACEHOLDER, self.column_mappings, self.field_visibility
+            ):
                 club_rect = _logo_slot_rect(
                     svg_fitted, CLUB_LOGO_PLACEHOLDER,
                     self.club_logo_width, self.club_logo_height,
@@ -1178,7 +1266,9 @@ class BadgeGenerator:
                             club_rect, svg_w, svg_h, badge_width, badge_height
                         )
                     )
-            if self._afrp_logo_filename:
+            if self._afrp_logo_filename and _is_field_enabled(
+                AFRP_LOGO_PLACEHOLDER, self.column_mappings, self.field_visibility
+            ):
                 afrp_rect = _logo_slot_rect(
                     svg_fitted, AFRP_LOGO_PLACEHOLDER,
                     self.afrp_logo_width, self.afrp_logo_height,
@@ -1214,6 +1304,7 @@ class BadgeGenerator:
                             "display_name_config": self.display_name_config,
                             "meal_preference_mappings": self.meal_preference_mappings,
                             "meal_preference_sources": self.meal_preference_sources,
+                            "field_visibility": self.field_visibility,
                             "row": row.to_dict(),
                             "badge_width": badge_width,
                             "badge_height": badge_height,

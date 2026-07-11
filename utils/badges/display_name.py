@@ -26,20 +26,47 @@ def format_display_name_part(value: str, use_parentheses: bool) -> str:
     return f"({value})" if use_parentheses else value
 
 
+def _part_enabled(placeholder: str, field_visibility: dict | None) -> bool:
+    if not field_visibility or placeholder not in field_visibility:
+        return True
+    return field_visibility[placeholder] is not False
+
+
 def build_display_name(
     row: dict,
     column_mappings: dict,
     config: dict | None = None,
     *,
     value_getter,
+    field_visibility: dict | None = None,
 ) -> str:
     """Build the full display name from row data and template formatting rules."""
     cfg = normalize_display_name_config(config)
-    title = value_getter("{{TITLE}}", "Title")
-    first = value_getter("{{FIRST_NAME}}", "First Name")
-    middle = value_getter("{{MIDDLE_NAME}}", "Middle Name")
-    maiden = value_getter("{{MAIDEN_NAME}}", "Maiden Name")
-    last = value_getter("{{LAST_NAME}}", "Last Name")
+    title = (
+        value_getter("{{TITLE}}", "Title")
+        if _part_enabled("{{TITLE}}", field_visibility)
+        else ""
+    )
+    first = (
+        value_getter("{{FIRST_NAME}}", "First Name")
+        if _part_enabled("{{FIRST_NAME}}", field_visibility)
+        else ""
+    )
+    middle = (
+        value_getter("{{MIDDLE_NAME}}", "Middle Name")
+        if _part_enabled("{{MIDDLE_NAME}}", field_visibility)
+        else ""
+    )
+    maiden = (
+        value_getter("{{MAIDEN_NAME}}", "Maiden Name")
+        if _part_enabled("{{MAIDEN_NAME}}", field_visibility)
+        else ""
+    )
+    last = (
+        value_getter("{{LAST_NAME}}", "Last Name")
+        if _part_enabled("{{LAST_NAME}}", field_visibility)
+        else ""
+    )
 
     parts = []
     if cfg["include_title"] and title:

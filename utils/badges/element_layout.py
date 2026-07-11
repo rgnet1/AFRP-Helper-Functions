@@ -497,7 +497,7 @@ def apply_element_layout(svg_content: str, layout: dict | None) -> str:
     corner_margins = corner_margins_from_layout(layout)
     result = svg_content
     for key, spec in layout.items():
-        if key in ("margins", "corner_margins") or not spec:
+        if key in ("margins", "corner_margins", "_canvas", "_field_visibility") or not spec:
             continue
         if key == "subevents":
             result = _apply_subevent_layout(result, spec, badge_w, badge_h, corner_margins)
