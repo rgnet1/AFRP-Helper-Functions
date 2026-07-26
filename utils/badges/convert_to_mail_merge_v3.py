@@ -1,13 +1,18 @@
 import os
 import sys
-import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
+import gc
 import warnings
 import re
-from datetime import datetime
-import pytz
 import logging
-from typing import Dict, List, Tuple, Optional, Type
+from datetime import datetime
+from typing import Dict, List, Tuple, Optional, Type, Set
+
+import pandas as pd
+import pytz
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+
+from utils.badges.data_store import BadgeDataStore
 from utils.badges.event_statistics import EventStatisticsReport
 from utils.badges.meal_options import (
     MEAL_PREFERENCE_COLUMN,
@@ -19,8 +24,6 @@ from utils.badges.meal_options import (
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.pre_processing_module import PreprocessingConfig, PreprocessingBase
 from utils.badges.file_validator import FileValidator, FileTypes
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
 
 
 # Configure logging
@@ -124,6 +127,7 @@ class EventRegistrationProcessorV3:
         logger.debug(f"Initializing preprocessor with class: {preprocessor_class.__name__}")
         self.preprocessor = preprocessor_class(config)
         self.stats_reporter = EventStatisticsReport()
+        self._registration_created_on: Optional[pd.DataFrame] = None
         
     def find_latest_files(self) -> Dict[str, str]:
         """Find the latest version of each file type in the directory."""
@@ -161,11 +165,16 @@ class EventRegistrationProcessorV3:
 
     def process_registration_data(self, reg_df: pd.DataFrame) -> pd.DataFrame:
         """Process the main registration data."""
-        logger.info("Registration file columns:")
-        logger.info(reg_df.columns.tolist())
+        logger.debug("Registration file has %d columns", len(reg_df.columns))
         
         # Standardize column names
         reg_df, missing_columns = self._standardize_columns(reg_df, RegistrationColumns.MAPPINGS)
+        if 'Created On' in reg_df.columns:
+            self._registration_created_on = (
+                reg_df[['Contact ID', 'Created On']]
+                .drop_duplicates(subset=['Contact ID'])
+                .copy()
+            )
         # Middle/Maiden Name are optional - older data files may not include them
         optional_columns = {'Middle Name', 'Maiden Name', 'Household ID', 'Household', 'Head of Household'}
         for col in [c for c in missing_columns if c in optional_columns]:
@@ -173,8 +182,7 @@ class EventRegistrationProcessorV3:
             reg_df[col] = ''
         missing_columns = [c for c in missing_columns if c not in optional_columns]
         if missing_columns:
-            logger.info("\nAvailable columns:")
-            logger.info(reg_df.columns.tolist())
+            logger.debug("Available registration columns: %s", list(reg_df.columns))
             raise ValueError(f"Missing required columns in registration data: {', '.join(missing_columns)}")
         
         # Filter for paid registrations
@@ -183,10 +191,9 @@ class EventRegistrationProcessorV3:
         
         # Get unique events - handle both 'Event' and 'Event ' column names
         event_col = 'Event' if 'Event' in paid_df.columns else 'Event '
-        unique_events = paid_df[event_col].unique()
-        logger.info(f"\nFound {len(unique_events)} unique events:")
-        for event in unique_events:
-            logger.info(f"  - {event}")
+        unique_events = [e for e in paid_df[event_col].unique() if pd.notna(e)]
+        logger.info("Found %d unique events", len(unique_events))
+        logger.debug("Events: %s", unique_events)
         
         # Create base DataFrame with unique contacts using only the key identifying columns
         unique_columns = [
@@ -235,105 +242,115 @@ class EventRegistrationProcessorV3:
         gender_counts = transformed_df['Gender'].value_counts().to_dict()
         logger.info(f"Gender distribution after normalization: {gender_counts}")
         
-        # Add each event as a new column
+        # Vectorized event registration columns (contact x event -> event name if registered)
+        reg_pairs = paid_df[['Contact ID', event_col]].drop_duplicates()
+        reg_pairs = reg_pairs.rename(columns={event_col: '_event_name'})
+        reg_pairs['_registered'] = reg_pairs['_event_name']
+        event_wide = reg_pairs.pivot(
+            index='Contact ID', columns='_event_name', values='_registered'
+        )
         for event in unique_events:
-            # Use the same event name as the column name to maintain consistency
-            transformed_df[event] = transformed_df.apply(
-                lambda row: event if event in paid_df[
-                    paid_df['Contact ID'] == row['Contact ID']
-                ][event_col].values else None,
-                axis=1
-            )
+            if event in event_wide.columns:
+                transformed_df[event] = transformed_df['Contact ID'].map(event_wide[event])
+            else:
+                transformed_df[event] = None
         
         return transformed_df
 
-    def add_seating_info(self, df: pd.DataFrame, seating_df: pd.DataFrame) -> pd.DataFrame:
+    def add_seating_info(
+        self,
+        df: pd.DataFrame,
+        seating_df: pd.DataFrame,
+        contact_ids: Optional[Set] = None,
+    ) -> pd.DataFrame:
         """Add seating information for each event."""
-        # Check if seating_df is empty - some events may not have seating assignments
         if seating_df.empty or len(seating_df) == 0:
             logger.info("No seating data found - skipping table assignment columns")
             return df
         
-        logger.debug("Seating file columns:")
-        logger.debug(seating_df.columns.tolist())
+        logger.debug("Seating file columns: %s", list(seating_df.columns))
         
-        # Clean column names - ensure all are strings first
         seating_df.columns = seating_df.columns.astype(str).str.strip()
-        
-        # Standardize column names
         seating_df, missing_columns = self._standardize_columns(seating_df, SeatingColumns.MAPPINGS)
         if missing_columns:
-            logger.warning("Missing required columns in seating data!")
-            logger.warning(f"Missing columns: {missing_columns}")
-            logger.warning("This event may not have seating assignments. Skipping table columns.")
+            logger.warning("Missing required columns in seating data: %s", missing_columns)
             return df
-        
-        # Group seating by Contact ID and Event, handling duplicates
-        logger.info("Processing seating assignments...")
-        seating_info = seating_df.sort_values('Created On', ascending=False).drop_duplicates(['Contact ID', 'Event'])
-        
-        logger.debug(f"Found {len(seating_info)} unique seating assignments")
-        
-        # Get unique events and initialize table columns with empty strings
-        # Filter out NaN/None values before sorting to avoid type comparison errors
-        events_with_seating = sorted([e for e in seating_df['Event'].unique() if pd.notna(e) and str(e).strip() != ''])
-        logger.info("Initializing table columns...")
-        for event in events_with_seating:
-            column_name = f"{event} ~ Table"
-            df[column_name] = ''
-            
-        # Assign actual table values, skipping blanks/NaNs
-        logger.info("Assigning tables to contacts...")
-        for _, row in seating_info.iterrows():
-            table_value = str(row['Table']).strip() if pd.notna(row['Table']) else ''
-            if table_value:
-                column_name = f"{row['Event']} ~ Table"
-                contact_id = row['Contact ID']
-                contact_mask = df['Contact ID'] == contact_id
-                event_name = row['Event']
-                # Only assign a table when the contact has a Paid registration for this event.
-                # CRM may retain stale seat assignments after registration is cancelled/inactive.
-                if event_name not in df.columns or not contact_mask.any():
-                    continue
-                reg_val = df.loc[contact_mask, event_name].iloc[0]
-                if not (pd.notna(reg_val) and str(reg_val).strip()):
-                    continue
-                df.loc[contact_mask, column_name] = table_value
 
-        # Print unique events from seating chart for verification
-        logger.info("Events found in seating chart:")
-        for event in events_with_seating:
-            logger.info(f"  - {event}")
+        if contact_ids is not None:
+            seating_df = seating_df[seating_df['Contact ID'].isin(contact_ids)]
+            if seating_df.empty:
+                return df
         
-        # Print summary of table assignments
+        logger.info("Processing seating assignments...")
+        if 'Created On' in seating_df.columns:
+            seating_info = (
+                seating_df.sort_values('Created On', ascending=False)
+                .drop_duplicates(['Contact ID', 'Event'])
+            )
+        else:
+            seating_info = seating_df.drop_duplicates(['Contact ID', 'Event'])
+        
+        events_with_seating = sorted(
+            e for e in seating_df['Event'].unique() if pd.notna(e) and str(e).strip() != ''
+        )
+        for event in events_with_seating:
+            df[f"{event} ~ Table"] = ''
+        
+        seating_info = seating_info.copy()
+        seating_info['_table'] = seating_info['Table'].astype(str).str.strip()
+        seating_info = seating_info[
+            seating_info['_table'].notna()
+            & seating_info['_table'].ne('')
+            & seating_info['_table'].ne('nan')
+        ]
+        if seating_info.empty:
+            return df
+
+        seating_info['column_name'] = seating_info['Event'].astype(str) + ' ~ Table'
+        table_pivot = seating_info.pivot_table(
+            index='Contact ID', columns='column_name', values='_table', aggfunc='first'
+        )
+
+        for col in table_pivot.columns:
+            event_name = str(col).replace(' ~ Table', '')
+            if event_name not in df.columns:
+                continue
+            registered = df[event_name].notna() & (df[event_name].astype(str).str.strip() != '')
+            if not registered.any():
+                continue
+            mapped = df.loc[registered, 'Contact ID'].map(table_pivot[col])
+            df.loc[registered, col] = mapped.fillna('').astype(str)
+
         logger.info("Table assignment summary:")
         for event in events_with_seating:
             column_name = f"{event} ~ Table"
-            # Count non-empty strings for assignments
-            assigned = df[df[column_name] != ''].shape[0]
-            logger.info(f"  - {event}: {assigned} assignments")
+            assigned = (df[column_name].astype(str).str.strip() != '').sum()
+            logger.info("  - %s: %d assignments", event, assigned)
         
         return df
 
-    def add_form_responses(self, df: pd.DataFrame, forms_df: pd.DataFrame) -> pd.DataFrame:
+    def add_form_responses(
+        self,
+        df: pd.DataFrame,
+        forms_df: pd.DataFrame,
+        contact_ids: Optional[Set] = None,
+    ) -> pd.DataFrame:
         """Add form responses for each event."""
-        # Check if forms_df is empty - some events may not have form responses
         if forms_df.empty or len(forms_df) == 0:
             logger.info("No form responses data found - skipping form response columns")
             return df
         
-        logger.info("Form responses file columns BEFORE standardization:")
-        logger.info(forms_df.columns.tolist())
+        logger.debug("Form responses columns: %d", len(forms_df.columns))
         
-        # Standardize column names
         forms_df, missing_columns = self._standardize_columns(forms_df, FormResponseColumns.MAPPINGS)
         if missing_columns:
-            logger.warning("Missing required columns in form responses data!")
-            logger.warning(f"Missing columns: {missing_columns}")
-            logger.warning("Available columns AFTER standardization:")
-            logger.warning(forms_df.columns.tolist())
-            logger.warning("\nThis event may not have form responses. Skipping form response columns.")
+            logger.warning("Missing required form response columns: %s", missing_columns)
             return df
+
+        if contact_ids is not None:
+            forms_df = forms_df[forms_df['Contact ID'].isin(contact_ids)]
+            if forms_df.empty:
+                return df
         
         # Ensure Created On is properly parsed as datetime
         try:
@@ -343,46 +360,37 @@ class EventRegistrationProcessorV3:
             # If we can't parse Created On, we'll just use the first response for each contact
             forms_df['Created On'] = pd.Timestamp.now()
         
-        # Get unique questions per event
         event_questions = forms_df.groupby('Event')['Question'].unique()
-        logger.info("Found form questions by event:")
-        for event in event_questions.index:
-            logger.info(f"\n{event}:")
-            for question in event_questions[event]:
-                logger.info(f"  - {question}")
+        logger.info("Found form questions for %d events", len(event_questions))
         
-        # For each event and question, create a column and populate responses
         for event in event_questions.index:
             for question in event_questions[event]:
                 column_name = f"{event} ~ {question}"
                 
-                # Get responses for this event and question
                 event_question_responses = forms_df[
-                    (forms_df['Event'] == event) & 
+                    (forms_df['Event'] == event) &
                     (forms_df['Question'] == question)
-                ].copy()
+                ]
                 
-                # Check for duplicates
                 duplicates = event_question_responses.groupby('Contact ID').size()
-                if (duplicates > 1).any():
-                    logger.warning(f"Found duplicate responses for {event} - {question}:")
-                    for contact_id in duplicates[duplicates > 1].index:
-                        dupes = event_question_responses[event_question_responses['Contact ID'] == contact_id]
-                        logger.warning(f"Contact ID: {contact_id}")
-                        for _, dupe in dupes.iterrows():
-                            logger.warning(f"  Response: {dupe['Response']}")
-                            logger.warning(f"  Created On: {dupe['Created On']}")
+                dup_count = int((duplicates > 1).sum())
+                if dup_count:
+                    logger.warning(
+                        "Found duplicate responses for %s - %s (%d contacts)",
+                        event,
+                        question,
+                        dup_count,
+                    )
                 
-                # Keep only the most recent response for each contact
-                latest_responses = (event_question_responses
-                                  .sort_values('Created On', ascending=False)
-                                  .groupby('Contact ID', as_index=False)
-                                  .first())
-                
-                # Create a dictionary mapping Contact ID to Response instead of using Series
-                response_dict = dict(zip(latest_responses['Contact ID'], latest_responses['Response']))
-                
-                # Add responses to main DataFrame using the dictionary
+                latest_responses = (
+                    event_question_responses
+                    .sort_values('Created On', ascending=False)
+                    .groupby('Contact ID', as_index=False)
+                    .first()
+                )
+                response_dict = dict(
+                    zip(latest_responses['Contact ID'], latest_responses['Response'])
+                )
                 df[column_name] = df['Contact ID'].map(response_dict)
         
         return df
@@ -455,25 +463,31 @@ class EventRegistrationProcessorV3:
         )
         return df
 
-    def add_qr_codes(self, df: pd.DataFrame, qr_df: pd.DataFrame) -> pd.DataFrame:
+    def add_qr_codes(
+        self,
+        df: pd.DataFrame,
+        qr_df: pd.DataFrame,
+        contact_ids: Optional[Set] = None,
+    ) -> pd.DataFrame:
         """Add QR code information."""
-        # Check if qr_df is empty - some events may not have QR codes yet
         if qr_df.empty or len(qr_df) == 0:
             logger.info("No QR code data found - skipping QR code column")
-            df['QR Code'] = ''  # Add empty QR Code column for consistency
+            df['QR Code'] = ''
             return df
         
-        logger.debug("QR codes file columns:")
-        logger.debug(qr_df.columns.tolist())
+        logger.debug("QR codes file columns: %d", len(qr_df.columns))
         
-        # Standardize column names
         qr_df, missing_columns = self._standardize_columns(qr_df, QRCodeColumns.MAPPINGS)
         if missing_columns:
-            logger.warning("Missing required columns in QR codes data!")
-            logger.warning(f"Missing columns: {missing_columns}")
-            logger.warning("This event may not have QR codes. Skipping QR code column.")
-            df['QR Code'] = ''  # Add empty QR Code column
+            logger.warning("Missing required QR code columns: %s", missing_columns)
+            df['QR Code'] = ''
             return df
+
+        if contact_ids is not None:
+            qr_df = qr_df[qr_df['Contact ID'].isin(contact_ids)]
+            if qr_df.empty:
+                df['QR Code'] = ''
+                return df
         
         # Ensure Created On is properly parsed as datetime
         try:
@@ -483,18 +497,10 @@ class EventRegistrationProcessorV3:
             # If we can't parse Created On, we'll just use the first QR code for each contact
             qr_df['Created On'] = pd.Timestamp.now()
         
-        # Check for duplicates
         duplicates = qr_df.groupby('Contact ID').size()
-        if (duplicates > 1).any():
-            logger.warning("\nFound duplicate QR codes:")
-            for contact_id in duplicates[duplicates > 1].index:
-                dupes = qr_df[qr_df['Contact ID'] == contact_id]
-                logger.warning(f"\nContact ID: {contact_id}")
-                for _, dupe in dupes.iterrows():
-                    logger.warning(f"  QR Code: {dupe['QR Code']}")
-                    logger.warning(f"  Created On: {dupe['Created On']}")
-                    logger.warning(f"  Contact Name: {dupe.get('First Name', '')} {dupe.get('Last Name', '')}")
-        
+        dup_count = int((duplicates > 1).sum())
+        if dup_count:
+            logger.warning("Found duplicate QR codes for %d contacts", dup_count)
         # Keep only the most recent QR code for each contact
         latest_qr_codes = (qr_df
                           .sort_values('Created On', ascending=False)
@@ -560,150 +566,168 @@ class EventRegistrationProcessorV3:
         )
         return work.drop(columns=['_hh_key', '_hh_sort', '_head_sort']).reset_index(drop=True)
 
-    def transform_and_merge(self) -> pd.DataFrame:
+    def _load_source_frames(self, directory: str = '.') -> Dict[str, pd.DataFrame]:
+        """Load CRM source files (Parquet preferred) with memory-aware strategy."""
+        paths = BadgeDataStore.find_source_paths(directory)
+        frames = BadgeDataStore.load_all(paths)
+        return {
+            FileTypes.REGISTRATION: frames[FileTypes.REGISTRATION],
+            FileTypes.SEATING: frames[FileTypes.SEATING],
+            FileTypes.QR_CODES: frames[FileTypes.QR_CODES],
+            FileTypes.FORM_RESPONSES: frames[FileTypes.FORM_RESPONSES],
+        }
+
+    def _sub_event_name(self) -> Optional[str]:
+        if self.config and getattr(self.config, 'sub_event', None):
+            return self.config.sub_event
+        return None
+
+    def _early_sub_event_contact_ids(self, result_df: pd.DataFrame) -> Optional[Set]:
+        sub_event = self._sub_event_name()
+        if not sub_event or sub_event not in result_df.columns:
+            return None
+        ids = result_df.loc[result_df[sub_event].notna(), 'Contact ID'].unique()
+        return set(ids) if len(ids) else set()
+
+    def _apply_sub_event_filters(self, result_df: pd.DataFrame) -> pd.DataFrame:
+        sub_event = self._sub_event_name()
+        if not sub_event:
+            return result_df
+
+        logger.info("Filtering data for sub-event: %s", sub_event)
+        if sub_event not in result_df.columns:
+            logger.warning("Sub-event column '%s' not found in DataFrame", sub_event)
+            return pd.DataFrame(columns=result_df.columns)
+
+        sub_event_contacts = result_df[result_df[sub_event].notna()]['Contact ID'].unique()
+        if len(sub_event_contacts) == 0:
+            logger.warning("No contacts found for sub-event: %s", sub_event)
+            return pd.DataFrame(columns=result_df.columns)
+
+        result_df = result_df[result_df['Contact ID'].isin(sub_event_contacts)].copy()
+        logger.info("Found %d contacts registered for %s", len(result_df), sub_event)
+
+        contact_columns = [
+            'Contact ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name',
+            'Title', 'Local Club', 'Gender', 'Age', MEAL_PREFERENCE_COLUMN,
+        ]
+        relevant_columns = [col for col in contact_columns if col in result_df.columns]
+        if sub_event in result_df.columns:
+            relevant_columns.append(sub_event)
+        for col in result_df.columns:
+            if col.startswith(f"{sub_event} ~"):
+                relevant_columns.append(col)
+
+        logger.info(
+            "Filtered to %d relevant columns for %s",
+            len(relevant_columns),
+            sub_event,
+        )
+        return result_df[relevant_columns]
+
+    def _date_filter_contact_ids(self) -> Optional[Set]:
+        if not self.config or not getattr(self.config, 'created_on_datetime', None):
+            return None
+        if self._registration_created_on is None or self._registration_created_on.empty:
+            logger.warning("Created On not available in registration data - skipping date filter")
+            return None
+        reg_df = self._registration_created_on.copy()
+        try:
+            reg_df['Created On'] = pd.to_datetime(reg_df['Created On'])
+            if reg_df['Created On'].dt.tz is None:
+                reg_df['Created On'] = reg_df['Created On'].dt.tz_localize(self.config.tz)
+            else:
+                reg_df['Created On'] = reg_df['Created On'].dt.tz_convert(self.config.tz)
+            filtered = reg_df[reg_df['Created On'] >= self.config.created_on_datetime]
+            ids = set(filtered['Contact ID'].unique())
+            logger.info(
+                "Date filter matched %d contacts on or after %s",
+                len(ids),
+                self.config.created_on_datetime,
+            )
+            return ids
+        except Exception as exc:
+            logger.warning("Could not apply date filter: %s", exc)
+            return None
+
+    def transform_and_merge(self, source_directory: str = '.') -> pd.DataFrame:
         """Main function to transform and merge all data sources."""
         try:
-            # Find latest files
-            files = self.find_latest_files()
-            
-            # Load all data sources (I/O-bound; parallelize the four Excel reads)
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                f_reg = pool.submit(pd.read_excel, files[FileTypes.REGISTRATION])
-                f_seat = pool.submit(pd.read_excel, files[FileTypes.SEATING])
-                f_qr = pool.submit(pd.read_excel, files[FileTypes.QR_CODES])
-                f_forms = pool.submit(pd.read_excel, files[FileTypes.FORM_RESPONSES])
-                reg_df = f_reg.result()
-                seating_df = f_seat.result()
-                qr_df = f_qr.result()
-                forms_df = f_forms.result()
-            
-            # Process main registration data
+            sources = self._load_source_frames(source_directory)
+            reg_df = sources[FileTypes.REGISTRATION]
+            seating_df = sources[FileTypes.SEATING]
+            qr_df = sources[FileTypes.QR_CODES]
+            forms_df = sources[FileTypes.FORM_RESPONSES]
+
             result_df = self.process_registration_data(reg_df)
-            
-            # Add information from other sources
-            result_df = self.add_seating_info(result_df, seating_df)
-            result_df = self.add_form_responses(result_df, forms_df)
+            del reg_df
+            gc.collect()
+
+            contact_ids = self._early_sub_event_contact_ids(result_df)
+            if contact_ids is not None:
+                if not contact_ids:
+                    return pd.DataFrame(columns=result_df.columns)
+                result_df = result_df[result_df['Contact ID'].isin(contact_ids)].copy()
+                logger.info(
+                    "Early sub-event filter: %d contacts before companion merges",
+                    len(result_df),
+                )
+
+            result_df = self.add_seating_info(result_df, seating_df, contact_ids)
+            del seating_df
+            gc.collect()
+
+            result_df = self.add_form_responses(result_df, forms_df, contact_ids)
+            del forms_df
+            gc.collect()
+
             result_df = self.merge_meal_preferences(result_df)
-            result_df = self.add_qr_codes(result_df, qr_df)
+            result_df = self.add_qr_codes(result_df, qr_df, contact_ids)
+            del qr_df
+            gc.collect()
 
             result_df = self._enrich_households_if_needed(result_df)
             result_df = self._apply_attendee_sort(result_df)
-            
-            # Filter by sub-event BEFORE preprocessing (so we work with original column names)
-            has_config = hasattr(self, 'config') and self.config is not None
-            has_sub_event = has_config and hasattr(self.config, 'sub_event') and self.config.sub_event is not None
-            
-            if has_sub_event:
-                logger.info(f"Filtering data for sub-event: {self.config.sub_event}")
-                # Check if the sub-event exists as a column
-                if self.config.sub_event not in result_df.columns:
-                    logger.warning(f"Sub-event column '{self.config.sub_event}' not found in DataFrame")
-                    logger.info("Available columns:")
-                    for col in result_df.columns:
-                        logger.info(f"  - {col}")
-                    return pd.DataFrame(columns=result_df.columns)  # Return empty DataFrame with same structure
-                    
-                # Keep contacts where the sub-event column is not null (they are registered for this sub-event)
-                sub_event_contacts = result_df[result_df[self.config.sub_event].notna()]['Contact ID'].unique()
-                if len(sub_event_contacts) == 0:
-                    logger.warning(f"No contacts found for sub-event: {self.config.sub_event}")
-                    return pd.DataFrame(columns=result_df.columns)  # Return empty DataFrame with same structure
-                    
-                result_df = result_df[result_df['Contact ID'].isin(sub_event_contacts)].copy()
-                logger.info(f"Found {len(result_df)} contacts registered for {self.config.sub_event}")
-                
-                # Filter columns to only include relevant ones for this sub-event
-                contact_columns = ['Contact ID', 'First Name', 'Middle Name', 'Last Name', 'Maiden Name', 'Title', 'Local Club', 'Gender', 'Age', MEAL_PREFERENCE_COLUMN]
-                relevant_columns = [col for col in contact_columns if col in result_df.columns]
-                
-                # Add the sub-event column itself
-                if self.config.sub_event in result_df.columns:
-                    relevant_columns.append(self.config.sub_event)
-                    
-                # Add any related columns (e.g., table assignments, form responses)
-                for col in result_df.columns:
-                    if col.startswith(f"{self.config.sub_event} ~"):
-                        relevant_columns.append(col)
-                        
-                # Filter to only relevant columns
-                result_df = result_df[relevant_columns]
-                
-                logger.info(f"Filtered to {len(relevant_columns)} relevant columns for {self.config.sub_event}:")
-                for col in relevant_columns:
-                    logger.info(f"  - {col}")
-            
-            # Apply preprocessing to all data rows (this may rename columns)
+            result_df = self._apply_sub_event_filters(result_df)
+
             logger.info("Preprocessing data values...")
             result_df = self.preprocessor.preprocess_dataframe(result_df)
-            
-            # Apply date and Contact ID filtering (combined with OR logic)
-            has_inclusion_list = has_config and hasattr(self.config, 'inclusion_list') and self.config.inclusion_list is not None
-            has_date_filter = has_config and hasattr(self.config, 'created_on_datetime') and self.config.created_on_datetime is not None
-            
+
+            has_config = self.config is not None
+            has_inclusion_list = (
+                has_config
+                and getattr(self.config, 'inclusion_list', None) is not None
+            )
+            has_date_filter = (
+                has_config
+                and getattr(self.config, 'created_on_datetime', None) is not None
+            )
+
             if has_inclusion_list or has_date_filter:
                 original_count = len(result_df)
                 filter_conditions = []
                 
-                # Add Contact ID filter condition (supports both GUID Contact ID and Member ID format)
                 if has_inclusion_list:
-                    logger.info(f"Adding Contact ID filter for {len(self.config.inclusion_list)} specified IDs")
-                    
-                    # Check if filtering by Contact ID (GUID) or Member ID (ID-####)
-                    # Support both formats by checking both columns
+                    logger.info(
+                        "Adding Contact ID filter for %d specified IDs",
+                        len(self.config.inclusion_list),
+                    )
                     contact_id_condition = result_df['Contact ID'].isin(self.config.inclusion_list)
-                    
-                    # Also check Member ID column if it exists (for ID-#### format)
                     if 'Member ID' in result_df.columns:
                         member_id_condition = result_df['Member ID'].isin(self.config.inclusion_list)
-                        # Combine with OR - match either Contact ID or Member ID
                         contact_id_condition = contact_id_condition | member_id_condition
                         logger.info("Filtering by both Contact ID (GUID) and Member ID (ID-####) formats")
-                    
                     filter_conditions.append(contact_id_condition)
                 
-                # Add date filter condition (need to get this from original registration data)
                 if has_date_filter:
-                    logger.info(f"Adding date filter for registrations on or after: {self.config.created_on_datetime}")
-                    
-                    # Re-load registration data to get Created On column for filtering
-                    files = self.find_latest_files()
-                    reg_df_for_date = pd.read_excel(files[FileTypes.REGISTRATION])
-                    reg_df_for_date.columns = reg_df_for_date.columns.astype(str).str.strip()
-                    
-                    # Standardize columns to find Created On
-                    reg_df_for_date, _ = self._standardize_columns(reg_df_for_date, RegistrationColumns.MAPPINGS)
-                    
-                    if 'Created On' in reg_df_for_date.columns:
-                        try:
-                            # Parse Created On column
-                            reg_df_for_date['Created On'] = pd.to_datetime(reg_df_for_date['Created On'])
-                            
-                            # Convert to timezone-aware datetime if not already
-                            if reg_df_for_date['Created On'].dt.tz is None:
-                                # Assume the data is in the configured timezone
-                                reg_df_for_date['Created On'] = reg_df_for_date['Created On'].dt.tz_localize(self.config.tz)
-                            else:
-                                # Convert to the configured timezone
-                                reg_df_for_date['Created On'] = reg_df_for_date['Created On'].dt.tz_convert(self.config.tz)
-                            
-                            # Filter registration data by date
-                            date_filtered_registrations = reg_df_for_date[
-                                reg_df_for_date['Created On'] >= self.config.created_on_datetime
-                            ]
-                            date_contact_ids = set(date_filtered_registrations['Contact ID'].unique())
-                            
-                            logger.info(f"Found {len(date_contact_ids)} contacts registered on or after the specified date")
-                            
-                            date_condition = result_df['Contact ID'].isin(date_contact_ids)
-                            filter_conditions.append(date_condition)
-                            
-                        except Exception as e:
-                            logger.warning(f"Could not apply date filter: {str(e)}")
-                            logger.warning("Proceeding without date filtering")
-                    else:
-                        logger.warning("Created On column not found in registration data - skipping date filter")
+                    logger.info(
+                        "Adding date filter for registrations on or after: %s",
+                        self.config.created_on_datetime,
+                    )
+                    date_contact_ids = self._date_filter_contact_ids()
+                    if date_contact_ids is not None:
+                        filter_conditions.append(result_df['Contact ID'].isin(date_contact_ids))
                 
-                # Combine filters with OR logic
                 if filter_conditions:
                     if len(filter_conditions) == 1:
                         combined_filter = filter_conditions[0]

@@ -47,6 +47,13 @@ from utils.badges.event_preprocessing import preprocessing_implementations
 from utils.badges.event_preprocessing.default import DefaultPreprocessing
 from utils.badges.file_validator import FileValidator, FileTypes
 from utils.badges.convert_to_mail_merge_v3 import EventRegistrationProcessorV3
+from utils.badges.data_store import (
+    BadgeDataStore,
+    InsufficientMemoryError,
+    PipelineBusyError,
+    badge_pipeline_job,
+    pull_campaign_to_store,
+)
 from utils.badges.badge_generator import (
     BadgeGenerator,
     probe_image_dimensions,
@@ -63,10 +70,10 @@ from utils.dynamics_crm import DynamicsCRMClient
 from utils.badges.meal_options import aggregate_meal_options
 import os
 import json
+import gc
 import pandas as pd
 from utils.badges.pre_processing_module import PreprocessingConfig
 from typing import Dict, Type
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============================================================================
 # In-memory badge generation job tracking (for UI progress updates)
@@ -239,6 +246,37 @@ def _resolve_campaign_id(campaign_id, campaign_name, crm_client):
             return None, (jsonify({'error': f'Campaign {campaign_name} not found'}), 404)
         campaign_id = campaign_info['id']
     return campaign_id, None
+
+
+def _copy_badge_sources_to_dir(source_dir: str, dest_dir: str) -> None:
+    """Copy Parquet/Excel CRM sources into a processing temp directory."""
+    paths = BadgeDataStore.find_source_paths(source_dir)
+    for file_type in FileValidator.get_required_file_types():
+        src = paths[file_type]
+        dest = os.path.join(dest_dir, os.path.basename(src))
+        shutil.copy2(src, dest)
+        logger.debug("Copied %s source to %s", file_type, dest)
+
+
+def _resolve_preprocessor_class(preprocessing_template_id):
+    preprocessor_class = None
+    if preprocessing_template_id:
+        try:
+            template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
+            if template:
+                logger.info("Using database preprocessing template: %s", template.name)
+                preprocessor_class = create_preprocessor_from_template(template)
+            else:
+                logger.warning(
+                    "Preprocessing template %s not found, using default",
+                    preprocessing_template_id,
+                )
+        except Exception as exc:
+            logger.error("Error loading preprocessing template: %s", exc)
+    if not preprocessor_class:
+        logger.info("No preprocessing template selected, using default")
+        preprocessor_class = DefaultPreprocessing
+    return preprocessor_class
 
 
 def _user_role_from_form(form):
@@ -1378,118 +1416,31 @@ def badges_pull_and_process():
         if denied:
             return denied
         
-        # Create temporary directory for processing
         upload_folder = app.config['UPLOAD_FOLDER']
         os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+
+        try:
+            with badge_pipeline_job():
+                store = BadgeDataStore(upload_folder)
+                pull_campaign_to_store(crm_client, campaign_id, store)
+        except PipelineBusyError as exc:
+            return jsonify({'error': str(exc)}), 409
+        except InsufficientMemoryError as exc:
+            return jsonify({'error': str(exc)}), 503
         
-        # Map data types to file types
-        data_type_mapping = {
-            'event_guests': {
-                'file_type': FileTypes.REGISTRATION,
-                'display_name': 'Event Guests'
-            },
-            'qr_codes': {
-                'file_type': FileTypes.QR_CODES,
-                'display_name': 'QR Codes'
-            },
-            'table_reservations': {
-                'file_type': FileTypes.SEATING,
-                'display_name': 'Table Reservations'
-            },
-            'form_responses': {
-                'file_type': FileTypes.FORM_RESPONSES,
-                'display_name': 'Form Responses'
-            }
-        }
-        
-        # Pull all 4 data types from CRM
-        for data_type, info in data_type_mapping.items():
-            try:
-                logger.info(f"Pulling {info['display_name']} from CRM...")
-                
-                # Use campaign-based filtering (main + sub-events)
-                df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
-                
-                logger.info(f"Pulled {len(df)} records for {info['display_name']}")
-                
-                # Remove existing file of the same type
-                existing_files = [f for f in os.listdir(upload_folder) 
-                                if f.startswith(f"{info['file_type']}_")]
-                for existing_file in existing_files:
-                    try:
-                        existing_path = os.path.join(upload_folder, existing_file)
-                        if os.path.exists(existing_path):
-                            os.remove(existing_path)
-                            logger.debug(f"Removed existing file: {existing_file}")
-                    except Exception as e:
-                        logger.warning(f"Could not remove existing file {existing_file}: {e}")
-                
-                # Additional cleanup for seating data to prevent type issues
-                if data_type == 'table_reservations' and 'Event' in df.columns:
-                    import numpy as np
-                    # Ensure Event column is fully string type before saving
-                    df['Event'] = df['Event'].replace({np.nan: '', None: ''})
-                    df['Event'] = df['Event'].astype(str).replace('nan', '').replace('None', '')
-                    logger.debug(f"Cleaned Event column in seating data. Types: {df['Event'].apply(type).unique()}")
-                
-                # Save to Excel file with proper naming
-                temp_file = os.path.join(upload_folder, f"{info['file_type']}_crm_data.xlsx")
-                df.to_excel(temp_file, index=False)
-                logger.debug(f"Saved {info['display_name']} data to: {temp_file}")
-                
-            except Exception as e:
-                logger.error(f"Error pulling {info['display_name']}: {str(e)}")
-                return jsonify({'error': f'Failed to pull {info["display_name"]}: {str(e)}'}), 500
-        
-        # Now process the files using existing logic
         logger.info("All data pulled successfully, starting processing...")
         
         if not event_name:
             logger.error("No event name provided for processing")
             return jsonify({'error': 'Event name is required'}), 400
         
-        # Get the preprocessing implementation from database templates
-        preprocessor_class = None
+        preprocessor_class = _resolve_preprocessor_class(preprocessing_template_id)
         
-        # Check if user selected a database template
-        if preprocessing_template_id:
-            try:
-                from utils.magazine.scheduler import PreprocessingTemplate
-                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
-                if template:
-                    logger.info(f"Using database preprocessing template: {template.name}")
-                    # Create a dynamic preprocessor class from the database template
-                    preprocessor_class = create_preprocessor_from_template(template)
-                else:
-                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
-            except Exception as e:
-                logger.error(f"Error loading preprocessing template: {str(e)}")
-        
-        # Use default preprocessing (no custom mappings) if no template selected
-        if not preprocessor_class:
-            logger.info("No preprocessing template selected, using default (no custom transformations)")
-            preprocessor_class = DefaultPreprocessing
-        
-        # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
             logger.debug(f"Created temporary directory: {temp_dir}")
             os.makedirs(temp_dir, mode=0o777, exist_ok=True)
             
-            # Copy uploaded files to temp directory
-            files = {}
-            for file_type in FileValidator.get_required_file_types():
-                matching_files = [f for f in os.listdir(upload_folder) 
-                                if f.startswith(f"{file_type}_")]
-                if not matching_files:
-                    logger.error(f"Missing required file: {file_type}")
-                    return jsonify({'error': f'Missing required file: {file_type}'}), 400
-                source = os.path.join(upload_folder, matching_files[0])
-                dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
-                logger.debug(f"Copying {file_type} file from {source} to {dest}")
-                shutil.copy2(source, dest)
-                files[file_type] = dest
-            
-            # Change to temp directory
+            _copy_badge_sources_to_dir(upload_folder, temp_dir)
             original_dir = os.getcwd()
             os.chdir(temp_dir)
             logger.debug(f"Changed working directory to: {temp_dir}")
@@ -2192,136 +2143,115 @@ def badges_pull_process_generate_async():
 
                 _update_badge_job(job_id, message="Pulling and processing data...")
 
-                # Reuse the synchronous implementation by calling it directly isn't safe
-                # because it returns a Flask response; instead, inline the same logic here.
-                campaign_id = data.get('campaign_id')
-                campaign_name_local = data.get('campaign_name')
-                event_name = data.get('event', 'Default')
-                sub_event = data.get('subEvent')
-                inclusion_list = data.get('inclusionList')
-                created_on_filter = data.get('createdOnFilter')
-                group_by_household = bool(data.get('groupByHousehold', False))
-                preprocessing_template_id = data.get('preprocessingTemplateId')
+                with badge_pipeline_job():
+                    campaign_id = data.get('campaign_id')
+                    campaign_name_local = data.get('campaign_name')
+                    event_name = data.get('event', 'Default')
+                    sub_event = data.get('subEvent')
+                    inclusion_list = data.get('inclusionList')
+                    created_on_filter = data.get('createdOnFilter')
+                    group_by_household = bool(data.get('groupByHousehold', False))
+                    preprocessing_template_id = data.get('preprocessingTemplateId')
 
-                if not campaign_id and not campaign_name_local:
-                    raise ValueError('Campaign ID or name is required')
+                    if not campaign_id and not campaign_name_local:
+                        raise ValueError('Campaign ID or name is required')
 
-                crm_client = DynamicsCRMClient()
-                if campaign_name_local and not campaign_id:
-                    campaign_info = crm_client.get_campaign_by_name(campaign_name_local)
-                    if not campaign_info:
-                        raise ValueError(f'Campaign {campaign_name_local} not found')
-                    campaign_id = campaign_info['id']
+                    crm_client = DynamicsCRMClient()
+                    if campaign_name_local and not campaign_id:
+                        campaign_info = crm_client.get_campaign_by_name(campaign_name_local)
+                        if not campaign_info:
+                            raise ValueError(f'Campaign {campaign_name_local} not found')
+                        campaign_id = campaign_info['id']
 
-                denied = _require_campaign_access(user, campaign_id, sub_event, crm_client)
-                if denied:
-                    raise ValueError(denied[0].get_json().get('error', 'Access denied'))
+                    denied = _require_campaign_access(user, campaign_id, sub_event, crm_client)
+                    if denied:
+                        raise ValueError(denied[0].get_json().get('error', 'Access denied'))
 
-                upload_folder = app.config['UPLOAD_FOLDER']
-                os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+                    upload_folder = app.config['UPLOAD_FOLDER']
+                    os.makedirs(upload_folder, mode=0o777, exist_ok=True)
+                    store = BadgeDataStore(upload_folder)
+                    pull_campaign_to_store(crm_client, campaign_id, store)
 
-                data_type_mapping = {
-                    'event_guests': FileTypes.REGISTRATION,
-                    'qr_codes': FileTypes.QR_CODES,
-                    'table_reservations': FileTypes.SEATING,
-                    'form_responses': FileTypes.FORM_RESPONSES
-                }
+                    preprocessor_class = _resolve_preprocessor_class(preprocessing_template_id)
 
-                def _pull_crm_excel(data_type: str, file_type: str):
-                    df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
-                    temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
-                    df.to_excel(temp_file, index=False)
+                    config_obj = _preprocessing_config_with_meal(
+                        preprocessing_template_id,
+                        main_event=event_name,
+                        sub_event=sub_event,
+                        inclusion_list=inclusion_list,
+                        created_on_filter=created_on_filter,
+                        group_by_household=group_by_household,
+                        household_cache_path=app.config['HOUSEHOLD_CACHE_PATH'],
+                    )
 
-                with ThreadPoolExecutor(max_workers=4) as pool:
-                    futs = [
-                        pool.submit(_pull_crm_excel, dt, ft)
-                        for dt, ft in data_type_mapping.items()
-                    ]
-                    for fut in as_completed(futs):
-                        fut.result()
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        _copy_badge_sources_to_dir(upload_folder, temp_dir)
 
-                # Determine preprocessor
-                preprocessor_class = None
-                if preprocessing_template_id:
-                    try:
-                        template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
-                        if template:
-                            preprocessor_class = create_preprocessor_from_template(template)
-                    except Exception:
-                        preprocessor_class = None
-                if not preprocessor_class:
-                    preprocessor_class = DefaultPreprocessing
+                        original_dir = os.getcwd()
+                        os.chdir(temp_dir)
+                        try:
+                            _update_badge_job(job_id, message="Processing and merging data...")
+                            processor = EventRegistrationProcessorV3(
+                                config=config_obj, preprocessor_class=preprocessor_class
+                            )
+                            result_df = processor.transform_and_merge()
 
-                config_obj = _preprocessing_config_with_meal(
-                    preprocessing_template_id,
-                    main_event=event_name,
-                    sub_event=sub_event,
-                    inclusion_list=inclusion_list,
-                    created_on_filter=created_on_filter,
-                    group_by_household=group_by_household,
-                    household_cache_path=app.config['HOUSEHOLD_CACHE_PATH'],
-                )
+                            processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
+                            result_df.to_excel(processed_excel, index=False)
+                            del result_df
+                            gc.collect()
 
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    # Copy files to temp dir
-                    for file_type in FileValidator.get_required_file_types():
-                        matching_files = [f for f in os.listdir(upload_folder) if f.startswith(f"{file_type}_")]
-                        if matching_files:
-                            source = os.path.join(upload_folder, matching_files[0])
-                            dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
-                            shutil.copy2(source, dest)
+                            svg_path = resolve_badge_svg_path(badge_template)
+                            column_mappings = json.loads(badge_template.column_mappings)
 
-                    original_dir = os.getcwd()
-                    os.chdir(temp_dir)
-                    try:
-                        _update_badge_job(job_id, message="Processing and merging data...")
-                        processor = EventRegistrationProcessorV3(config=config_obj, preprocessor_class=preprocessor_class)
-                        result_df = processor.transform_and_merge()
-
-                        processed_excel = os.path.join(temp_dir, 'processed_data.xlsx')
-                        result_df.to_excel(processed_excel, index=False)
-
-                        svg_path = resolve_badge_svg_path(badge_template)
-
-                        column_mappings = json.loads(badge_template.column_mappings)
-
-                        generator = BadgeGenerator(
-                            excel_file=processed_excel,
-                            svg_template_path=svg_path,
-                            column_mappings=column_mappings,
-                            afrp_logo_path=app.config['AFRP_LOGO_PATH'],
-                            club_logo_path=club_logo_path,
-                            club_logo_width=badge_template.club_logo_width,
-                            club_logo_height=badge_template.club_logo_height,
-                            avery_template=badge_template.avery_template,
-                            show_outlines=badge_template.show_outlines,
-                            background_id=badge_template.background_id or 'white',
-                            backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
-                            element_layout=_template_element_layout(badge_template),
-                            display_name_config=_template_display_name_config(badge_template),
-                            **_badge_generator_meal_kwargs(preprocessing_template_id),
-                        )
-
-                        total = len(generator.df) if hasattr(generator, "df") else 0
-                        _update_badge_job(job_id, total=total, message="Generating badges...")
-
-                        def progress_callback(current, total_count, message):
-                            _update_badge_job(
-                                job_id,
-                                current=int(current),
-                                total=int(total_count),
-                                message=message or "Generating badges..."
+                            generator = BadgeGenerator(
+                                excel_file=processed_excel,
+                                svg_template_path=svg_path,
+                                column_mappings=column_mappings,
+                                afrp_logo_path=app.config['AFRP_LOGO_PATH'],
+                                club_logo_path=club_logo_path,
+                                club_logo_width=badge_template.club_logo_width,
+                                club_logo_height=badge_template.club_logo_height,
+                                avery_template=badge_template.avery_template,
+                                show_outlines=badge_template.show_outlines,
+                                background_id=badge_template.background_id or 'white',
+                                backgrounds_folder=app.config['BADGE_BACKGROUNDS_FOLDER'],
+                                element_layout=_template_element_layout(badge_template),
+                                display_name_config=_template_display_name_config(badge_template),
+                                **_badge_generator_meal_kwargs(preprocessing_template_id),
                             )
 
-                        output_pdf = os.path.join(
-                            tempfile.gettempdir(),
-                            f'badges_{job_id}_{int(datetime.utcnow().timestamp())}.pdf'
-                        )
-                        generator.generate_pdf(output_pdf, progress_callback=progress_callback)
-                        _update_badge_job(job_id, status="completed", output_pdf_path=output_pdf, message="Complete")
-                    finally:
-                        os.chdir(original_dir)
+                            total = len(generator.df) if hasattr(generator, "df") else 0
+                            _update_badge_job(job_id, total=total, message="Generating badges...")
 
+                            def progress_callback(current, total_count, message):
+                                _update_badge_job(
+                                    job_id,
+                                    current=int(current),
+                                    total=int(total_count),
+                                    message=message or "Generating badges..."
+                                )
+
+                            output_pdf = os.path.join(
+                                tempfile.gettempdir(),
+                                f'badges_{job_id}_{int(datetime.utcnow().timestamp())}.pdf'
+                            )
+                            generator.generate_pdf(output_pdf, progress_callback=progress_callback)
+                            _update_badge_job(
+                                job_id,
+                                status="completed",
+                                output_pdf_path=output_pdf,
+                                message="Complete",
+                            )
+                        finally:
+                            os.chdir(original_dir)
+
+        except PipelineBusyError as e:
+            logger.warning("Async pull-process-generate busy: %s", e)
+            _update_badge_job(job_id, status="failed", error=str(e), message="Failed")
+        except InsufficientMemoryError as e:
+            logger.warning("Async pull-process-generate memory: %s", e)
+            _update_badge_job(job_id, status="failed", error=str(e), message="Failed")
         except Exception as e:
             logger.exception("Async pull-process-generate failed")
             _update_badge_job(job_id, status="failed", error=str(e), message="Failed")
@@ -2417,52 +2347,20 @@ def badges_pull_process_generate():
         if denied:
             return denied
         
-        # Pull and process data
+        # Pull CRM data into memory-efficient Parquet store
         upload_folder = app.config['UPLOAD_FOLDER']
         os.makedirs(upload_folder, mode=0o777, exist_ok=True)
-        
-        # Pull all 4 data types
-        data_type_mapping = {
-            'event_guests': FileTypes.REGISTRATION,
-            'qr_codes': FileTypes.QR_CODES,
-            'table_reservations': FileTypes.SEATING,
-            'form_responses': FileTypes.FORM_RESPONSES
-        }
 
-        def _pull_crm_excel_sync(data_type: str, file_type: str):
-            df = crm_client.download_data_by_type_filtered(data_type, None, campaign_id)
-            temp_file = os.path.join(upload_folder, f"{file_type}_crm_data.xlsx")
-            df.to_excel(temp_file, index=False)
-
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = [
-                pool.submit(_pull_crm_excel_sync, dt, ft)
-                for dt, ft in data_type_mapping.items()
-            ]
-            for fut in as_completed(futs):
-                fut.result()
+        try:
+            with badge_pipeline_job():
+                store = BadgeDataStore(upload_folder)
+                pull_campaign_to_store(crm_client, campaign_id, store)
+        except PipelineBusyError as exc:
+            return jsonify({'error': str(exc)}), 409
+        except InsufficientMemoryError as exc:
+            return jsonify({'error': str(exc)}), 503
         
-        # Get the preprocessing implementation from database templates
-        preprocessor_class = None
-        
-        # Check if user selected a database template
-        if preprocessing_template_id:
-            try:
-                from utils.magazine.scheduler import PreprocessingTemplate
-                template = PreprocessingTemplate.query.get(int(preprocessing_template_id))
-                if template:
-                    logger.info(f"Using database preprocessing template: {template.name}")
-                    # Create a dynamic preprocessor class from the database template
-                    preprocessor_class = create_preprocessor_from_template(template)
-                else:
-                    logger.warning(f"Preprocessing template {preprocessing_template_id} not found, using default")
-            except Exception as e:
-                logger.error(f"Error loading preprocessing template: {str(e)}")
-        
-        # Use default preprocessing (no custom mappings) if no template selected
-        if not preprocessor_class:
-            logger.info("No preprocessing template selected, using default (no custom transformations)")
-            preprocessor_class = DefaultPreprocessing
+        preprocessor_class = _resolve_preprocessor_class(preprocessing_template_id)
         
         config_obj = _preprocessing_config_with_meal(
             preprocessing_template_id,
@@ -2475,14 +2373,7 @@ def badges_pull_process_generate():
         )
         
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Copy files to temp directory
-            for file_type in FileValidator.get_required_file_types():
-                matching_files = [f for f in os.listdir(upload_folder) if f.startswith(f"{file_type}_")]
-                if matching_files:
-                    source = os.path.join(upload_folder, matching_files[0])
-                    dest = os.path.join(temp_dir, os.path.basename(matching_files[0]))
-                    shutil.copy2(source, dest)
-            
+            _copy_badge_sources_to_dir(upload_folder, temp_dir)
             original_dir = os.getcwd()
             os.chdir(temp_dir)
             

@@ -24,3 +24,5 @@ Flask-Login>=0.6.3
 Flask-Bcrypt>=1.0.1
 Flask-Limiter>=3.5.0
 email-validator>=2.1.0
+pyarrow>=14.0.0
+psutil>=5.9.0

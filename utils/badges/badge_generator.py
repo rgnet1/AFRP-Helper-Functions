@@ -1286,60 +1286,66 @@ class BadgeGenerator:
                 df.write(dynamic_xml)
 
             max_workers = int(
-                os.environ.get("BADGE_GENERATOR_WORKERS", os.cpu_count() or 4)
+                os.environ.get(
+                    "BADGE_GENERATOR_WORKERS",
+                    min(4, os.cpu_count() or 4),
+                )
             )
-            max_workers = max(1, max_workers)
+            max_workers = max(1, min(max_workers, 8))
+            batch_size = max(1, int(os.environ.get("BADGE_GENERATOR_BATCH_SIZE", "100")))
 
             dynamic_by_index = {}
             if total_badges > 0:
                 workers = min(max_workers, total_badges)
-                work_items = []
-                for idx, row in self.df.iterrows():
-                    work_items.append(
-                        {
-                            "row_index": idx,
-                            "temp_dir": temp_dir,
-                            "dynamic_svg_path": dynamic_svg_path,
-                            "column_mappings": self.column_mappings,
-                            "display_name_config": self.display_name_config,
-                            "meal_preference_mappings": self.meal_preference_mappings,
-                            "meal_preference_sources": self.meal_preference_sources,
-                            "field_visibility": self.field_visibility,
-                            "row": row.to_dict(),
-                            "badge_width": badge_width,
-                            "badge_height": badge_height,
-                        }
-                    )
+                row_items = list(self.df.iterrows())
+                done = 0
                 with ProcessPoolExecutor(max_workers=workers) as pool:
-                    futures = [
-                        pool.submit(_render_dynamic_drawing, item) for item in work_items
-                    ]
-                    done = 0
-                    for fut in as_completed(futures):
-                        row_index, pdata, err = fut.result()
-                        if err:
-                            logger.error(
-                                "Dynamic render failed for row_index=%s: %s",
-                                row_index,
-                                err,
-                            )
-                        elif pdata:
-                            try:
-                                dynamic_by_index[row_index] = pickle.loads(pdata)
-                            except Exception as pe:
+                    for batch_start in range(0, len(row_items), batch_size):
+                        batch = row_items[batch_start:batch_start + batch_size]
+                        work_items = [
+                            {
+                                "row_index": idx,
+                                "temp_dir": temp_dir,
+                                "dynamic_svg_path": dynamic_svg_path,
+                                "column_mappings": self.column_mappings,
+                                "display_name_config": self.display_name_config,
+                                "meal_preference_mappings": self.meal_preference_mappings,
+                                "meal_preference_sources": self.meal_preference_sources,
+                                "field_visibility": self.field_visibility,
+                                "row": row.to_dict(),
+                                "badge_width": badge_width,
+                                "badge_height": badge_height,
+                            }
+                            for idx, row in batch
+                        ]
+                        futures = [
+                            pool.submit(_render_dynamic_drawing, item) for item in work_items
+                        ]
+                        for fut in as_completed(futures):
+                            row_index, pdata, err = fut.result()
+                            if err:
                                 logger.error(
-                                    "Failed to unpickle drawing row_index=%s: %s",
+                                    "Dynamic render failed for row_index=%s: %s",
                                     row_index,
-                                    pe,
-                                    exc_info=True,
+                                    err,
                                 )
-                        done += 1
-                        if progress_callback:
-                            progress_callback(
-                                done,
-                                total_badges,
-                                f"Generated badge {done} of {total_badges}",
-                            )
+                            elif pdata:
+                                try:
+                                    dynamic_by_index[row_index] = pickle.loads(pdata)
+                                except Exception as pe:
+                                    logger.error(
+                                        "Failed to unpickle drawing row_index=%s: %s",
+                                        row_index,
+                                        pe,
+                                        exc_info=True,
+                                    )
+                            done += 1
+                            if progress_callback:
+                                progress_callback(
+                                    done,
+                                    total_badges,
+                                    f"Generated badge {done} of {total_badges}",
+                                )
 
             badges_on_current_page = 0
 

@@ -13,6 +13,36 @@ from dotenv import load_dotenv
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Badge pipeline: fetch only contact fields used after column mapping (reduces payload and RAM).
+EVENT_GUEST_CONTACT_SELECT = (
+    "contactid,aha_memberid,firstname,middlename,lastname,aha_title,salutation,"
+    "msnfp_maidenname,_aha_localclub2_value,gendercode,crca7_age,"
+    "_aha_householdid_value,crca7_aretheheadofhousehold"
+)
+EVENT_GUEST_EXPAND = (
+    f"$expand=crca7_ExistingContact($select={EVENT_GUEST_CONTACT_SELECT}),"
+    "crca7_Event($select=name)"
+)
+EVENT_GUEST_EXPORT_COLUMNS = (
+    "Contact ID",
+    "Member ID (Existing Contact) (Contact)",
+    "First Name (Existing Contact) (Contact)",
+    "Middle Name (Existing Contact) (Contact)",
+    "Last Name (Existing Contact) (Contact)",
+    "Title (Existing Contact) (Contact)",
+    "Maiden Name (Existing Contact) (Contact)",
+    "Local Club (Existing Contact) (Contact)",
+    "Gender (Existing Contact) (Contact)",
+    "Age (Existing Contact) (Contact)",
+    "Household ID (Existing Contact) (Contact)",
+    "Household (Existing Contact) (Contact)",
+    "Head of Household (Existing Contact) (Contact)",
+    "Event",
+    "Status Reason",
+    "Created On",
+    "Name",
+)
+
 
 def parse_choice_labels(raw: str | None) -> list[str]:
     """
@@ -183,7 +213,7 @@ class DynamicsCRMClient:
         # Note: Navigation property names are case-sensitive!
         # Expand with all contact fields to ensure lookup fields (_aha_localclub2_value) are included
         # When you use $select in $expand, lookup fields may not be included automatically
-        expand_query = "$expand=crca7_ExistingContact,crca7_Event($select=name)"
+        expand_query = EVENT_GUEST_EXPAND
         endpoint = f"crca7_eventguests?{expand_query}"
         response = self._make_request(endpoint)
         df = self._process_response(response, "crca7_")
@@ -193,6 +223,7 @@ class DynamicsCRMClient:
         
         # Map API columns to Excel column names
         df = self._map_event_guest_columns(df)
+        df = self._prune_event_guest_columns(df)
         
         return df
 
@@ -352,7 +383,7 @@ class DynamicsCRMClient:
         import logging
         logger = logging.getLogger(__name__)
         
-        logger.debug(f"Event Guest columns BEFORE mapping: {df.columns.tolist()}")
+        logger.debug("Event Guest columns BEFORE mapping: %s", list(df.columns))
         
         # Drop redundant top-level fields since we have expanded contact data
         # These would create duplicate columns after mapping
@@ -394,14 +425,13 @@ class DynamicsCRMClient:
         }
         
         # Log what columns we have before mapping
-        logger.info(f"Event Guest columns BEFORE mapping: {df.columns.tolist()}")
+        logger.debug("Event Guest columns before rename: %d columns", len(df.columns))
         
         # Rename columns that exist in the DataFrame
         rename_dict = {old: new for old, new in column_mapping.items() if old in df.columns}
         df = df.rename(columns=rename_dict)
         
-        logger.info(f"Event Guest columns AFTER mapping: {df.columns.tolist()}")
-        logger.info(f"Columns mapped: {list(rename_dict.keys())}")
+        logger.debug("Event Guest columns after rename: %s", list(rename_dict.values()))
         
         # Check for and handle any remaining duplicates
         if df.columns.duplicated().any():
@@ -412,6 +442,16 @@ class DynamicsCRMClient:
             logger.debug(f"Event Guest columns AFTER dedup: {df.columns.tolist()}")
         
         return df
+
+    def _prune_event_guest_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep only mapped export columns to reduce memory and Parquet size."""
+        if df.empty:
+            return df
+        keep = [col for col in EVENT_GUEST_EXPORT_COLUMNS if col in df.columns]
+        dropped = len(df.columns) - len(keep)
+        if dropped:
+            logger.debug("Pruned %d unused event guest columns", dropped)
+        return df[keep].copy()
     
     def _flatten_qr_code_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Flatten QR Code expanded columns."""
@@ -855,7 +895,7 @@ class DynamicsCRMClient:
         filter_clause = f"crca7_Event/campaignid eq {campaign_id} or crca7_Event/_aha_parentcampaign_value eq {campaign_id}"
         # Expand with all contact fields to ensure lookup fields (_aha_localclub2_value) are included
         # When you use $select in $expand, lookup fields may not be included automatically
-        expand_query = "$expand=crca7_ExistingContact,crca7_Event($select=name)"
+        expand_query = EVENT_GUEST_EXPAND
         
         endpoint = f"crca7_eventguests?$filter={urllib.parse.quote(filter_clause)}&{expand_query}"
         records = self._paginate(endpoint)
@@ -863,6 +903,7 @@ class DynamicsCRMClient:
         
         df = self._flatten_expanded_columns(df)
         df = self._map_event_guest_columns(df)
+        df = self._prune_event_guest_columns(df)
         
         logger.info(f"Fetched {len(df)} event guests for campaign")
         return df

@@ -226,28 +226,30 @@ class PreprocessingBase(ABC):
 
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """Preprocess all string columns in the dataframe."""
-        df = df.copy()  # Create a copy to avoid modifying the original
+        df = df.copy()
+        value_mappings = self.get_value_mappings()
+        contains_mappings = self.get_contains_mappings()
+        has_custom_mappings = bool(value_mappings or contains_mappings)
         
-        # First handle name formatting and column renaming
         for old_col, new_col in self.NAME_COLUMNS.items():
             if old_col in df.columns:
                 logger.info(f"Formatting and renaming {old_col} to {new_col}...")
-                # Format the names
                 df[old_col] = df[old_col].apply(self._format_name)
-                # Rename the column
                 df = df.rename(columns={old_col: new_col})
         
-        # Apply preprocessing to all other string columns
-        logger.info("Preprocessing remaining data values...")
-        for column in df.select_dtypes(include=['object']).columns:
-            if column not in self.NAME_COLUMNS.values():  # Skip name columns as they're already processed
-                df.loc[0:, column] = df.loc[0:, column].apply(lambda x: self.preprocess_value(x, column))
+        if has_custom_mappings:
+            logger.info("Preprocessing remaining data values...")
+            for column in df.select_dtypes(include=['object']).columns:
+                if column not in self.NAME_COLUMNS.values():
+                    df.loc[:, column] = df.loc[:, column].apply(
+                        lambda x, col=column: self.preprocess_value(x, col)
+                    )
+        else:
+            logger.debug("Skipping bulk column preprocessing (no custom mappings)")
         
-        # Sub-event filtering is now handled at the main level before preprocessing
-        # Just ensure we have all required columns that exist in the dataframe
         logger.info("Processing with all available columns")
         available_columns = [col for col in self.CONTACT_COLUMNS if col in df.columns]
         other_columns = [col for col in df.columns if col not in self.CONTACT_COLUMNS]
         df = df[available_columns + other_columns]
         
-        return df 
+        return df
