@@ -103,6 +103,18 @@
             color: #666;
             margin-top: 4px;
         }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .hidden-group {
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -129,11 +141,23 @@
                 </div>
 
                 <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="is_admin" name="is_admin" {% if user.is_admin %}checked{% endif %}>
-                        Grant administrator privileges
-                    </label>
-                    <p class="help-text">Admins have access to all features and user management.</p>
+                    <label for="role">Role *</label>
+                    <select id="role" name="role" required>
+                        <option value="user" {% if user.get_role() == 'user' %}selected{% endif %}>Standard User</option>
+                        <option value="event_coordinator" {% if user.get_role() == 'event_coordinator' %}selected{% endif %}>Event Coordinator</option>
+                        <option value="admin" {% if user.get_role() == 'admin' %}selected{% endif %}>Administrator</option>
+                    </select>
+                    <p class="help-text">Event Coordinators can use Badge Generator only, for one assigned campaign.</p>
+                </div>
+
+                <div class="form-group {% if user.get_role() != 'event_coordinator' %}hidden-group{% endif %}" id="assignedCampaignGroup">
+                    <label for="assigned_campaign_id">Assigned Campaign *</label>
+                    <select id="assigned_campaign_id" name="assigned_campaign_id"
+                            data-selected="{{ user.assigned_campaign_id or '' }}">
+                        <option value="">Loading campaigns...</option>
+                    </select>
+                    <input type="hidden" id="assigned_campaign_name" name="assigned_campaign_name"
+                           value="{{ user.assigned_campaign_name or '' }}">
                 </div>
 
                 <div class="form-group">
@@ -162,17 +186,67 @@
         </div>
     </div>
     <script>
-        const adminCheckbox = document.getElementById('is_admin');
+        const roleSelect = document.getElementById('role');
         const featureList = document.getElementById('featureList');
-        function syncFeatureList() {
-            const disabled = adminCheckbox.checked;
-            featureList.classList.toggle('disabled', disabled);
+        const campaignGroup = document.getElementById('assignedCampaignGroup');
+        const campaignSelect = document.getElementById('assigned_campaign_id');
+        const campaignNameInput = document.getElementById('assigned_campaign_name');
+        const selectedCampaignId = campaignSelect.dataset.selected || '';
+
+        function syncRoleUi() {
+            const role = roleSelect.value;
+            const isAdmin = role === 'admin';
+            const isCoordinator = role === 'event_coordinator';
+
+            campaignGroup.classList.toggle('hidden-group', !isCoordinator);
+            campaignSelect.required = isCoordinator;
+
+            featureList.classList.toggle('disabled', isAdmin || isCoordinator);
             featureList.querySelectorAll('input[type=checkbox]').forEach(cb => {
-                cb.disabled = disabled;
+                if (isAdmin) {
+                    cb.disabled = true;
+                    cb.checked = true;
+                } else if (isCoordinator) {
+                    cb.disabled = true;
+                    cb.checked = cb.name === 'feature_badges';
+                } else {
+                    cb.disabled = false;
+                }
             });
         }
-        adminCheckbox.addEventListener('change', syncFeatureList);
-        syncFeatureList();
+
+        async function loadCampaignOptions() {
+            try {
+                const response = await fetch('/api/campaigns/open');
+                if (!response.ok) throw new Error('Failed to load campaigns');
+                const data = await response.json();
+                campaignSelect.innerHTML = '<option value="">Select a campaign...</option>';
+                (data.campaigns || []).forEach(campaign => {
+                    const option = document.createElement('option');
+                    option.value = campaign.id;
+                    option.textContent = campaign.name;
+                    if (campaign.id === selectedCampaignId) {
+                        option.selected = true;
+                    }
+                    campaignSelect.appendChild(option);
+                });
+                if (selectedCampaignId && !campaignNameInput.value) {
+                    const option = campaignSelect.options[campaignSelect.selectedIndex];
+                    campaignNameInput.value = option ? option.textContent : '';
+                }
+            } catch (error) {
+                campaignSelect.innerHTML = '<option value="">Could not load campaigns</option>';
+            }
+        }
+
+        campaignSelect.addEventListener('change', () => {
+            const option = campaignSelect.options[campaignSelect.selectedIndex];
+            campaignNameInput.value = option && option.value ? option.textContent : '';
+        });
+
+        roleSelect.addEventListener('change', syncRoleUi);
+        syncRoleUi();
+        loadCampaignOptions();
     </script>
 </body>
 </html>

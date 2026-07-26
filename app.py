@@ -33,6 +33,13 @@ from utils.auth import (
     path_requires_admin,
     feature_for_path,
 )
+from utils.auth.campaign_access import (
+    CampaignAccessDenied,
+    assert_campaign_access,
+    assert_sub_event_access,
+    annotate_campaigns_for_user,
+    campaign_access_metadata,
+)
 from utils.magazine.download_latest_magazine import main as magazine_main
 from utils.magazine.scheduler import db, Schedule, JobRun, schedule_manager, EventViewConfig, BadgeTemplate, User, PreprocessingTemplate
 from utils.badges.pre_processing_module import PreprocessingBase
@@ -194,6 +201,65 @@ def _badge_generator_meal_kwargs(preprocessing_template_id):
         'meal_preference_mappings': mappings,
         'meal_preference_sources': sources,
     }
+
+
+def _campaign_access_denied_response(exc: CampaignAccessDenied):
+    logger.warning(
+        "Campaign access denied for user %s: %s",
+        getattr(current_user, 'username', '?'),
+        exc.message,
+    )
+    return jsonify({'error': exc.message}), 403
+
+
+def _require_campaign_access(user, campaign_id, sub_event=None, crm_client=None):
+    """Return a Flask error response if access is denied, else None."""
+    try:
+        assert_campaign_access(user, campaign_id)
+        if sub_event:
+            client = crm_client or DynamicsCRMClient()
+            assert_sub_event_access(user, campaign_id, sub_event, client)
+    except CampaignAccessDenied as exc:
+        if user is current_user:
+            return _campaign_access_denied_response(exc)
+        logger.warning(
+            "Campaign access denied for user %s: %s",
+            getattr(user, 'username', '?'),
+            exc.message,
+        )
+        return jsonify({'error': exc.message}), 403
+    return None
+
+
+def _resolve_campaign_id(campaign_id, campaign_name, crm_client):
+    """Resolve campaign id from id or name. Returns (campaign_id, error_response)."""
+    if campaign_name and not campaign_id:
+        campaign_info = crm_client.get_campaign_by_name(campaign_name)
+        if not campaign_info:
+            return None, (jsonify({'error': f'Campaign {campaign_name} not found'}), 404)
+        campaign_id = campaign_info['id']
+    return campaign_id, None
+
+
+def _user_role_from_form(form):
+    role = (form.get('role') or User.ROLE_USER).strip()
+    if role not in User.VALID_ROLES:
+        role = User.ROLE_USER
+    return role
+
+
+def _apply_user_access_from_form(user, form):
+    """Apply role, campaign assignment, and feature permissions from admin form."""
+    role = _user_role_from_form(form)
+    assigned_id = (form.get('assigned_campaign_id') or '').strip()
+    assigned_name = (form.get('assigned_campaign_name') or '').strip()
+
+    if role == User.ROLE_EVENT_COORDINATOR and not assigned_id:
+        raise ValueError('Assigned campaign is required for Event Coordinator role')
+
+    user.apply_role(role, assigned_id, assigned_name)
+    if role == User.ROLE_USER:
+        user.set_feature_permissions(permissions_from_form(form))
 
 
 def _preprocessing_config_with_meal(
@@ -601,7 +667,7 @@ def create_user():
         password = request.form.get('password', '')
         password_confirm = request.form.get('password_confirm', '')
         email = request.form.get('email', '').strip()
-        is_admin = request.form.get('is_admin') == 'on'
+        role = _user_role_from_form(request.form)
         
         # Validate username
         valid, error = validate_username(username)
@@ -642,21 +708,21 @@ def create_user():
             user = User(
                 username=username,
                 email=email if email else None,
-                is_admin=is_admin,
                 is_active=True
             )
             user.set_password(password)
-            if is_admin:
-                user.set_feature_permissions({fid: True for fid in FEATURES})
-            else:
-                user.set_feature_permissions(permissions_from_form(request.form))
+            _apply_user_access_from_form(user, request.form)
             db.session.add(user)
             db.session.commit()
             
             logger.info(f"User created: {username} by {current_user.username}")
             flash(f'User {username} created successfully', 'success')
             return redirect(url_for('list_users'))
-            
+
+        except ValueError as e:
+            db.session.rollback()
+            flash(str(e), 'error')
+            return render_template('create_user.html', features=FEATURES)
         except Exception as e:
             db.session.rollback()
             logger.exception("Error creating user")
@@ -678,17 +744,15 @@ def edit_user(user_id):
         return redirect(url_for('list_users'))
 
     if request.method == 'POST':
-        is_admin = request.form.get('is_admin') == 'on'
-        user.is_admin = is_admin
-        if is_admin:
-            user.set_feature_permissions({fid: True for fid in FEATURES})
-        else:
-            user.set_feature_permissions(permissions_from_form(request.form))
         try:
+            _apply_user_access_from_form(user, request.form)
             db.session.commit()
             logger.info(f"User updated: {user.username} by {current_user.username}")
             flash(f'User {user.username} updated successfully', 'success')
             return redirect(url_for('list_users'))
+        except ValueError as e:
+            db.session.rollback()
+            flash(str(e), 'error')
         except Exception as e:
             db.session.rollback()
             logger.exception("Error updating user")
@@ -1208,6 +1272,9 @@ def get_badge_meal_options():
     campaign_id = (request.args.get('campaign_id') or '').strip()
     if not campaign_id:
         return jsonify({'error': 'campaign_id is required'}), 400
+    denied = _require_campaign_access(current_user, campaign_id)
+    if denied:
+        return denied
     try:
         crm_client = DynamicsCRMClient()
         questions = crm_client.get_form_questions(campaign_id)
@@ -1226,9 +1293,11 @@ def get_open_campaigns():
     try:
         crm_client = DynamicsCRMClient()
         campaigns = crm_client.get_open_campaigns()
-        
+        annotated = annotate_campaigns_for_user(current_user, campaigns)
+        access = campaign_access_metadata(current_user)
+
         logger.info(f"Retrieved {len(campaigns)} open campaigns")
-        return jsonify({'campaigns': campaigns})
+        return jsonify({'campaigns': annotated, 'access': access})
         
     except Exception as e:
         logger.error(f"Error fetching open campaigns: {str(e)}")
@@ -1238,6 +1307,9 @@ def get_open_campaigns():
 @login_required
 def get_campaign_sub_events(campaign_id):
     """Get list of sub-events for a specific campaign from Dynamics CRM."""
+    denied = _require_campaign_access(current_user, campaign_id)
+    if denied:
+        return denied
     try:
         crm_client = DynamicsCRMClient()
         sub_events = crm_client.get_sub_events(campaign_id)
@@ -1299,6 +1371,12 @@ def badges_pull_and_process():
             return jsonify({'error': 'Campaign not found'}), 404
         
         logger.info(f"Using campaign: {campaign_info['name']} (ID: {campaign_id})")
+
+        denied = _require_campaign_access(
+            current_user, campaign_id, sub_event, crm_client
+        )
+        if denied:
+            return denied
         
         # Create temporary directory for processing
         upload_folder = app.config['UPLOAD_FOLDER']
@@ -2103,10 +2181,15 @@ def badges_pull_process_generate_async():
     campaign_name = (data.get('campaign_name') or 'campaign').replace(" ", "_")
     download_name = f'badges_{campaign_name}.pdf'
     job_id = _init_badge_job(phase="pull_process_generate", download_name=download_name)
+    requesting_user_id = current_user.id
 
     def run_job():
         try:
             with app.app_context():
+                user = User.query.get(requesting_user_id)
+                if not user:
+                    raise ValueError('User not found')
+
                 _update_badge_job(job_id, message="Pulling and processing data...")
 
                 # Reuse the synchronous implementation by calling it directly isn't safe
@@ -2129,6 +2212,10 @@ def badges_pull_process_generate_async():
                     if not campaign_info:
                         raise ValueError(f'Campaign {campaign_name_local} not found')
                     campaign_id = campaign_info['id']
+
+                denied = _require_campaign_access(user, campaign_id, sub_event, crm_client)
+                if denied:
+                    raise ValueError(denied[0].get_json().get('error', 'Access denied'))
 
                 upload_folder = app.config['UPLOAD_FOLDER']
                 os.makedirs(upload_folder, mode=0o777, exist_ok=True)
@@ -2323,6 +2410,12 @@ def badges_pull_process_generate():
             if not campaign_info:
                 return jsonify({'error': f'Campaign {campaign_name} not found'}), 404
             campaign_id = campaign_info['id']
+
+        denied = _require_campaign_access(
+            current_user, campaign_id, sub_event, crm_client
+        )
+        if denied:
+            return denied
         
         # Pull and process data
         upload_folder = app.config['UPLOAD_FOLDER']

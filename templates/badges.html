@@ -627,6 +627,15 @@
                 padding: 14px 32px;
             }
         }
+
+        #campaignSelect option:disabled {
+            color: #999;
+        }
+
+        #campaignSelect.campaign-restricted {
+            cursor: not-allowed;
+            background-color: #f5f5f5;
+        }
     </style>
 </head>
 <body>
@@ -835,6 +844,7 @@
         // LocalStorage Cache Management
         // ============================================
         const CACHE_KEY = 'badgeGenerator_preferences';
+        let campaignAccess = { restricted: false, assigned_campaign_id: null, assigned_campaign_name: null };
 
         function saveToCache() {
             try {
@@ -897,6 +907,10 @@
 
         function restorePreferences(preferences) {
             if (!preferences) return;
+
+            if (campaignAccess.restricted && campaignAccess.assigned_campaign_id) {
+                preferences.campaignId = campaignAccess.assigned_campaign_id;
+            }
 
             // Restore campaign
             if (preferences.campaignId) {
@@ -1073,6 +1087,9 @@
                 const data = await response.json();
                 console.log('Received data:', data);
                 const campaigns = data.campaigns || [];
+                campaignAccess = data.access || campaignAccess;
+                const restricted = !!campaignAccess.restricted;
+                const assignedId = campaignAccess.assigned_campaign_id || '';
                 console.log(`Found ${campaigns.length} campaigns`);
                 
                 const select = document.getElementById('campaignSelect');
@@ -1082,16 +1099,25 @@
                 }
                 
                 select.innerHTML = '<option value="">Select a campaign...</option>';
+                select.classList.remove('campaign-restricted');
+                select.disabled = false;
                 
                 campaigns.forEach(campaign => {
                     const option = document.createElement('option');
                     option.value = campaign.id;
                     option.textContent = campaign.name;
+                    if (restricted && campaign.selectable === false) {
+                        option.disabled = true;
+                    }
                     select.appendChild(option);
                 });
                 
                 // Add event listener for campaign change
                 select.addEventListener('change', async function() {
+                    if (campaignAccess.restricted && campaignAccess.assigned_campaign_id) {
+                        this.value = campaignAccess.assigned_campaign_id;
+                        return;
+                    }
                     updateProcessButton();
                     updateBadgeButtons();  // Also update badge generation buttons
                     saveToCache();  // Save selection to cache
@@ -1106,6 +1132,16 @@
                         subEventSelect.innerHTML = '<option value="">All sub-events</option>';
                     }
                 });
+
+                if (restricted && assignedId) {
+                    select.value = assignedId;
+                    select.disabled = true;
+                    select.classList.add('campaign-restricted');
+                    await loadSubEvents(assignedId);
+                    fetchAndCacheMealOptions(assignedId);
+                    updateProcessButton();
+                    updateBadgeButtons();
+                }
                 
                 console.log(`Successfully loaded ${campaigns.length} open campaigns`);
             } catch (error) {

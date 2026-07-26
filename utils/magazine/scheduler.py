@@ -263,6 +263,11 @@ class PreprocessingTemplate(db.Model):
 class User(db.Model, UserMixin):
     """User model for authentication with bcrypt password hashing."""
     __tablename__ = 'user'
+
+    ROLE_USER = 'user'
+    ROLE_ADMIN = 'admin'
+    ROLE_EVENT_COORDINATOR = 'event_coordinator'
+    VALID_ROLES = (ROLE_USER, ROLE_ADMIN, ROLE_EVENT_COORDINATOR)
     
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
@@ -271,6 +276,9 @@ class User(db.Model, UserMixin):
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     feature_permissions = db.Column(db.Text, default='{}')
+    role = db.Column(db.String(50), default=ROLE_USER, nullable=False)
+    assigned_campaign_id = db.Column(db.String(64), nullable=True)
+    assigned_campaign_name = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
     
@@ -309,9 +317,44 @@ class User(db.Model, UserMixin):
             return True
         return bool(self.get_feature_permissions().get(feature_id, False))
 
+    def get_role(self) -> str:
+        if self.is_admin:
+            return self.ROLE_ADMIN
+        role = (self.role or self.ROLE_USER).strip()
+        if role not in self.VALID_ROLES or role == self.ROLE_ADMIN:
+            return self.ROLE_USER
+        return role
+
+    def is_event_coordinator(self) -> bool:
+        return not self.is_admin and self.get_role() == self.ROLE_EVENT_COORDINATOR
+
+    def campaign_access_restricted(self) -> bool:
+        return self.is_event_coordinator() and bool(self.assigned_campaign_id)
+
     def allowed_features(self):
         from utils.auth.permissions import FEATURES, allowed_features_for_user
         return allowed_features_for_user(self)
+
+    def apply_role(self, role: str, assigned_campaign_id=None, assigned_campaign_name=None):
+        """Set role, sync is_admin, and apply default permissions for coordinators."""
+        from utils.auth.permissions import FEATURES
+
+        role = (role or self.ROLE_USER).strip()
+        if role not in self.VALID_ROLES:
+            role = self.ROLE_USER
+
+        self.role = role
+        self.is_admin = role == self.ROLE_ADMIN
+
+        if role == self.ROLE_EVENT_COORDINATOR:
+            self.set_feature_permissions({fid: fid == 'badges' for fid in FEATURES})
+            self.assigned_campaign_id = (assigned_campaign_id or '').strip() or None
+            self.assigned_campaign_name = (assigned_campaign_name or '').strip() or None
+        else:
+            self.assigned_campaign_id = None
+            self.assigned_campaign_name = None
+            if role == self.ROLE_ADMIN:
+                self.set_feature_permissions({fid: True for fid in FEATURES})
 
     def to_dict(self):
         """Convert model to dictionary for JSON serialization (excluding password_hash)."""
@@ -321,6 +364,9 @@ class User(db.Model, UserMixin):
             'email': self.email,
             'is_admin': self.is_admin,
             'is_active': self.is_active,
+            'role': self.get_role(),
+            'assigned_campaign_id': self.assigned_campaign_id,
+            'assigned_campaign_name': self.assigned_campaign_name,
             'feature_permissions': self.get_feature_permissions(),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_login': self.last_login.isoformat() if self.last_login else None
