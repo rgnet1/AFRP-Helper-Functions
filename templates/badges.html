@@ -817,8 +817,8 @@
     <!-- Loading Overlay -->
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-content">
-            <h3 style="text-align: center; color: #4b904b; margin-bottom: 20px;">
-                <i class="fas fa-cog fa-spin"></i> Processing...
+            <h3 id="loadingTitle" style="text-align: center; color: #4b904b; margin-bottom: 20px;">
+                <i class="fas fa-cog fa-spin"></i> <span id="loadingTitleText">Processing...</span>
             </h3>
             <div class="progress-bar-container">
                 <div class="progress-bar" id="progressBar" style="width: 0%"></div>
@@ -1312,7 +1312,10 @@
             }
         }
 
+        let loadingProgressFloor = 0;
+
         function showLoading() {
+            loadingProgressFloor = 0;
             document.getElementById('loadingOverlay').classList.add('active');
         }
 
@@ -1320,9 +1323,31 @@
             document.getElementById('loadingOverlay').classList.remove('active');
         }
 
+        function badgeJobProgressPercent(job) {
+            const total = job.total || 0;
+            const current = job.current || 0;
+            if (total > 0) {
+                return Math.min(100, Math.round((current / total) * 100));
+            }
+            if (job.status === 'completed') {
+                return 100;
+            }
+            const msg = (job.message || '').toLowerCase();
+            if (msg.includes('generating badge')) return 85;
+            if (msg.includes('processing') || msg.includes('merging')) return 55;
+            if (msg.includes('pulling')) return 25;
+            return 10;
+        }
+
         function updateProgress(percent, message, step) {
-            document.getElementById('progressBar').style.width = percent + '%';
+            const clamped = Math.min(100, Math.max(loadingProgressFloor, percent));
+            loadingProgressFloor = clamped;
+            document.getElementById('progressBar').style.width = clamped + '%';
             document.getElementById('loadingMessage').textContent = message;
+            const titleText = document.getElementById('loadingTitleText');
+            if (titleText && message) {
+                titleText.textContent = message.replace(/\s*\(\d+\/\d+\)$/, '');
+            }
         }
 
         function sleep(ms) {
@@ -1341,7 +1366,7 @@
                 const job = await resp.json();
                 const total = job.total || 0;
                 const current = job.current || 0;
-                const pct = Number.isFinite(job.percent) ? job.percent : 0;
+                const pct = badgeJobProgressPercent(job);
 
                 const progressSuffix = total > 0 ? ` (${current}/${total})` : '';
                 updateProgress(pct, `${job.message || 'Working...'}${progressSuffix}`, 'generating');

@@ -25,6 +25,13 @@ SUBEVENT_LINE_HEIGHT = 15
 SUBEVENT_PLACEHOLDERS = [f"{{{{SUBEVENT_{i}}}}}" for i in range(1, 5)]
 
 IMAGE_LAYOUT_KEYS = ("{{CLUB_LOGO}}", "{{AFRP_LOGO}}", "{{QR_CODE}}")
+TEXT_LAYOUT_KEYS = (
+    "{{DISPLAY_NAME}}",
+    "{{LOCAL_CLUB}}",
+    "{{TABLE_NUMBER}}",
+    "{{MEMBER_ID}}",
+    "{{MEAL_PREFERENCE}}",
+)
 QR_COMPANION_PLACEHOLDERS = ("{{MEMBER_ID}}", "{{MEAL_PREFERENCE}}")
 DEFAULT_IMAGE_PRESETS = {
     "{{CLUB_LOGO}}": "top-left",
@@ -220,6 +227,31 @@ def _set_tag_attr(tag: str, attr: str, value) -> str:
     )
 
 
+def _remove_tag_attr(tag: str, attr: str) -> str:
+    return re.sub(
+        rf'\s*{re.escape(attr)}\s*=\s*"[^"]*"',
+        "",
+        tag,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
+def _set_text_anchor(tag: str, text_anchor: str) -> str:
+    updated = tag
+    if re.search(r"text-anchor\s*=", updated, re.IGNORECASE):
+        updated = re.sub(
+            r'(text-anchor\s*=\s*")[^"]*(")',
+            rf"\g<1>{text_anchor}\g<2>",
+            updated,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    else:
+        updated = updated.replace("<text", f'<text text-anchor="{text_anchor}"', 1)
+    return updated
+
+
 def _find_image_tag(svg_content: str, placeholder: str) -> str | None:
     pattern = re.compile(
         rf"<image\b[^>]*\bhref\s*=\s*[\"']{re.escape(placeholder)}[\"'][^>]*/?>",
@@ -265,6 +297,26 @@ def _parse_text_xy(tag: str) -> tuple[float, float, str]:
         float(y.group(1)) if y else 0.0,
         anchor.group(1) if anchor else "start",
     )
+
+
+def _parse_text_spec(tag: str) -> dict:
+    x, y, text_anchor = _parse_text_xy(tag)
+    font_size_m = re.search(r'font-size\s*=\s*"([\d.]+)"', tag, re.IGNORECASE)
+    shrink_m = re.search(r'data-shrink-to-fit\s*=\s*"([^"]+)"', tag, re.IGNORECASE)
+    shrink = bool(
+        shrink_m and shrink_m.group(1).strip().lower() in ("true", "1", "yes")
+    )
+    spec: dict = {
+        "x": x,
+        "y": y,
+        "textAnchor": text_anchor,
+        "preset": "custom",
+    }
+    if font_size_m:
+        spec["fontSize"] = float(font_size_m.group(1))
+    if shrink:
+        spec["shrinkToFit"] = True
+    return spec
 
 
 def _extract_qr_companions(svg_content: str, qr_spec: dict) -> dict:
@@ -380,6 +432,7 @@ def extract_layout_from_svg(svg_content: str) -> dict:
         x = re.search(r'\bx\s*=\s*"([\d.]+)"', first_tag, re.IGNORECASE)
         y = re.search(r'\by\s*=\s*"([\d.]+)"', first_tag, re.IGNORECASE)
         anchor = re.search(r'text-anchor\s*=\s*"([^"]+)"', first_tag, re.IGNORECASE)
+        font_size_m = re.search(r'font-size\s*=\s*"([\d.]+)"', first_tag, re.IGNORECASE)
         ys = []
         for _, tag in sub_tags:
             ym = re.search(r'\by\s*=\s*"([\d.]+)"', tag, re.IGNORECASE)
@@ -388,7 +441,7 @@ def extract_layout_from_svg(svg_content: str) -> dict:
         line_height = SUBEVENT_LINE_HEIGHT
         if len(ys) >= 2:
             line_height = ys[1] - ys[0]
-        layout["subevents"] = {
+        sub_spec = {
             "preset": "custom",
             "x": float(x.group(1)) if x else corner_margins["bottom_left"]["horizontal"],
             "baseY": float(y.group(1)) if y else _subevent_base_y(
@@ -397,6 +450,16 @@ def extract_layout_from_svg(svg_content: str) -> dict:
             "lineHeight": line_height,
             "textAnchor": anchor.group(1) if anchor else "start",
         }
+        if font_size_m:
+            sub_spec["fontSize"] = float(font_size_m.group(1))
+        layout["subevents"] = sub_spec
+
+    for key in TEXT_LAYOUT_KEYS:
+        if key in QR_COMPANION_PLACEHOLDERS:
+            continue
+        tag = _find_text_tag(svg_content, key)
+        if tag:
+            layout[key] = _parse_text_spec(tag)
 
     return layout
 
@@ -469,38 +532,93 @@ def _apply_subevent_layout(
         updated = tag
         updated = _set_tag_attr(updated, "x", x)
         updated = _set_tag_attr(updated, "y", y)
-        if re.search(r"text-anchor\s*=", updated, re.IGNORECASE):
-            updated = re.sub(
-                r'(text-anchor\s*=\s*")[^"]*(")',
-                rf"\g<1>{text_anchor}\g<2>",
-                updated,
-                count=1,
-                flags=re.IGNORECASE,
-            )
-        else:
-            updated = updated.replace("<text", f'<text text-anchor="{text_anchor}"', 1)
+        updated = _set_text_anchor(updated, text_anchor)
+        if spec.get("fontSize") is not None:
+            updated = _set_tag_attr(updated, "font-size", spec["fontSize"])
         result = result.replace(tag, updated, 1)
     return result
 
 
-def apply_element_layout(svg_content: str, layout: dict | None) -> str:
-    """Apply saved corner / sub-event positions to SVG template text."""
-    if not layout:
+def _apply_text_layout(
+    svg_content: str,
+    placeholder: str,
+    spec: dict,
+    corner_margins: dict,
+    badge_w: float,
+    badge_h: float,
+) -> str:
+    tag = _find_text_tag(svg_content, placeholder)
+    if not tag:
         return svg_content
 
-    # AFRP logo is a fixed system asset — always honor top/right margins.
-    afrp_spec = layout.get("{{AFRP_LOGO}}")
-    if afrp_spec:
-        afrp_spec["preset"] = "top-right"
+    line_height = float(spec.get("lineHeight", SUBEVENT_LINE_HEIGHT))
+    preset = spec.get("preset", "custom")
+
+    if preset and preset != "custom":
+        x, text_anchor = _subevent_anchor(preset, badge_w, corner_margins)
+        y = _subevent_base_y(preset, 1, badge_h, line_height, corner_margins)
+    else:
+        x = float(spec.get("x", corner_margins["bottom_left"]["horizontal"]))
+        y = float(
+            spec.get(
+                "y",
+                _subevent_base_y(
+                    "bottom-left", 1, badge_h, line_height, corner_margins
+                ),
+            )
+        )
+        text_anchor = spec.get("textAnchor", "start")
+
+    updated = tag
+    updated = _set_tag_attr(updated, "x", x)
+    updated = _set_tag_attr(updated, "y", y)
+    updated = _set_text_anchor(updated, text_anchor)
+    if spec.get("fontSize") is not None:
+        updated = _set_tag_attr(updated, "font-size", spec["fontSize"])
+    updated = _remove_tag_attr(updated, "data-max-width")
+    return svg_content.replace(tag, updated, 1)
+
+
+def _filtered_qr_companions(qr_spec: dict, layout: dict) -> dict:
+    companions = qr_spec.get("companions") or {}
+    if not companions:
+        return {}
+    return {
+        ph: rel
+        for ph, rel in companions.items()
+        if ph not in layout or not isinstance(layout.get(ph), dict)
+    }
+
+
+def apply_element_layout(svg_content: str, layout: dict | None) -> str:
+    """Apply saved corner / sub-event / text positions to SVG template."""
+    if not layout:
+        return svg_content
 
     badge_w, badge_h = _parse_svg_size(svg_content)
     corner_margins = corner_margins_from_layout(layout)
     result = svg_content
-    for key, spec in layout.items():
-        if key in ("margins", "corner_margins", "_canvas", "_field_visibility") or not spec:
+
+    for key in IMAGE_LAYOUT_KEYS:
+        spec = layout.get(key)
+        if not spec:
             continue
-        if key == "subevents":
-            result = _apply_subevent_layout(result, spec, badge_w, badge_h, corner_margins)
-        elif key in IMAGE_LAYOUT_KEYS:
-            result = _apply_image_layout(result, key, spec, corner_margins)
+        if key == "{{QR_CODE}}":
+            spec = dict(spec)
+            spec["companions"] = _filtered_qr_companions(spec, layout)
+        result = _apply_image_layout(result, key, spec, corner_margins)
+
+    sub_spec = layout.get("subevents")
+    if sub_spec:
+        result = _apply_subevent_layout(
+            result, sub_spec, badge_w, badge_h, corner_margins
+        )
+
+    for key in TEXT_LAYOUT_KEYS:
+        spec = layout.get(key)
+        if spec:
+            result = _apply_text_layout(
+                result, key, spec, corner_margins, badge_w, badge_h
+            )
+
     return ensure_square_qr_image_tags(result)

@@ -385,6 +385,8 @@ def scale_element_layout(
                 spec["baseY"] = _scale_num(spec["baseY"], sy)
             if "lineHeight" in spec:
                 spec["lineHeight"] = _scale_num(spec["lineHeight"], sy)
+            if "fontSize" in spec:
+                spec["fontSize"] = _scale_num(spec["fontSize"], sy)
             continue
         if "x" in spec:
             spec["x"] = _scale_num(spec["x"], sx)
@@ -394,6 +396,8 @@ def scale_element_layout(
             spec["width"] = _scale_num(spec["width"], sx)
         if "height" in spec:
             spec["height"] = _scale_num(spec["height"], sy)
+        if "fontSize" in spec:
+            spec["fontSize"] = _scale_num(spec["fontSize"], sy)
         companions = spec.get("companions")
         if isinstance(companions, dict):
             for rel in companions.values():

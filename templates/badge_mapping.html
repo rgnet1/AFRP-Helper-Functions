@@ -125,6 +125,7 @@
             width: 100%;
             height: 100%;
             display: block;
+            pointer-events: auto;
         }
 
         .preview-field-toggles {
@@ -257,9 +258,15 @@
 
         .element-location-row {
             display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .element-location-row .row-controls {
+            display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 8px;
             flex-wrap: wrap;
         }
 
@@ -277,6 +284,69 @@
             border: 1px solid #ddd;
             border-radius: 6px;
             font-size: 13px;
+        }
+
+        .font-size-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .font-size-control label {
+            min-width: 110px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: normal;
+        }
+
+        .font-size-hint {
+            color: #4b904b;
+            cursor: help;
+        }
+
+        .layout-font-size-input {
+            width: 72px;
+            padding: 4px 6px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        .position-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .position-control label {
+            font-weight: 600;
+            color: #666;
+            min-width: auto;
+        }
+
+        .layout-position-input {
+            width: 64px;
+            padding: 4px 6px;
+            font-size: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        .companion-detach-label {
+            font-size: 12px;
+            font-weight: normal;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .companion-row {
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
         }
 
         .layout-drag-hint {
@@ -367,6 +437,7 @@
 
         .badge-preview-svg .layout-draggable {
             cursor: grab;
+            pointer-events: all;
         }
 
         .badge-preview-svg .layout-draggable:hover {
@@ -993,7 +1064,7 @@
                                     </button>
                                 </div>
                                 <div class="preview-toggles-label">Element locations</div>
-                                <p class="layout-drag-hint">Drag corner logos and QR code in the preview, or choose a preset zone.</p>
+                                <p class="layout-drag-hint">Drag elements in the preview to reposition them. Member ID and meal preference can stay anchored to the QR code or be positioned independently.</p>
                                 <div id="elementLocationControls">
                                     <span style="color:#999;font-size:13px;">Loading layout controls...</span>
                                 </div>
@@ -1200,7 +1271,7 @@
             { value: 'bottom-left', label: 'Bottom left' },
             { value: 'bottom-right', label: 'Bottom right' },
             { value: 'bottom-center', label: 'Bottom center' },
-            { value: 'custom', label: 'Custom (dragged)' }
+            { value: 'custom', label: 'Custom' }
         ];
         const AFRP_LOGO_URL = '/static/afrp_logo.png';
         const DEFAULT_IMAGE_PRESETS = {
@@ -1209,11 +1280,20 @@
             '{{QR_CODE}}': 'bottom-right'
         };
         const DRAGGABLE_LAYOUT_KEYS = new Set(['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}']);
+        const TEXT_LAYOUT_KEYS = [
+            '{{DISPLAY_NAME}}', '{{LOCAL_CLUB}}', '{{TABLE_NUMBER}}',
+            '{{MEMBER_ID}}', '{{MEAL_PREFERENCE}}'
+        ];
         const QR_COMPANION_PLACEHOLDERS = ['{{MEMBER_ID}}', '{{MEAL_PREFERENCE}}'];
         const LAYOUT_ELEMENT_LABELS = {
             '{{CLUB_LOGO}}': 'Club logo',
             '{{AFRP_LOGO}}': 'AFRP logo',
             '{{QR_CODE}}': 'QR code',
+            '{{DISPLAY_NAME}}': 'Display name',
+            '{{LOCAL_CLUB}}': 'Local club',
+            '{{TABLE_NUMBER}}': 'Table number',
+            '{{MEMBER_ID}}': 'Member ID',
+            '{{MEAL_PREFERENCE}}': 'Meal preference',
             'subevents': 'Sub-events'
         };
         const SUBEVENT_LAYOUT_KEYS = ['{{SUBEVENT_1}}', '{{SUBEVENT_2}}', '{{SUBEVENT_3}}', '{{SUBEVENT_4}}'];
@@ -1913,11 +1993,19 @@
             const xM = tag.match(/\bx\s*=\s*"([\d.]+)"/i);
             const yM = tag.match(/\by\s*=\s*"([\d.]+)"/i);
             const anchorM = tag.match(/text-anchor\s*=\s*"([^"]+)"/i);
-            return {
+            const fontM = tag.match(/font-size\s*=\s*"([\d.]+)"/i);
+            const shrinkM = tag.match(/data-shrink-to-fit\s*=\s*"([^"]+)"/i);
+            const spec = {
                 x: xM ? parseFloat(xM[1]) : 0,
                 y: yM ? parseFloat(yM[1]) : 0,
-                textAnchor: anchorM ? anchorM[1] : 'start'
+                textAnchor: anchorM ? anchorM[1] : 'start',
+                preset: 'custom'
             };
+            if (fontM) spec.fontSize = parseFloat(fontM[1]);
+            if (shrinkM && ['true', '1', 'yes'].includes(shrinkM[1].trim().toLowerCase())) {
+                spec.shrinkToFit = true;
+            }
+            return spec;
         }
 
         function extractQrCompanions(svgContent, qrSpec) {
@@ -1981,6 +2069,7 @@
         function applyQrCompanions(doc, qrX, qrY, companions, qrWidth = 60, qrHeight = 60) {
             if (!companions) return;
             Object.entries(companions).forEach(([ph, rel]) => {
+                if (elementLayout[ph]) return;
                 const pos = companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight);
                 doc.querySelectorAll('text').forEach(node => {
                     if ((node.textContent || '').trim() !== ph) return;
@@ -2025,6 +2114,7 @@
                 const xM = first.match(/\bx\s*=\s*"([\d.]+)"/i);
                 const yM = first.match(/\by\s*=\s*"([\d.]+)"/i);
                 const anchorM = first.match(/text-anchor\s*=\s*"([^"]+)"/i);
+                const fontM = first.match(/font-size\s*=\s*"([\d.]+)"/i);
                 const ys = subMatches.map(tag => {
                     const ym = tag.match(/\by\s*=\s*"([\d.]+)"/i);
                     return ym ? parseFloat(ym[1]) : null;
@@ -2038,7 +2128,19 @@
                     lineHeight,
                     textAnchor: anchorM ? anchorM[1] : 'start'
                 };
+                if (fontM) layout.subevents.fontSize = parseFloat(fontM[1]);
             }
+
+            TEXT_LAYOUT_KEYS.forEach(key => {
+                if (QR_COMPANION_PLACEHOLDERS.includes(key)) return;
+                const pattern = new RegExp(
+                    `(<text\\b[^>]*>)\\s*${key.replace(/[{}]/g, '\\$&')}\\s*(</text>)`,
+                    'i'
+                );
+                const match = svgContent.match(pattern);
+                if (match) layout[key] = parseTextSpecFromTag(match[0]);
+            });
+
             return layout;
         }
 
@@ -2077,6 +2179,15 @@
                     const count = SUBEVENT_LAYOUT_KEYS.filter(k => getPreviewPlaceholders().includes(k)).length;
                     spec.baseY = subeventBaseYForPreset(
                         spec.preset, count, spec.lineHeight || SUBEVENT_LINE_HEIGHT, corners
+                    );
+                } else if (TEXT_LAYOUT_KEYS.includes(key)) {
+                    const anchor = subeventAnchorForPreset(spec.preset, corners);
+                    if (anchor) {
+                        spec.x = anchor.x;
+                        spec.textAnchor = anchor.textAnchor;
+                    }
+                    spec.y = subeventBaseYForPreset(
+                        spec.preset, 1, spec.lineHeight || SUBEVENT_LINE_HEIGHT, corners
                     );
                 } else {
                     const pos = layoutPresetPosition(
@@ -2130,8 +2241,8 @@
                     merged[key].companions = defaults[key].companions;
                 }
             });
-            // AFRP logo is a fixed system asset — always anchor to top-right margins.
-            if (merged['{{AFRP_LOGO}}']) {
+            // Default AFRP preset when missing; do not override user custom positions.
+            if (merged['{{AFRP_LOGO}}'] && !merged['{{AFRP_LOGO}}'].preset) {
                 merged['{{AFRP_LOGO}}'].preset = 'top-right';
             }
             return merged;
@@ -2224,6 +2335,10 @@
                         item.node.setAttribute('y', baseY + index * lineHeight);
                         item.node.setAttribute('text-anchor', textAnchor);
                         item.node.setAttribute('data-layout-key', 'subevents');
+                        item.node.classList.add('layout-draggable');
+                        if (spec.fontSize != null) {
+                            item.node.setAttribute('font-size', spec.fontSize);
+                        }
                     });
                     elementLayout.subevents = {
                         ...spec,
@@ -2233,6 +2348,41 @@
                         textAnchor,
                         preset: spec.preset || 'custom'
                     };
+                    return;
+                }
+
+                if (TEXT_LAYOUT_KEYS.includes(key)) {
+                    doc.querySelectorAll('text').forEach(node => {
+                        if ((node.textContent || '').trim() !== key) return;
+                        const lineHeight = spec.lineHeight || SUBEVENT_LINE_HEIGHT;
+                        let x = spec.x;
+                        let y = spec.y;
+                        let textAnchor = spec.textAnchor || 'start';
+                        if (spec.preset && spec.preset !== 'custom') {
+                            const anchor = subeventAnchorForPreset(spec.preset, corners);
+                            if (anchor) {
+                                x = anchor.x;
+                                textAnchor = anchor.textAnchor;
+                            }
+                            y = subeventBaseYForPreset(spec.preset, 1, lineHeight, corners);
+                        }
+                        node.setAttribute('x', x);
+                        node.setAttribute('y', y);
+                        node.setAttribute('text-anchor', textAnchor);
+                        if (spec.fontSize != null) {
+                            node.setAttribute('font-size', spec.fontSize);
+                        }
+                        node.removeAttribute('data-max-width');
+                        node.setAttribute('data-layout-key', key);
+                        node.classList.add('layout-draggable');
+                        elementLayout[key] = {
+                            ...spec,
+                            x,
+                            y,
+                            textAnchor,
+                            preset: spec.preset || 'custom'
+                        };
+                    });
                     return;
                 }
 
@@ -2273,10 +2423,70 @@
             });
         }
 
+        function isQrCompanionKey(key) {
+            return QR_COMPANION_PLACEHOLDERS.includes(key);
+        }
+
+        function isCompanionAnchored(ph) {
+            return isQrCompanionKey(ph) && !elementLayout[ph];
+        }
+
+        function ensureQrCompanions() {
+            const qrSpec = elementLayout['{{QR_CODE}}'];
+            if (!qrSpec) return;
+            if (!qrSpec.companions) qrSpec.companions = {};
+            QR_COMPANION_PLACEHOLDERS.forEach(ph => {
+                if (!getPreviewPlaceholders().includes(ph)) return;
+                if (elementLayout[ph]) return;
+                if (!qrSpec.companions[ph]) {
+                    qrSpec.companions[ph] = ph === '{{MEMBER_ID}}'
+                        ? { position: 'above', gap: 5 }
+                        : { position: 'below', gap: 10 };
+                }
+            });
+        }
+
+        function getTextSpecFromCurrentSvg(ph) {
+            if (!currentSvgContent) return {};
+            const pattern = new RegExp(
+                `(<text\\b[^>]*>)\\s*${ph.replace(/[{}]/g, '\\$&')}\\s*(</text>)`,
+                'i'
+            );
+            const match = currentSvgContent.match(pattern);
+            return match ? parseTextSpecFromTag(match[0]) : {};
+        }
+
+        function anchoredCompanionPosition(ph) {
+            const qrSpec = elementLayout['{{QR_CODE}}'] || {};
+            const rel = (qrSpec.companions || {})[ph] || (ph === '{{MEMBER_ID}}'
+                ? { position: 'above', gap: 5 }
+                : { position: 'below', gap: 10 });
+            return companionPosition(
+                ph,
+                rel,
+                parseFloat(qrSpec.x || 0),
+                parseFloat(qrSpec.y || 0),
+                parseFloat(qrSpec.width || 60),
+                parseFloat(qrSpec.height || 60)
+            );
+        }
+
+        function syncAnchoredCompanionPositionInputs(ph) {
+            const pos = anchoredCompanionPosition(ph);
+            const hInput = document.querySelector(`.layout-position-h[data-layout-key="${ph}"]`);
+            const vInput = document.querySelector(`.layout-position-v[data-layout-key="${ph}"]`);
+            if (hInput) hInput.value = roundLayoutCoord(pos.x);
+            if (vInput) vInput.value = roundLayoutCoord(pos.y);
+        }
+
         function getLayoutControlKeys() {
             const keys = [];
             ['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}'].forEach(key => {
                 if (getPreviewPlaceholders().includes(key)) keys.push(key);
+            });
+            TEXT_LAYOUT_KEYS.forEach(key => {
+                if (!getPreviewPlaceholders().includes(key)) return;
+                keys.push(key);
             });
             if (SUBEVENT_LAYOUT_KEYS.some(k => getPreviewPlaceholders().includes(k))) {
                 keys.push('subevents');
@@ -2284,8 +2494,231 @@
             return keys;
         }
 
+        function isTextFontSizeKey(key) {
+            return TEXT_LAYOUT_KEYS.includes(key) || key === 'subevents';
+        }
+
+        function isDraggableLayoutKey(key) {
+            return DRAGGABLE_LAYOUT_KEYS.has(key)
+                || TEXT_LAYOUT_KEYS.includes(key)
+                || key === 'subevents';
+        }
+
+        function roundLayoutCoord(value) {
+            if (!Number.isFinite(value)) return '';
+            return Math.round(value * 10) / 10;
+        }
+
+        function renderPositionControls(key, spec, options = {}) {
+            if (!isDraggableLayoutKey(key)) return '';
+            const { disabled = false } = options;
+            const isSubevent = key === 'subevents';
+            const h = isSubevent ? spec.x : spec.x;
+            const v = isSubevent ? spec.baseY : spec.y;
+            const disabledAttr = disabled ? ' disabled title="Position follows the QR code while anchored"' : '';
+            return `
+                <div class="position-control">
+                    <label for="layoutPosH_${key}">H</label>
+                    <input type="number" id="layoutPosH_${key}" class="layout-position-input layout-position-h"
+                           data-layout-key="${key}" data-axis="h" step="0.5"
+                           value="${roundLayoutCoord(h)}"${disabledAttr}>
+                    <label for="layoutPosV_${key}">V</label>
+                    <input type="number" id="layoutPosV_${key}" class="layout-position-input layout-position-v"
+                           data-layout-key="${key}" data-axis="v" step="0.5"
+                           value="${roundLayoutCoord(v)}"${disabledAttr}>
+                </div>`;
+        }
+
+        function syncPositionInputsForKey(key) {
+            const spec = elementLayout[key];
+            if (!spec) return;
+            const isSubevent = key === 'subevents';
+            const hInput = document.querySelector(`.layout-position-h[data-layout-key="${key}"]`);
+            const vInput = document.querySelector(`.layout-position-v[data-layout-key="${key}"]`);
+            if (hInput) hInput.value = roundLayoutCoord(spec.x);
+            if (vInput) {
+                vInput.value = roundLayoutCoord(isSubevent ? spec.baseY : spec.y);
+            }
+            const presetSelect = document.querySelector(`.layout-preset-select[data-layout-key="${key}"]`);
+            if (presetSelect && spec.preset) presetSelect.value = spec.preset;
+        }
+
+        function applyManualPositionInput(key, axis, rawValue) {
+            const value = parseFloat(rawValue);
+            if (!Number.isFinite(value)) return;
+            if (!elementLayout[key]) elementLayout[key] = {};
+            elementLayout[key].preset = 'custom';
+            if (key === 'subevents') {
+                if (axis === 'h') elementLayout[key].x = value;
+                else elementLayout[key].baseY = value;
+            } else {
+                if (axis === 'h') elementLayout[key].x = value;
+                else elementLayout[key].y = value;
+            }
+            renderBadgePreview();
+        }
+
+        function imageKeyFromHref(href, values) {
+            if (IMAGE_PLACEHOLDERS.has(href)) return href;
+            for (const ph of IMAGE_PLACEHOLDERS) {
+                if (values[ph] && href === values[ph]) return ph;
+            }
+            return null;
+        }
+
+        function findCompanionTextNodes(root, ph, values) {
+            const sample = values[ph];
+            if (sample == null || sample === '') return [];
+            const target = String(sample).trim();
+            const nodes = [];
+            root.querySelectorAll('text').forEach(node => {
+                if ((node.textContent || '').trim() === target) nodes.push(node);
+            });
+            return nodes;
+        }
+
+        function applyCompanionPositionToNode(node, ph, rel, qrX, qrY, qrWidth, qrHeight) {
+            const pos = companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight);
+            node.removeAttribute('data-layout-key');
+            node.classList.remove('layout-draggable');
+            node.setAttribute('data-qr-companion', ph);
+            node.setAttribute('x', pos.x);
+            node.setAttribute('y', pos.y);
+            node.setAttribute('text-anchor', 'middle');
+        }
+
+        function tagQrCompanionElements(doc, values) {
+            const qrSpec = elementLayout['{{QR_CODE}}'];
+            if (!qrSpec || !qrSpec.companions) return;
+            const qrX = parseFloat(qrSpec.x || 0);
+            const qrY = parseFloat(qrSpec.y || 0);
+            const qrWidth = parseFloat(qrSpec.width || 60);
+            const qrHeight = parseFloat(qrSpec.height || 60);
+            Object.entries(qrSpec.companions).forEach(([ph, rel]) => {
+                if (elementLayout[ph]) return;
+                if (!isFieldVisible(ph)) return;
+                findCompanionTextNodes(doc, ph, values).forEach(node => {
+                    applyCompanionPositionToNode(node, ph, rel, qrX, qrY, qrWidth, qrHeight);
+                });
+            });
+        }
+
+        function tagDraggablePreviewElements(doc, values) {
+            doc.querySelectorAll('image').forEach(img => {
+                const href = img.getAttribute('href') ||
+                    img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
+                const key = imageKeyFromHref(href, values);
+                if (!key) return;
+                if (!isFieldVisible(key)) {
+                    img.remove();
+                    return;
+                }
+                const src = values[key];
+                img.setAttribute('href', src);
+                img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', src);
+                if (DRAGGABLE_LAYOUT_KEYS.has(key)) {
+                    img.setAttribute('data-layout-key', key);
+                    img.classList.add('layout-draggable');
+                }
+            });
+
+            TEXT_LAYOUT_KEYS.forEach(key => {
+                if (!elementLayout[key]) return;
+                if (!isFieldVisible(key)) return;
+                const sample = values[key];
+                if (sample == null || sample === '') return;
+                doc.querySelectorAll('text').forEach(node => {
+                    if (node.hasAttribute('data-qr-companion')) return;
+                    if ((node.textContent || '').trim() !== String(sample).trim()) return;
+                    node.setAttribute('data-layout-key', key);
+                    node.classList.add('layout-draggable');
+                });
+            });
+
+            tagQrCompanionElements(doc, values);
+
+            if (elementLayout.subevents) {
+                const subNodes = [];
+                SUBEVENT_LAYOUT_KEYS.forEach(key => {
+                    if (!isFieldVisible(key)) return;
+                    const sample = values[key];
+                    if (!sample) return;
+                    doc.querySelectorAll('text').forEach(node => {
+                        if ((node.textContent || '').trim() !== String(sample).trim()) return;
+                        if (!subNodes.includes(node)) subNodes.push(node);
+                    });
+                });
+                subNodes.sort(
+                    (a, b) => parseFloat(a.getAttribute('y') || 0) - parseFloat(b.getAttribute('y') || 0)
+                );
+                subNodes.forEach(node => {
+                    node.setAttribute('data-layout-key', 'subevents');
+                    node.classList.add('layout-draggable');
+                });
+            }
+        }
+
+        function renderFontSizeControl(key, spec) {
+            if (!isTextFontSizeKey(key)) return '';
+            const fontSize = spec.fontSize != null ? spec.fontSize : '';
+            const shrinkToFit = spec.shrinkToFit === true;
+            const label = shrinkToFit ? 'Base font size' : 'Font size';
+            const hint = shrinkToFit
+                ? `<span class="font-size-hint" title="Full size when it fits; shrinks down automatically (to as low as data-min-font-size) if the value is too long."><i class="fas fa-info-circle"></i></span>`
+                : '';
+            return `
+                <div class="font-size-control">
+                    <label>${label}${hint}</label>
+                    <input type="number" class="layout-font-size-input" data-layout-key="${key}"
+                           min="6" max="72" step="0.5" value="${fontSize}">
+                </div>`;
+        }
+
+        function renderCompanionAnchorToggle(key, anchored) {
+            return `
+                <label class="companion-detach-label">
+                    <input type="checkbox" class="companion-anchor-toggle" data-companion-key="${key}"
+                           ${anchored ? 'checked' : ''}>
+                    Anchor to QR code
+                </label>`;
+        }
+
+        function detachCompanionFromQr(ph) {
+            const qrSpec = elementLayout['{{QR_CODE}}'];
+            if (!qrSpec) return;
+            const companions = { ...(qrSpec.companions || {}) };
+            const pos = anchoredCompanionPosition(ph);
+            const fromSvg = getTextSpecFromCurrentSvg(ph);
+            const existing = elementLayout[ph] || {};
+            elementLayout[ph] = {
+                x: pos.x,
+                y: pos.y,
+                textAnchor: 'middle',
+                preset: 'custom',
+                fontSize: existing.fontSize ?? fromSvg.fontSize,
+                shrinkToFit: fromSvg.shrinkToFit
+            };
+            delete companions[ph];
+            if (Object.keys(companions).length) {
+                qrSpec.companions = companions;
+            } else {
+                delete qrSpec.companions;
+            }
+        }
+
+        function attachCompanionToQr(ph) {
+            delete elementLayout[ph];
+            const qrSpec = elementLayout['{{QR_CODE}}'];
+            if (!qrSpec) return;
+            if (!qrSpec.companions) qrSpec.companions = {};
+            qrSpec.companions[ph] = ph === '{{MEMBER_ID}}'
+                ? { position: 'above', gap: 5 }
+                : { position: 'below', gap: 10 };
+        }
+
         function renderElementLocationControls() {
             const container = document.getElementById('elementLocationControls');
+            ensureQrCompanions();
             const keys = getLayoutControlKeys();
             if (!keys.length) {
                 container.innerHTML = '<span style="color:#999;font-size:13px;">No layout elements in this template</span>';
@@ -2293,15 +2726,29 @@
             }
             container.innerHTML = keys.map(key => {
                 const label = LAYOUT_ELEMENT_LABELS[key] || key;
-                const currentPreset = (elementLayout[key] && elementLayout[key].preset) || 'custom';
-                const isFixedAfrp = key === '{{AFRP_LOGO}}';
+                const anchored = isCompanionAnchored(key);
+                const spec = anchored
+                    ? {
+                        ...getTextSpecFromCurrentSvg(key),
+                        ...anchoredCompanionPosition(key),
+                        preset: 'custom'
+                    }
+                    : (elementLayout[key] || {});
+                const currentPreset = spec.preset || 'custom';
+                const showQrAnchor = isQrCompanionKey(key) && getPreviewPlaceholders().includes('{{QR_CODE}}');
                 const options = LAYOUT_PRESET_OPTIONS.map(opt => `
                     <option value="${opt.value}" ${opt.value === currentPreset ? 'selected' : ''}>${opt.label}</option>
                 `).join('');
+                const presetDisabled = anchored ? ' disabled title="Uncheck Anchor to QR code to position independently"' : '';
                 return `
-                    <div class="element-location-row">
-                        <label>${label}${isFixedAfrp ? ' (fixed)' : ''}</label>
-                        <select class="layout-preset-select" data-layout-key="${key}"${isFixedAfrp ? ' disabled title="AFRP logo is anchored to top-right margins"' : ''}>${options}</select>
+                    <div class="element-location-row${showQrAnchor ? ' companion-row' : ''}">
+                        <label>${label}</label>
+                        <div class="row-controls">
+                            <select class="layout-preset-select" data-layout-key="${key}"${presetDisabled}>${options}</select>
+                        </div>
+                        ${renderPositionControls(key, spec, { disabled: anchored })}
+                        ${renderFontSizeControl(key, spec)}
+                        ${showQrAnchor ? renderCompanionAnchorToggle(key, anchored) : ''}
                     </div>
                 `;
             }).join('');
@@ -2327,6 +2774,18 @@
                                 elementLayout[key].lineHeight || SUBEVENT_LINE_HEIGHT,
                                 corners
                             );
+                        } else if (TEXT_LAYOUT_KEYS.includes(key)) {
+                            const anchor = subeventAnchorForPreset(preset, corners);
+                            if (anchor) {
+                                elementLayout[key].x = anchor.x;
+                                elementLayout[key].textAnchor = anchor.textAnchor;
+                            }
+                            elementLayout[key].y = subeventBaseYForPreset(
+                                preset,
+                                1,
+                                elementLayout[key].lineHeight || SUBEVENT_LINE_HEIGHT,
+                                corners
+                            );
                         } else {
                             const spec = elementLayout[key];
                             const pos = layoutPresetPosition(preset, spec.width || 60, spec.height || 60, corners);
@@ -2339,48 +2798,132 @@
                     renderBadgePreview();
                 });
             });
+
+            container.querySelectorAll('.layout-font-size-input').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const key = e.target.dataset.layoutKey;
+                    const value = parseFloat(e.target.value);
+                    if (!elementLayout[key]) elementLayout[key] = {};
+                    if (Number.isFinite(value) && value > 0) {
+                        elementLayout[key].fontSize = value;
+                    } else {
+                        delete elementLayout[key].fontSize;
+                    }
+                    renderBadgePreview();
+                });
+                input.addEventListener('input', (e) => {
+                    const key = e.target.dataset.layoutKey;
+                    const value = parseFloat(e.target.value);
+                    if (!elementLayout[key]) elementLayout[key] = {};
+                    if (Number.isFinite(value) && value > 0) {
+                        elementLayout[key].fontSize = value;
+                        renderBadgePreview();
+                    }
+                });
+            });
+
+            container.querySelectorAll('.companion-anchor-toggle').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const ph = e.target.dataset.companionKey;
+                    if (e.target.checked) {
+                        attachCompanionToQr(ph);
+                    } else {
+                        detachCompanionFromQr(ph);
+                    }
+                    renderBadgePreview();
+                });
+            });
+
+            container.querySelectorAll('.layout-position-input').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    applyManualPositionInput(
+                        e.target.dataset.layoutKey,
+                        e.target.dataset.axis,
+                        e.target.value
+                    );
+                });
+            });
         }
 
         function setupPreviewDrag(svgRoot) {
             if (!svgRoot) return;
             svgRoot.querySelectorAll('image[data-layout-key]').forEach(img => {
                 const key = img.getAttribute('data-layout-key');
-                if (!DRAGGABLE_LAYOUT_KEYS.has(key) || key === '{{AFRP_LOGO}}') return;
+                if (!DRAGGABLE_LAYOUT_KEYS.has(key)) return;
                 img.classList.add('layout-draggable');
-                img.addEventListener('mousedown', (e) => startLayoutDrag(e, svgRoot, img, key));
+                img.addEventListener('mousedown', (e) => startLayoutDrag(e, svgRoot, {
+                    kind: 'image',
+                    key,
+                    target: img
+                }));
+            });
+            svgRoot.querySelectorAll('text[data-layout-key]').forEach(textEl => {
+                const key = textEl.getAttribute('data-layout-key');
+                if (!key) return;
+                textEl.classList.add('layout-draggable');
+                if (key === 'subevents') {
+                    textEl.addEventListener('mousedown', (e) => startSubeventBlockDrag(e, svgRoot, textEl));
+                    return;
+                }
+                if (!TEXT_LAYOUT_KEYS.includes(key)) return;
+                textEl.addEventListener('mousedown', (e) => startLayoutDrag(e, svgRoot, {
+                    kind: 'text',
+                    key,
+                    target: textEl
+                }));
             });
         }
 
-        function moveQrCompanions(svgRoot, qrX, qrY) {
+        function moveQrCompanions(svgRoot, qrX, qrY, values) {
             const qrSpec = elementLayout['{{QR_CODE}}'] || {};
             const companions = qrSpec.companions;
-            if (!companions) return;
+            if (!companions || !svgRoot) return;
+            const previewValues = values || getEffectivePreviewValues();
             const qrWidth = parseFloat(qrSpec.width || 60);
             const qrHeight = parseFloat(qrSpec.height || 60);
-            svgRoot.querySelectorAll('[data-qr-companion]').forEach(node => {
-                const ph = node.getAttribute('data-qr-companion');
-                const rel = companions[ph];
-                if (!rel) return;
-                const pos = companionPosition(ph, rel, qrX, qrY, qrWidth, qrHeight);
-                node.setAttribute('x', pos.x);
-                node.setAttribute('y', pos.y);
-                node.setAttribute('text-anchor', 'middle');
+            Object.entries(companions).forEach(([ph, rel]) => {
+                if (elementLayout[ph]) return;
+                findCompanionTextNodes(svgRoot, ph, previewValues).forEach(node => {
+                    applyCompanionPositionToNode(node, ph, rel, qrX, qrY, qrWidth, qrHeight);
+                });
             });
         }
 
-        function startLayoutDrag(event, svgRoot, img, key) {
+        function startSubeventBlockDrag(event, svgRoot, anchorNode) {
             event.preventDefault();
+            const nodes = Array.from(svgRoot.querySelectorAll('text[data-layout-key="subevents"]'));
             const svgPoint = clientPointToSvg(svgRoot, event.clientX, event.clientY);
-            const startX = parseFloat(img.getAttribute('x') || 0);
-            const startY = parseFloat(img.getAttribute('y') || 0);
             dragState = {
                 svgRoot,
-                img,
+                kind: 'subevent-block',
+                key: 'subevents',
+                nodes,
+                startPt: svgPoint,
+                startPositions: nodes.map(node => ({
+                    x: parseFloat(node.getAttribute('x') || 0),
+                    y: parseFloat(node.getAttribute('y') || 0)
+                }))
+            };
+            nodes.forEach(node => node.classList.add('layout-dragging'));
+            document.addEventListener('mousemove', onLayoutDragMove);
+            document.addEventListener('mouseup', onLayoutDragEnd);
+        }
+
+        function startLayoutDrag(event, svgRoot, ctx) {
+            event.preventDefault();
+            const { kind, key, target } = ctx;
+            const svgPoint = clientPointToSvg(svgRoot, event.clientX, event.clientY);
+            const startX = parseFloat(target.getAttribute('x') || 0);
+            const startY = parseFloat(target.getAttribute('y') || 0);
+            dragState = {
+                svgRoot,
+                kind,
                 key,
+                target,
                 offsetX: svgPoint.x - startX,
                 offsetY: svgPoint.y - startY
             };
-            img.classList.add('layout-dragging');
+            target.classList.add('layout-dragging');
             document.addEventListener('mousemove', onLayoutDragMove);
             document.addEventListener('mouseup', onLayoutDragEnd);
         }
@@ -2398,23 +2941,66 @@
         function onLayoutDragMove(event) {
             if (!dragState) return;
             const pt = clientPointToSvg(dragState.svgRoot, event.clientX, event.clientY);
+
+            if (dragState.kind === 'subevent-block') {
+                const dx = pt.x - dragState.startPt.x;
+                const dy = pt.y - dragState.startPt.y;
+                dragState.nodes.forEach((node, index) => {
+                    const start = dragState.startPositions[index];
+                    node.setAttribute('x', start.x + dx);
+                    node.setAttribute('y', start.y + dy);
+                });
+                const sorted = [...dragState.nodes].sort(
+                    (a, b) => parseFloat(a.getAttribute('y') || 0) - parseFloat(b.getAttribute('y') || 0)
+                );
+                if (!elementLayout.subevents) elementLayout.subevents = {};
+                elementLayout.subevents.x = parseFloat(sorted[0].getAttribute('x') || 0);
+                elementLayout.subevents.baseY = parseFloat(sorted[0].getAttribute('y') || 0);
+                elementLayout.subevents.preset = 'custom';
+                syncPositionInputsForKey('subevents');
+                return;
+            }
+
             const x = Math.max(0, pt.x - dragState.offsetX);
             const y = Math.max(0, pt.y - dragState.offsetY);
-            dragState.img.setAttribute('x', x);
-            dragState.img.setAttribute('y', y);
-            if (dragState.key === '{{QR_CODE}}') {
-                moveQrCompanions(dragState.svgRoot, x, y);
+            dragState.target.setAttribute('x', x);
+            dragState.target.setAttribute('y', y);
+            if (!elementLayout[dragState.key]) elementLayout[dragState.key] = {};
+            elementLayout[dragState.key].x = x;
+            elementLayout[dragState.key].y = y;
+            elementLayout[dragState.key].preset = 'custom';
+            syncPositionInputsForKey(dragState.key);
+            if (dragState.kind === 'image' && dragState.key === '{{QR_CODE}}') {
+                moveQrCompanions(dragState.svgRoot, x, y, getEffectivePreviewValues());
+                QR_COMPANION_PLACEHOLDERS.forEach(ph => {
+                    if (isCompanionAnchored(ph)) syncAnchoredCompanionPositionInputs(ph);
+                });
             }
         }
 
         function onLayoutDragEnd() {
             if (!dragState) return;
-            const { img, key } = dragState;
-            img.classList.remove('layout-dragging');
-            if (!elementLayout[key]) elementLayout[key] = {};
-            elementLayout[key].x = parseFloat(img.getAttribute('x') || 0);
-            elementLayout[key].y = parseFloat(img.getAttribute('y') || 0);
-            elementLayout[key].preset = 'custom';
+            const { kind, key, target, nodes } = dragState;
+
+            if (kind === 'subevent-block') {
+                nodes.forEach(node => node.classList.remove('layout-dragging'));
+                if (!elementLayout.subevents) elementLayout.subevents = {};
+                const sorted = [...nodes].sort((a, b) => {
+                    const ya = parseFloat(a.getAttribute('y') || 0);
+                    const yb = parseFloat(b.getAttribute('y') || 0);
+                    return ya - yb;
+                });
+                elementLayout.subevents.x = parseFloat(sorted[0].getAttribute('x') || 0);
+                elementLayout.subevents.baseY = parseFloat(sorted[0].getAttribute('y') || 0);
+                elementLayout.subevents.preset = 'custom';
+            } else {
+                target.classList.remove('layout-dragging');
+                if (!elementLayout[key]) elementLayout[key] = {};
+                elementLayout[key].x = parseFloat(target.getAttribute('x') || 0);
+                elementLayout[key].y = parseFloat(target.getAttribute('y') || 0);
+                elementLayout[key].preset = 'custom';
+            }
+
             dragState = null;
             document.removeEventListener('mousemove', onLayoutDragMove);
             document.removeEventListener('mouseup', onLayoutDragEnd);
@@ -2455,16 +3041,40 @@
             } else if (!elementLayout.corner_margins && elementLayout.margins) {
                 elementLayout.corner_margins = marginsDictToCorners(elementLayout.margins);
             }
-            if (elementLayout['{{AFRP_LOGO}}']) {
+            if (elementLayout['{{AFRP_LOGO}}'] && !elementLayout['{{AFRP_LOGO}}'].preset) {
                 elementLayout['{{AFRP_LOGO}}'].preset = 'top-right';
             }
+            const extractedDefaults = extractLayoutFromSvg(svgContent);
+            TEXT_LAYOUT_KEYS.forEach(key => {
+                if (QR_COMPANION_PLACEHOLDERS.includes(key)) return;
+                if (!extractedDefaults[key]) return;
+                if (!elementLayout[key]) {
+                    elementLayout[key] = { ...extractedDefaults[key] };
+                } else if (
+                    extractedDefaults[key].shrinkToFit
+                    && elementLayout[key].shrinkToFit === undefined
+                ) {
+                    elementLayout[key].shrinkToFit = extractedDefaults[key].shrinkToFit;
+                }
+            });
+            if (extractedDefaults.subevents) {
+                if (!elementLayout.subevents) {
+                    elementLayout.subevents = { ...extractedDefaults.subevents };
+                } else if (
+                    elementLayout.subevents.fontSize == null
+                    && extractedDefaults.subevents.fontSize != null
+                ) {
+                    elementLayout.subevents.fontSize = extractedDefaults.subevents.fontSize;
+                }
+            }
+            syncMarginInputs();
             if (elementLayout['{{QR_CODE}}'] && !elementLayout['{{QR_CODE}}'].companions) {
                 elementLayout['{{QR_CODE}}'].companions = extractQrCompanions(
                     svgContent,
                     elementLayout['{{QR_CODE}}']
                 );
             }
-            syncMarginInputs();
+            ensureQrCompanions();
 
             const parser = new DOMParser();
             const layoutDoc = parser.parseFromString(svgContent, 'image/svg+xml');
@@ -2474,28 +3084,15 @@
             const values = getEffectivePreviewValues();
 
             Object.entries(values).forEach(([ph, val]) => {
-                if (IMAGE_PLACEHOLDERS.has(ph)) return;
-                processed = processed.split(ph).join(escapeXml(val));
+                if (IMAGE_PLACEHOLDERS.has(ph)) {
+                    processed = processed.split(ph).join(val);
+                } else {
+                    processed = processed.split(ph).join(escapeXml(val));
+                }
             });
 
             const doc = parser.parseFromString(processed, 'image/svg+xml');
-            doc.querySelectorAll('image').forEach(img => {
-                const layoutKey = img.getAttribute('data-layout-key');
-                const href = img.getAttribute('href') ||
-                    img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '';
-                const key = layoutKey || (IMAGE_PLACEHOLDERS.has(href) ? href : null);
-                if (!key || !IMAGE_PLACEHOLDERS.has(key)) return;
-                if (!isFieldVisible(key)) {
-                    img.remove();
-                    return;
-                }
-                img.setAttribute('href', values[key]);
-                img.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
-                if (DRAGGABLE_LAYOUT_KEYS.has(key)) {
-                    img.setAttribute('data-layout-key', key);
-                    img.classList.add('layout-draggable');
-                }
-            });
+            tagDraggablePreviewElements(doc, values);
 
             svgContainer.innerHTML = new XMLSerializer().serializeToString(doc.documentElement);
             const svgRoot = svgContainer.querySelector('svg');

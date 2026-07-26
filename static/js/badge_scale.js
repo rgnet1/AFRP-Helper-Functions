@@ -81,12 +81,14 @@
                 if (spec.x !== undefined) spec.x = scaleNum(spec.x, sx);
                 if (spec.baseY !== undefined) spec.baseY = scaleNum(spec.baseY, sy);
                 if (spec.lineHeight !== undefined) spec.lineHeight = scaleNum(spec.lineHeight, sy);
+                if (spec.fontSize !== undefined) spec.fontSize = scaleNum(spec.fontSize, sy);
                 return;
             }
             if (spec.x !== undefined) spec.x = scaleNum(spec.x, sx);
             if (spec.y !== undefined) spec.y = scaleNum(spec.y, sy);
             if (spec.width !== undefined) spec.width = scaleNum(spec.width, sx);
             if (spec.height !== undefined) spec.height = scaleNum(spec.height, sy);
+            if (spec.fontSize !== undefined) spec.fontSize = scaleNum(spec.fontSize, sy);
             if (spec.companions) {
                 Object.values(spec.companions).forEach(rel => {
                     if (rel.gap !== undefined) rel.gap = scaleNum(rel.gap, sy);
