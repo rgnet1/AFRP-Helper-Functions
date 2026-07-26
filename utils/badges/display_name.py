@@ -1,5 +1,7 @@
 """Display name formatting for {{DISPLAY_NAME}} badge placeholders."""
 
+import re
+
 DEFAULT_DISPLAY_NAME_CONFIG = {
     "include_title": False,
     "include_middle": True,
@@ -24,6 +26,99 @@ def format_display_name_part(value: str, use_parentheses: bool) -> str:
     if not value:
         return ""
     return f"({value})" if use_parentheses else value
+
+
+def _name_tokens(text: str) -> list[str]:
+    return [token for token in re.split(r"\s+", text.strip()) if token]
+
+
+def _upper_text(text: str) -> str:
+    return text.strip().upper()
+
+
+def _upper_token(token: str) -> str:
+    return token.rstrip(".").upper()
+
+
+def _is_female(gender: str | None) -> bool:
+    if not gender:
+        return False
+    return _upper_text(gender) in ("FEMALE", "F", "2")
+
+
+def _name_fields_overlap(left: str, right: str) -> bool:
+    """True when two name fields match or one contains the other (case-insensitive)."""
+    left_u = _upper_text(left)
+    right_u = _upper_text(right)
+    if not left_u or not right_u:
+        return False
+    if left_u == right_u:
+        return True
+    return left_u in right_u or right_u in left_u
+
+
+def _strip_maiden_from_first(first: str, maiden: str) -> str:
+    """Remove maiden tokens embedded in first name (common for married women in CRM)."""
+    if not first.strip() or not maiden.strip():
+        return first
+    kept = [
+        token
+        for token in _name_tokens(first)
+        if not _name_fields_overlap(token, maiden)
+        and not any(_name_fields_overlap(token, maiden_token) for maiden_token in _name_tokens(maiden))
+    ]
+    return " ".join(kept) if kept else first
+
+
+def dedupe_display_name_parts(
+    first: str,
+    middle: str,
+    maiden: str,
+    last: str,
+    *,
+    gender: str | None = None,
+) -> tuple[str, str, str, str]:
+    """Drop name parts that repeat information already present elsewhere."""
+    if first.strip() and last.strip() and _upper_text(first) == _upper_text(last):
+        return first, middle, maiden, last
+
+    is_female = _is_female(gender)
+
+    if is_female and maiden:
+        first = _strip_maiden_from_first(first, maiden)
+
+    if maiden and last and _name_fields_overlap(maiden, last):
+        maiden = ""
+
+    if maiden and middle and _name_fields_overlap(maiden, middle):
+        if is_female:
+            middle = ""
+        else:
+            maiden = ""
+
+    if middle and first:
+        first_tokens = _name_tokens(first)
+        middle_clean = middle.strip()
+        middle_norm = _upper_token(middle_clean)
+        last_first_token = _upper_token(first_tokens[-1]) if first_tokens else ""
+
+        if middle_norm and _name_fields_overlap(middle_norm, last_first_token):
+            middle = ""
+        elif len(middle_norm) == 1 and len(first_tokens) > 1:
+            if last_first_token.startswith(middle_norm):
+                middle = ""
+        else:
+            middle_tokens = _name_tokens(middle_clean)
+            if middle_tokens and all(
+                any(
+                    _name_fields_overlap(middle_token, first_token)
+                    for first_token in first_tokens
+                )
+                for middle_token in middle_tokens
+            ):
+                middle = ""
+
+    return first, middle, maiden, last
 
 
 def _part_enabled(placeholder: str, field_visibility: dict | None) -> bool:
@@ -66,6 +161,11 @@ def build_display_name(
         value_getter("{{LAST_NAME}}", "Last Name")
         if _part_enabled("{{LAST_NAME}}", field_visibility)
         else ""
+    )
+    gender = str(row.get("Gender", "") or "").strip()
+
+    first, middle, maiden, last = dedupe_display_name_parts(
+        first, middle, maiden, last, gender=gender
     )
 
     parts = []

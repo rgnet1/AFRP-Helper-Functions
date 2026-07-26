@@ -1310,6 +1310,7 @@
             '{{MIDDLE_NAME}}': 'Marie',
             '{{LAST_NAME}}': 'Khoury',
             '{{MAIDEN_NAME}}': 'Smith',
+            '{{GENDER}}': 'Female',
             '{{DISPLAY_NAME}}': 'Sarah Marie (Smith) Khoury',
             '{{MEMBER_ID}}': 'ID-01234',
             '{{LOCAL_CLUB}}': 'Detroit',
@@ -1744,23 +1745,113 @@
             return useParentheses ? `(${value})` : value;
         }
 
+        function nameTokens(text) {
+            return String(text || '').trim().split(/\s+/).filter(Boolean);
+        }
+
+        function upperText(text) {
+            return String(text || '').trim().toUpperCase();
+        }
+
+        function upperToken(token) {
+            return String(token || '').replace(/\.$/, '').toUpperCase();
+        }
+
+        function nameFieldsOverlap(left, right) {
+            const leftU = upperText(left);
+            const rightU = upperText(right);
+            if (!leftU || !rightU) return false;
+            if (leftU === rightU) return true;
+            return leftU.includes(rightU) || rightU.includes(leftU);
+        }
+
+        function isFemale(gender) {
+            const g = upperText(gender);
+            return g === 'FEMALE' || g === 'F' || g === '2';
+        }
+
+        function stripMaidenFromFirst(first, maiden) {
+            const firstClean = String(first || '').trim();
+            const maidenClean = String(maiden || '').trim();
+            if (!firstClean || !maidenClean) return first;
+            const maidenTokens = nameTokens(maidenClean);
+            const kept = nameTokens(firstClean).filter(token =>
+                !nameFieldsOverlap(token, maidenClean)
+                && !maidenTokens.some(maidenToken => nameFieldsOverlap(token, maidenToken))
+            );
+            return kept.length ? kept.join(' ') : first;
+        }
+
+        function dedupeDisplayNameParts(first, middle, maiden, last, gender) {
+            const firstClean = String(first || '').trim();
+            const lastClean = String(last || '').trim();
+            if (firstClean && lastClean && upperText(firstClean) === upperText(lastClean)) {
+                return { first, middle, maiden, last };
+            }
+            const female = isFemale(gender);
+            if (female && maiden) {
+                first = stripMaidenFromFirst(first, maiden);
+            }
+            if (maiden && last && nameFieldsOverlap(maiden, last)) {
+                maiden = '';
+            }
+            if (maiden && middle && nameFieldsOverlap(maiden, middle)) {
+                if (female) {
+                    middle = '';
+                } else {
+                    maiden = '';
+                }
+            }
+            if (middle && first) {
+                const firstTokens = nameTokens(first);
+                const middleClean = String(middle).trim();
+                const middleNorm = upperToken(middleClean);
+                const lastFirstToken = firstTokens.length
+                    ? upperToken(firstTokens[firstTokens.length - 1])
+                    : '';
+
+                if (middleNorm && nameFieldsOverlap(middleNorm, lastFirstToken)) {
+                    middle = '';
+                } else if (middleNorm.length === 1 && firstTokens.length > 1) {
+                    if (lastFirstToken.startsWith(middleNorm)) {
+                        middle = '';
+                    }
+                } else {
+                    const middleTokens = nameTokens(middleClean);
+                    if (middleTokens.length && middleTokens.every(middleToken =>
+                        firstTokens.some(firstToken =>
+                            nameFieldsOverlap(middleToken, firstToken)
+                        )
+                    )) {
+                        middle = '';
+                    }
+                }
+            }
+            return { first, middle, maiden, last };
+        }
+
         function buildDisplayName() {
             const cfg = displayNameConfig;
+            const deduped = dedupeDisplayNameParts(
+                SAMPLE_BADGE_VALUES['{{FIRST_NAME}}'] || '',
+                SAMPLE_BADGE_VALUES['{{MIDDLE_NAME}}'] || '',
+                SAMPLE_BADGE_VALUES['{{MAIDEN_NAME}}'] || '',
+                SAMPLE_BADGE_VALUES['{{LAST_NAME}}'] || '',
+                SAMPLE_BADGE_VALUES['{{GENDER}}'] || ''
+            );
             const parts = [];
             if (cfg.include_title) {
                 const title = SAMPLE_BADGE_VALUES['{{TITLE}}'];
                 if (title) parts.push(title);
             }
-            parts.push(SAMPLE_BADGE_VALUES['{{FIRST_NAME}}']);
-            if (cfg.include_middle) {
-                const middle = SAMPLE_BADGE_VALUES['{{MIDDLE_NAME}}'];
-                if (middle) parts.push(formatDisplayNamePart(middle, cfg.parentheses_middle));
+            if (deduped.first) parts.push(deduped.first);
+            if (cfg.include_middle && deduped.middle) {
+                parts.push(formatDisplayNamePart(deduped.middle, cfg.parentheses_middle));
             }
-            if (cfg.include_maiden) {
-                const maiden = SAMPLE_BADGE_VALUES['{{MAIDEN_NAME}}'];
-                if (maiden) parts.push(formatDisplayNamePart(maiden, cfg.parentheses_maiden));
+            if (cfg.include_maiden && deduped.maiden) {
+                parts.push(formatDisplayNamePart(deduped.maiden, cfg.parentheses_maiden));
             }
-            parts.push(SAMPLE_BADGE_VALUES['{{LAST_NAME}}']);
+            if (deduped.last) parts.push(deduped.last);
             return parts.filter(Boolean).join(' ');
         }
 
