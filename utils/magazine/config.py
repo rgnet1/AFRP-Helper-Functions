@@ -11,8 +11,13 @@ class MagazineConfig:
         self.base_path = '/app' if self.in_docker else '.'
         self.config_path = '/config' if self.in_docker else f"{self.base_path}/config"
         
-        # Load .env from config directory
-        load_dotenv(self.config_path)
+        # Unraid mounts the config folder at /config and does not inject
+        # those values into the process environment. load_dotenv only reads
+        # a file, so a directory path silently loads nothing.
+        env_file = self.config_path
+        if os.path.isdir(env_file):
+            env_file = os.path.join(env_file, ".env")
+        load_dotenv(env_file)
         
         # Dropbox settings
         self.dropbox_client_id = self._get_env("DROPBOX_CLIENT_ID")
