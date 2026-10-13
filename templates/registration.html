@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Event Registration - AFRP CRM Helper</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        :root {
+            --green: #3d7a3d;
+            --green-dark: #2f632f;
+            --ink: #1c241c;
+            --muted: #5c6b5c;
+            --line: #e2e8e2;
+            --paper: #f4f7f4;
+            --card: #fff;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Georgia, "Iowan Old Style", Palatino, serif;
+            background: var(--paper);
+            color: var(--ink);
+        }
+        header {
+            background: var(--green);
+            color: #fff;
+            padding: 18px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        header a { color: #fff; text-decoration: none; font-family: Arial, sans-serif; font-size: 14px; }
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; }
+        h1 { font-size: 22px; margin: 0; font-weight: normal; }
+        h2 { font-size: 22px; margin: 0 0 4px; font-weight: normal; }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 18px;
+        }
+        label.field { display: block; font-family: Arial, sans-serif; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+        label.check {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            text-transform: none;
+            letter-spacing: 0;
+            color: var(--ink);
+            margin: 8px 0 0;
+        }
+        input[type=email], input[type=password], select.wide { min-width: 220px; }
+        input[type=checkbox] { width: 16px; height: 16px; min-width: 16px; margin: 0; }
+        input, select {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            padding: 8px 10px;
+            border: 1px solid #c9d4c9;
+            border-radius: 8px;
+            background: #fff;
+        }
+        button, .switch {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            border: 0;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .primary { background: var(--green); color: #fff; }
+        .primary:hover { background: var(--green-dark); }
+        .primary:disabled { opacity: 0.7; cursor: wait; }
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            display: none;
+            animation: spin 0.7s linear infinite;
+        }
+        .searching .spinner { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ghost { background: transparent; color: #8a3b3b; padding-left: 0; }
+        .switch { background: #eef4ee; color: var(--ink); border: 1px solid var(--line); }
+        .switch.current { background: var(--green); color: #fff; border-color: var(--green); }
+        .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .note, .flash { font-family: Arial, sans-serif; font-size: 14px; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+        .note { background: #f7f3e8; color: #5c5132; }
+        .flash.ok { background: #e7f3e7; color: #245124; }
+        .flash.err { background: #fbeaea; color: #6d2a2a; }
+        .panels { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr); gap: 16px; align-items: start; }
+        @media (max-width: 800px) { .panels { grid-template-columns: 1fr; } }
+        .panel { background: #fbfcfb; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+        .panel h3 { margin: 0 0 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; font-family: Arial, sans-serif; color: var(--muted); font-weight: normal; }
+        .signup {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .signup strong { display: block; font-size: 16px; }
+        .meta { font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); margin-top: 4px; }
+        .change { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .change select { width: min(100%, 280px); }
+        .change .check { flex-basis: 100%; }
+        .preview-item { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+        .preview-item:last-child { border-bottom: 0; }
+        .tag { font-family: Arial, sans-serif; font-size: 11px; border-radius: 99px; padding: 2px 8px; }
+        .tag.same { background: #eee; color: #555; }
+        .tag.changed { background: #e5f0e5; color: var(--green-dark); }
+        .tag.added { background: #e7f0fb; color: #1d4e89; }
+        .tag.removed { background: #f8e6e6; color: #8a3b3b; text-decoration: line-through; }
+        .people { display: flex; gap: 8px; flex-wrap: wrap; }
+        .closed { font-family: Arial, sans-serif; font-size: 13px; color: var(--muted); }
+        .person-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Event registration</h1>
+    <a href="{{ url_for('home') }}">Back home</a>
+</header>
+<div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash {{ 'err' if category == 'error' else 'ok' }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <div class="card">
+        <form method="GET" action="{{ url_for('registration_desk_page') }}" class="row" id="lookup-form">
+            <div>
+                <label class="field" for="campaign_id">Convention</label>
+                <select id="campaign_id" name="campaign_id" {% if events|length == 1 %}disabled{% endif %}>
+                    <option value="">Choose an event</option>
+                    {% for event in events %}
+                    <option value="{{ event.id }}" {% if event.id == campaign_id %}selected{% endif %}>{{ event.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if events|length == 1 %}
+                <input type="hidden" name="campaign_id" value="{{ events[0].id }}">
+                {% endif %}
+            </div>
+            <div>
+                <label class="field" for="email">Customer email</label>
+                <input id="email" type="email" name="email" value="{{ email }}" required placeholder="name@example.com">
+            </div>
+            <button class="primary" type="submit" id="lookup-button"><span class="spinner"></span><span class="label">Look up</span></button>
+        </form>
+    </div>
+
+    {% for contact in contacts %}
+    {% set parent_name = (events|selectattr('id', 'equalto', campaign_id)|map(attribute='name')|list|first) or 'Main event' %}
+    {% set active = contact.guests|selectattr('active')|list %}
+    {% set closed = contact.guests|rejectattr('active')|list %}
+    <div class="card">
+        <div class="person-head">
+            <div>
+                <h2>{{ contact.name or contact.email }}</h2>
+                <div class="meta">{{ contact.email }}{% if contact.member_id %} · {{ contact.member_id }}{% endif %}
+                    · Password {{ 'on file' if contact.has_local_password else 'not set' }}
+                    · Google {{ 'linked' if contact.google_sign_in else 'not linked' }}
+                </div>
+            </div>
+        </div>
+
+        <div class="panels" id="panels-{{ contact.id }}" data-prices="{{ prices|tojson|forceescape }}" data-household="{{ contact.household|length }}">
+            <div class="panel">
+                <h3>Signed up now</h3>
+                {% if active %}
+                    {% for guest in active %}
+                    <div class="signup" data-guest="{{ guest.id }}" data-current="{{ guest.event_id }}" data-name="{{ guest.event_name or parent_name }}">
+                        <strong class="now-name">{{ guest.event_name or parent_name }}</strong>
+                        <div class="meta">{{ guest.status }}{% if guest.has_payment %} · payment already recorded{% else %} · no payment on file{% endif %}</div>
+                        <form method="POST" action="{{ url_for('registration_move') }}" class="change">
+                            <input type="hidden" name="campaign_id" value="{{ campaign_id }}">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <input type="hidden" name="guest_id" value="{{ guest.id }}">
+                            <select name="event_id" class="dest" aria-label="Change {{ guest.event_name or 'this sign-up' }} to">
+                                <option value="">Change this sign-up to…</option>
+                                {% if guest.event_id != campaign_id %}
+                                <option value="{{ campaign_id }}">{{ parent_name }}</option>
+                                {% endif %}
+                                {% for sub in sub_events %}
+                                {% if sub.id != guest.event_id %}
+                                <option value="{{ sub.id }}">{{ sub.name }}</option>
+                                {% endif %}
+                                {% endfor %}
+                            </select>
+                            <label class="check"><input type="checkbox" name="skip_payment" class="skip"> Do not charge</label>
+                            <button class="primary save-change" type="submit" disabled>Save change</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('registration_remove') }}">
+                            <input type="hidden" name="campaign_id" value="{{ campaign_id }}">
+                            <input type="hidden" name="email" value="{{ email }}">
+                            <input type="hidden" name="guest_id" value="{{ guest.id }}">
+                            <input type="hidden" name="household_guest_ids" value="{{ guest.household_guest_ids }}">
+                            {% if contact.household|length > 1 %}
+                            <label class="check">
+                                <input type="checkbox" name="apply_household"> Remove this event for the whole household
+                            </label>
+                            {% endif %}
+                            <button class="ghost" type="submit">Remove from this event</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="meta">Not signed up for anything on this convention yet.</p>
+                {% endif %}
+                {% if closed %}
+                <p class="closed">{{ closed|length }} closed sign-up{{ 's' if closed|length != 1 else '' }} not shown (already removed).</p>
+                {% endif %}
+            </div>
+            <div class="panel">
+                <h3>After you save</h3>
+                <div class="preview" id="preview-{{ contact.id }}"></div>
+                <form method="POST" action="{{ url_for('registration_add') }}" class="change" style="margin-top:8px;">
+                    <input type="hidden" name="campaign_id" value="{{ campaign_id }}">
+                    <input type="hidden" name="email" value="{{ email }}">
+                    <input type="hidden" name="contact_id" value="{{ contact.id }}">
+                    <input type="hidden" name="household_ids" value="{{ contact.household_ids }}">
+                    <select name="event_id" class="add-dest" required aria-label="Sign up for another event">
+                        <option value="">Sign up for another event…</option>
+                        <option value="{{ campaign_id }}">{{ parent_name }}</option>
+                        {% for sub in sub_events %}
+                        <option value="{{ sub.id }}">{{ sub.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <label class="check"><input type="checkbox" name="skip_payment" class="skip-add"> Do not charge</label>
+                    <button class="primary add-button" type="submit">Add this event</button>
+                    {% if contact.household|length > 1 %}
+                    <label class="check">
+                        <input type="checkbox" name="apply_household"> Add it for everyone in the household
+                    </label>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+        <p class="meta" style="margin-top:8px;">A change charges only the price increase on that event's account. You enter a new card on Authorize.net's page. Cards already stored on the account are not used. Removing an event never refunds.</p>
+
+        {% if contact.household|length > 1 %}
+        <h3 style="margin:22px 0 10px;font-size:16px;">Household</h3>
+        <div class="people">
+            {% for person in contact.household %}
+            {% if person.email %}
+            <a class="switch {% if person.email|lower == email|lower %}current{% endif %}"
+               href="{{ url_for('registration_desk_page', campaign_id=campaign_id, email=person.email) }}">
+                {{ 'Viewing' if person.email|lower == email|lower else 'Switch to' }}
+                {{ person.name or person.email }}{% if person.head %} · head{% endif %}
+            </a>
+            {% else %}
+            <span class="switch">{{ person.name }} · no email</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    <script>
+    (function () {
+        var root = document.getElementById("panels-{{ contact.id }}");
+        if (!root) return;
+        var preview = document.getElementById("preview-{{ contact.id }}");
+        var prices = {};
+        try { prices = JSON.parse(root.getAttribute("data-prices") || "{}"); } catch (e) {}
+        var household = parseInt(root.getAttribute("data-household") || "1", 10);
+        var cards = Array.prototype.slice.call(root.querySelectorAll(".signup"));
+        function costOf(id) {
+            var row = prices[(id || "").toLowerCase()] || {};
+            return Number(row.cost || 0);
+        }
+        function profileOf(id) {
+            var row = prices[(id || "").toLowerCase()] || {};
+            return row.profile || "";
+        }
+        function money(amount) {
+            return "$" + amount.toFixed(2);
+        }
+        function moveCharge(fromId, toId, skip) {
+            if (!toId || skip) return 0;
+            var fromProfile = profileOf(fromId);
+            var toProfile = profileOf(toId);
+            if (fromProfile && toProfile && fromProfile !== toProfile) return costOf(toId);
+            return Math.max(0, costOf(toId) - costOf(fromId));
+        }
+        function draw() {
+            var html = "";
+            cards.forEach(function (card) {
+                var current = card.getAttribute("data-name");
+                var select = card.querySelector(".dest");
+                var skip = card.querySelector(".skip") && card.querySelector(".skip").checked;
+                var chosen = select && select.value ? select.selectedOptions[0].textContent : current;
+                var changed = select && select.value;
+                var charge = changed ? moveCharge(card.getAttribute("data-current"), select.value, skip) : 0;
+                var tag = !changed ? "stays" : (charge ? "charge " + money(charge) : "no charge");
+                html += '<div class="preview-item"><span>' + chosen + '</span><span class="tag ' + (charge ? "changed" : "same") + '">' + tag + '</span></div>';
+            });
+            var add = root.querySelector(".add-dest");
+            var addSkip = root.querySelector(".skip-add") && root.querySelector(".skip-add").checked;
+            var addButton = root.querySelector(".add-button");
+            if (add && add.value) {
+                var people = (root.querySelector(".add-dest").form.querySelector("[name=apply_household]") || {}).checked ? household : 1;
+                var addCharge = addSkip ? 0 : costOf(add.value) * people;
+                html += '<div class="preview-item"><span>' + add.selectedOptions[0].textContent + '</span><span class="tag added">' + (addCharge ? "charge " + money(addCharge) : "no charge") + '</span></div>';
+                if (addButton) addButton.textContent = addCharge ? "Add this event · charge " + money(addCharge) : "Add this event · no charge";
+            } else if (addButton) {
+                addButton.textContent = "Add this event";
+            }
+            preview.innerHTML = html || '<p class="meta">Nothing signed up yet.</p>';
+        }
+        cards.forEach(function (card) {
+            var select = card.querySelector(".dest");
+            var button = card.querySelector(".save-change");
+            var skip = card.querySelector(".skip");
+            if (!select || !button) return;
+            function refresh() {
+                button.disabled = !select.value;
+                var charge = moveCharge(card.getAttribute("data-current"), select.value, skip && skip.checked);
+                button.textContent = !select.value ? "Save change" : (charge ? "Save change · charge " + money(charge) : "Save change · no charge");
+                draw();
+            }
+            select.addEventListener("change", refresh);
+            if (skip) skip.addEventListener("change", refresh);
+        });
+        var add = root.querySelector(".add-dest");
+        if (add) {
+            add.addEventListener("change", draw);
+            var addSkip = root.querySelector(".skip-add");
+            if (addSkip) addSkip.addEventListener("change", draw);
+            var householdBox = add.form.querySelector("[name=apply_household]");
+            if (householdBox) householdBox.addEventListener("change", draw);
+        }
+        draw();
+    })();
+    </script>
+    {% else %}
+        {% if email and campaign_id and not error %}
+        <div class="card"><p>No contact uses that email.</p></div>
+        {% endif %}
+    {% endfor %}
+</div>
+<script>
+document.getElementById("lookup-form").addEventListener("submit", function () {
+    var button = document.getElementById("lookup-button");
+    button.disabled = true;
+    button.classList.add("searching");
+    button.querySelector(".label").textContent = "Searching";
+});
+</script>
+</body>
+</html>

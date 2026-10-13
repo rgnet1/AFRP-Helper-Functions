@@ -1114,8 +1114,10 @@
                 
                 // Add event listener for campaign change
                 select.addEventListener('change', async function() {
-                    if (campaignAccess.restricted && campaignAccess.assigned_campaign_id) {
-                        this.value = campaignAccess.assigned_campaign_id;
+                    const chosen = this.options[this.selectedIndex];
+                    if (campaignAccess.restricted && chosen && chosen.disabled) {
+                        const fallback = campaignAccess.assigned_campaign_id || '';
+                        if (fallback) this.value = fallback;
                         return;
                     }
                     updateProcessButton();
@@ -1133,7 +1135,10 @@
                     }
                 });
 
-                if (restricted && assignedId) {
+                if (restricted && assignedId && !(campaignAccess.assigned_campaign_ids || []).length) {
+                    campaignAccess.assigned_campaign_ids = [assignedId];
+                }
+                if (restricted && (campaignAccess.assigned_campaign_ids || []).length === 1 && assignedId) {
                     select.value = assignedId;
                     select.disabled = true;
                     select.classList.add('campaign-restricted');

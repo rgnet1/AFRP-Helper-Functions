@@ -86,6 +86,14 @@ class CampaignAccessHelperTests(unittest.TestCase):
         self.assertTrue(by_id[ASSIGNED_ID]["selectable"])
         self.assertFalse(by_id[OTHER_ID]["selectable"])
 
+    def test_multiple_assigned_campaigns_are_all_allowed(self):
+        user = _coordinator()
+        user.allowed_campaign_ids = lambda: [ASSIGNED_ID, OTHER_ID]
+        assert_campaign_access(user, OTHER_ID)
+        meta = campaign_access_metadata(user)
+        self.assertIsNone(meta["assigned_campaign_id"])
+        self.assertEqual(meta["assigned_campaign_ids"], [ASSIGNED_ID, OTHER_ID])
+
     def test_campaign_access_metadata(self):
         meta = campaign_access_metadata(_coordinator())
         self.assertTrue(meta["restricted"])

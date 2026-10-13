@@ -21,24 +21,50 @@ def user_campaign_is_restricted(user) -> bool:
     return bool(getattr(user, "campaign_access_restricted", lambda: False)())
 
 
-def user_allowed_parent_campaign_id(user) -> str | None:
+def user_allowed_campaign_ids(user) -> list:
+    """Campaign ids a restricted user may open. Empty when unrestricted."""
     if not user_campaign_is_restricted(user):
-        return None
+        return []
+    getter = getattr(user, "allowed_campaign_ids", None)
+    if callable(getter):
+        value = getter()
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
     cid = getattr(user, "assigned_campaign_id", None)
-    return (cid or "").strip() or None
+    one = (cid or "").strip()
+    return [one] if one else []
+
+
+def user_allowed_parent_campaign_id(user) -> str | None:
+    """Single assigned campaign, or None when the user may choose among several."""
+    allowed = user_allowed_campaign_ids(user)
+    if len(allowed) == 1:
+        return allowed[0]
+    return None
 
 
 def campaign_access_metadata(user) -> dict:
     """Metadata for badge UI and API responses."""
     restricted = user_campaign_is_restricted(user)
-    assigned_id = user_allowed_parent_campaign_id(user) if restricted else None
+    allowed = user_allowed_campaign_ids(user) if restricted else []
+    assigned_id = allowed[0] if len(allowed) == 1 else None
     assigned_name = None
-    if restricted:
-        assigned_name = getattr(user, "assigned_campaign_name", None) or None
+    if restricted and len(allowed) == 1:
+        names = []
+        name_getter = getattr(user, "allowed_campaign_names", None)
+        if callable(name_getter):
+            value = name_getter()
+            if isinstance(value, (list, tuple)):
+                names = [str(item) for item in value if item]
+        if names:
+            assigned_name = names[0]
+        else:
+            assigned_name = getattr(user, "assigned_campaign_name", None) or None
     return {
         "restricted": restricted,
         "assigned_campaign_id": assigned_id,
         "assigned_campaign_name": assigned_name,
+        "assigned_campaign_ids": allowed,
     }
 
 
@@ -47,7 +73,7 @@ def assert_campaign_access(user, campaign_id: str | None) -> None:
     if not user_campaign_is_restricted(user):
         return
 
-    allowed = user_allowed_parent_campaign_id(user)
+    allowed = {_normalize_campaign_id(item) for item in user_allowed_campaign_ids(user)}
     if not allowed:
         raise CampaignAccessDenied("No campaign assigned to this account")
 
@@ -55,7 +81,7 @@ def assert_campaign_access(user, campaign_id: str | None) -> None:
     if not requested:
         raise CampaignAccessDenied("Campaign is required")
 
-    if requested != _normalize_campaign_id(allowed):
+    if requested not in allowed:
         raise CampaignAccessDenied("Access denied for this campaign")
 
 
@@ -84,14 +110,14 @@ def assert_sub_event_access(
 def annotate_campaigns_for_user(user, campaigns: list) -> list:
     """Return campaign dicts with selectable flag for UI grey-out."""
     meta = campaign_access_metadata(user)
-    assigned = _normalize_campaign_id(meta.get("assigned_campaign_id"))
+    allowed = {_normalize_campaign_id(item) for item in (meta.get("assigned_campaign_ids") or [])}
     restricted = meta.get("restricted", False)
     annotated = []
     for campaign in campaigns or []:
         item = dict(campaign)
         cid = _normalize_campaign_id(item.get("id"))
         if restricted:
-            item["selectable"] = cid == assigned
+            item["selectable"] = cid in allowed
         else:
             item["selectable"] = True
         annotated.append(item)

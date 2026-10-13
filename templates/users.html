@@ -125,6 +125,22 @@
             font-size: 22px;
         }
 
+        .group-help { color: #667; font-size: 14px; margin: 0 0 16px; }
+        .group-create { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 18px; }
+        .group-create label { display: block; font-size: 12px; color: #667; margin-bottom: 4px; }
+        .group-create input, .group-create select { padding: 8px 10px; border: 1px solid #d5ddd5; border-radius: 8px; min-width: 180px; }
+        .group-list { display: flex; flex-direction: column; gap: 12px; }
+        .group-card { border: 1px solid #e6eee6; border-radius: 12px; padding: 14px 16px; background: #fbfcfb; }
+        .group-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .group-title { font-size: 16px; color: #1c241c; }
+        .group-role { font-size: 12px; color: #3d7a3d; margin-left: 8px; }
+        .members { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+        .member { display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #e2e8e2; border-radius: 999px; padding: 4px 4px 4px 12px; font-size: 13px; }
+        .member button { border: 0; background: transparent; color: #888; cursor: pointer; border-radius: 999px; padding: 4px 8px; }
+        .member button:hover { color: #a33; }
+        .member-add { display: flex; gap: 8px; align-items: center; }
+        .member-add select { padding: 8px 10px; border: 1px solid #d5ddd5; border-radius: 8px; min-width: 220px; }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -276,6 +292,77 @@
             </div>
         </div>
 
+        <div class="card" style="margin-bottom:24px;">
+            <div class="card-header">
+                <h2><i class="fas fa-users"></i> Access groups</h2>
+            </div>
+            <p class="group-help">People in a group share its permissions. An event coordinator group is tied to one event.</p>
+            <form method="POST" action="{{ url_for('create_access_group') }}" id="createGroupForm" class="group-create">
+                <div>
+                    <label for="groupName">Name</label>
+                    <input type="text" id="groupName" name="name" required placeholder="Convention 2026 coordinators">
+                </div>
+                <div>
+                    <label for="groupRole">Type</label>
+                    <select id="groupRole" name="role">
+                        <option value="event_coordinator">Event coordinator</option>
+                        <option value="admin">Administrator</option>
+                        <option value="user">Standard user</option>
+                    </select>
+                </div>
+                <div id="groupCampaignWrap">
+                    <label for="groupCampaign">Event</label>
+                    <select id="groupCampaign" name="assigned_campaign_id">
+                        <option value="">Loading events...</option>
+                    </select>
+                    <input type="hidden" id="groupCampaignName" name="assigned_campaign_name">
+                </div>
+                <button type="submit" class="btn btn-primary">Create group</button>
+            </form>
+            {% if groups %}
+            <div class="group-list">
+            {% for group in groups %}
+            <div class="group-card">
+                <div class="group-head">
+                    <div>
+                        <span class="group-title">{{ group.display_label() }}</span>
+                        <span class="group-role">{{ group.role_label() }}</span>
+                    </div>
+                    <form method="POST" action="{{ url_for('delete_access_group', group_id=group.id) }}">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this group? Members lose its permissions.');">Delete</button>
+                    </form>
+                </div>
+                <div class="members">
+                    {% for member in group.members %}
+                    {% if member.user %}
+                    <span class="member">
+                        {{ member.user.email or member.user.username }}
+                        <form method="POST" action="{{ url_for('remove_access_group_member', group_id=group.id, user_id=member.user.id) }}">
+                            <button type="submit" aria-label="Remove {{ member.user.email or member.user.username }}">Remove</button>
+                        </form>
+                    </span>
+                    {% endif %}
+                    {% else %}
+                    <span class="meta" style="color:#888;font-size:13px;">No members yet</span>
+                    {% endfor %}
+                </div>
+                <form method="POST" action="{{ url_for('add_access_group_member', group_id=group.id) }}" class="member-add">
+                    <select name="user_id" required>
+                        <option value="">Add a user...</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}">{{ user.email or user.username }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary">Add</button>
+                </form>
+            </div>
+            {% endfor %}
+            </div>
+            {% else %}
+            <p>No groups yet. Existing admins are placed in Administrators the next time the app starts.</p>
+            {% endif %}
+        </div>
+
         <div class="card">
             <div class="card-header">
                 <h2><i class="fas fa-user-cog"></i> System Users</h2>
@@ -291,7 +378,7 @@
                         <th>Username</th>
                         <th>Email</th>
                         <th>Sign-in</th>
-                        <th>Role</th>
+                        <th>Groups</th>
                         <th>Features</th>
                         <th>Status</th>
                         <th>Last Login</th>
@@ -311,15 +398,14 @@
                         <td>{{ user.email or '-' }}</td>
                         <td>{{ user.sign_in_label() }}</td>
                         <td>
-                            {% if user.is_admin %}
+                            {% if user.group_labels() %}
+                                {% for label in user.group_labels() %}
+                                <div style="font-size:13px;">{{ label }}</div>
+                                {% endfor %}
+                            {% elif user.is_admin %}
                             <span class="badge badge-admin">Admin</span>
-                            {% elif user.is_event_coordinator() %}
-                            <span class="badge badge-user">Event Coordinator</span>
-                            {% if user.assigned_campaign_name %}
-                            <div style="font-size:12px;color:#666;margin-top:4px;">{{ user.assigned_campaign_name }}</div>
-                            {% endif %}
                             {% else %}
-                            <span class="badge badge-user">User</span>
+                            <span class="badge badge-user">No group</span>
                             {% endif %}
                         </td>
                         <td>
@@ -328,7 +414,7 @@
                             {% else %}
                             <div class="feature-tags">
                                 {% set perms = user.get_feature_permissions() %}
-                                {% for feature_id, meta in features.items() %}
+                                {% for feature_id, meta in features.items() if meta.assignable is not defined or meta.assignable %}
                                     {% if perms.get(feature_id) %}
                                     <span class="badge badge-feature">{{ meta.label.split()[0] }}</span>
                                     {% endif %}
@@ -399,6 +485,37 @@
     </div>
 
     <script>
+        const groupRole = document.getElementById('groupRole');
+        const groupCampaignWrap = document.getElementById('groupCampaignWrap');
+        const groupCampaign = document.getElementById('groupCampaign');
+        const groupCampaignName = document.getElementById('groupCampaignName');
+        function syncGroupForm() {
+            const coordinator = groupRole && groupRole.value === 'event_coordinator';
+            if (groupCampaignWrap) groupCampaignWrap.style.display = coordinator ? '' : 'none';
+            if (groupCampaign) groupCampaign.required = !!coordinator;
+        }
+        if (groupRole) {
+            groupRole.addEventListener('change', syncGroupForm);
+            syncGroupForm();
+        }
+        if (groupCampaign) {
+            fetch('/api/campaigns/open').then(r => r.json()).then(data => {
+                groupCampaign.innerHTML = '<option value="">Select an event...</option>';
+                (data.campaigns || []).forEach(campaign => {
+                    const option = document.createElement('option');
+                    option.value = campaign.id;
+                    option.textContent = campaign.name;
+                    groupCampaign.appendChild(option);
+                });
+            }).catch(() => {
+                groupCampaign.innerHTML = '<option value="">Could not load events</option>';
+            });
+            groupCampaign.addEventListener('change', () => {
+                const option = groupCampaign.options[groupCampaign.selectedIndex];
+                groupCampaignName.value = option && option.value ? option.textContent : '';
+            });
+        }
+
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             const toastMessage = document.getElementById('toastMessage');

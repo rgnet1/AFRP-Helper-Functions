@@ -167,6 +167,22 @@
         </a>
         {% endif %}
 
+        {% if 'registration' in allowed_features %}
+        <a href="/registration" class="tile">
+            <div class="tile-icon" aria-hidden="true">📅</div>
+            <div class="tile-title">Event Registration</div>
+            <div class="tile-subtitle">Change event sign-ups</div>
+        </a>
+        {% endif %}
+
+        {% if 'password_reset' in allowed_features %}
+        <a href="/password-reset" class="tile">
+            <div class="tile-icon" aria-hidden="true">🔑</div>
+            <div class="tile-title">Portal Password</div>
+            <div class="tile-subtitle">Set a my.afrp.org password</div>
+        </a>
+        {% endif %}
+
         {% if 'badges' in allowed_features %}
          <a href="/badges" class="tile">
             <div class="tile-icon" aria-hidden="true">🏷️</div>

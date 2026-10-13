@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Payment</title></head>
+<body>
+<script>
+function callParentFunction(str) {
+    if (str && window.parent && window.parent.CommunicationHandler &&
+        window.parent.CommunicationHandler.onReceiveCommunication) {
+        window.parent.CommunicationHandler.onReceiveCommunication(str);
+    }
+}
+function receiveMessage(event) {
+    if (event && event.data) {
+        callParentFunction(typeof event.data === "string" ? event.data : "");
+    }
+}
+if (window.addEventListener) {
+    window.addEventListener("message", receiveMessage, false);
+}
+</script>
+</body>
+</html>

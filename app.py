@@ -59,6 +59,10 @@ from utils.auth.portal_implicit import (
     portal_redirect_uri,
     verify_portal_id_token,
 )
+from utils.auth.groups import count_other_admins, set_user_groups
+from utils.registration.desk import HostedCheckout, RegistrationDesk, RegistrationError
+from utils.registration.payments import HOSTED_FORM_URL, MissingMerchant, PaymentDeclined
+from utils.magazine.scheduler import AccessGroup
 from utils.auth.campaign_access import (
     CampaignAccessDenied,
     assert_campaign_access,
@@ -305,25 +309,36 @@ def _resolve_preprocessor_class(preprocessing_template_id):
     return preprocessor_class
 
 
-def _user_role_from_form(form):
-    role = (form.get('role') or User.ROLE_USER).strip()
-    if role not in User.VALID_ROLES:
-        role = User.ROLE_USER
-    return role
+def _selected_group_ids(form):
+    ids = []
+    for raw in form.getlist('group_id'):
+        raw = (raw or '').strip()
+        if raw.isdigit():
+            ids.append(int(raw))
+    return ids
+
+
+def _guard_last_admin(user, group_ids):
+    """Refuse a change that would leave no active administrator."""
+    if not user.is_admin or not user.is_active:
+        return
+    if not group_ids:
+        stays_admin = False
+    else:
+        stays_admin = AccessGroup.query.filter(
+            AccessGroup.id.in_(group_ids),
+            AccessGroup.role == User.ROLE_ADMIN,
+        ).count() > 0
+    if not stays_admin and count_other_admins(user.id) == 0:
+        raise ValueError('Keep at least one active administrator')
 
 
 def _apply_user_access_from_form(user, form):
-    """Apply role, campaign assignment, and feature permissions from admin form."""
-    role = _user_role_from_form(form)
-    assigned_id = (form.get('assigned_campaign_id') or '').strip()
-    assigned_name = (form.get('assigned_campaign_name') or '').strip()
-
-    if role == User.ROLE_EVENT_COORDINATOR and not assigned_id:
-        raise ValueError('Assigned campaign is required for Event Coordinator role')
-
-    user.apply_role(role, assigned_id, assigned_name)
-    if role == User.ROLE_USER:
-        user.set_feature_permissions(permissions_from_form(form))
+    """Apply access-group membership. Feature checkboxes apply only with no group."""
+    group_ids = _selected_group_ids(form)
+    _guard_last_admin(user, group_ids)
+    personal = None if group_ids else permissions_from_form(form)
+    set_user_groups(user, group_ids, personal)
 
 
 def _preprocessing_config_with_meal(
@@ -452,11 +467,26 @@ login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
 login_manager.session_protection = 'strong'
 
+# Login attempts share one bucket per address. A My AFRP sign-in is several
+# requests (start, callback GET, callback POST), so the old 5/15min cap locked
+# people out after one or two retries.
+AUTH_RATE_LIMIT = "60 per 15 minutes"
+
+
+def _skip_default_limit_when_signed_in():
+    """Signed-in staff are not subject to the anonymous traffic cap."""
+    try:
+        return bool(getattr(current_user, "is_authenticated", False))
+    except Exception:
+        return False
+
+
 # Initialize rate limiter
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=["5000 per hour"],
+    default_limits_exempt_when=_skip_default_limit_when_signed_in,
     storage_uri="memory://"
 )
 
@@ -649,7 +679,7 @@ def setup():
     return render_template('setup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per 15 minutes")
+@limiter.limit(AUTH_RATE_LIMIT)
 def login():
     """User login."""
     # Check if setup is needed
@@ -729,7 +759,7 @@ def _finish_login(user):
 
 
 @app.route('/auth/google/login')
-@limiter.limit("5 per 15 minutes")
+@limiter.limit(AUTH_RATE_LIMIT)
 def google_login():
     """Start Google sign-in using the same Google account as my.afrp.org."""
     if User.query.first() is None:
@@ -757,7 +787,7 @@ def google_login():
 
 
 @app.route('/auth/google/callback')
-@limiter.limit("5 per 15 minutes")
+@limiter.limit(AUTH_RATE_LIMIT)
 def google_callback():
     """Complete Google sign-in if the account is whitelisted."""
     if current_user.is_authenticated:
@@ -826,7 +856,7 @@ def _complete_portal_login(id_token: str):
 
 
 @app.route('/auth/portal/login')
-@limiter.limit("5 per 15 minutes")
+@limiter.limit(AUTH_RATE_LIMIT)
 def portal_login():
     """Start my.afrp.org sign-in; portal returns an ID token to our callback."""
     if User.query.first() is None:
@@ -858,7 +888,7 @@ def portal_login():
 
 
 @app.route('/auth/portal/callback', methods=['GET', 'POST'])
-@limiter.limit("5 per 15 minutes")
+@limiter.limit(AUTH_RATE_LIMIT)
 def portal_callback():
     """Complete portal sign-in via same-origin POST (token never accepted on GET)."""
     if current_user.is_authenticated:
@@ -911,7 +941,8 @@ def list_users():
         return redirect(url_for('home'))
     
     users = User.query.order_by(User.created_at.desc()).all()
-    return render_template('users.html', users=users, features=FEATURES)
+    groups = AccessGroup.query.order_by(AccessGroup.name).all()
+    return render_template('users.html', users=users, groups=groups, features=FEATURES)
 
 @app.route('/users/create', methods=['GET', 'POST'])
 @login_required
@@ -926,20 +957,19 @@ def create_user():
         password_confirm = request.form.get('password_confirm', '')
         email = request.form.get('email', '').strip().lower()
         myafrp_only = request.form.get('myafrp_only') == 'on'
-        role = _user_role_from_form(request.form)
 
         if not email:
             flash('Email is required so this person can sign in with My AFRP', 'error')
-            return render_template('create_user.html', features=FEATURES)
+            return _render_create_user()
 
         valid, error = validate_email(email)
         if not valid:
             flash(error, 'error')
-            return render_template('create_user.html', features=FEATURES)
+            return _render_create_user()
 
         if User.query.filter(db.func.lower(User.email) == email).first():
             flash('Email already exists', 'error')
-            return render_template('create_user.html', features=FEATURES)
+            return _render_create_user()
 
         if myafrp_only:
             username = _username_from_email(email)
@@ -948,19 +978,19 @@ def create_user():
             valid, error = validate_username(username)
             if not valid:
                 flash(error, 'error')
-                return render_template('create_user.html', features=FEATURES)
+                return _render_create_user()
             if User.query.filter_by(username=username).first():
                 flash('Username already exists', 'error')
-                return render_template('create_user.html', features=FEATURES)
+                return _render_create_user()
 
         if not myafrp_only:
             valid, error = validate_password(password)
             if not valid:
                 flash(error, 'error')
-                return render_template('create_user.html', features=FEATURES)
+                return _render_create_user()
             if password != password_confirm:
                 flash('Passwords do not match', 'error')
-                return render_template('create_user.html', features=FEATURES)
+                return _render_create_user()
         
         # Create user
         try:
@@ -972,8 +1002,9 @@ def create_user():
             )
             if not myafrp_only:
                 user.set_password(password)
-            _apply_user_access_from_form(user, request.form)
             db.session.add(user)
+            db.session.flush()
+            _apply_user_access_from_form(user, request.form)
             db.session.commit()
             
             logger.info(f"User created: {username} by {current_user.username}")
@@ -983,13 +1014,22 @@ def create_user():
         except ValueError as e:
             db.session.rollback()
             flash(str(e), 'error')
-            return render_template('create_user.html', features=FEATURES)
+            return _render_create_user()
         except Exception as e:
             db.session.rollback()
             logger.exception("Error creating user")
             flash(f'Error creating user: {str(e)}', 'error')
-    
-    return render_template('create_user.html', features=FEATURES)
+
+    return _render_create_user()
+
+
+def _render_create_user():
+    return render_template(
+        'create_user.html',
+        features=FEATURES,
+        groups=AccessGroup.query.order_by(AccessGroup.name).all(),
+    )
+
 
 def _username_from_email(email):
     """Derive a unique, valid username from an email's local part."""
@@ -1048,7 +1088,13 @@ def edit_user(user_id):
             logger.exception("Error updating user")
             flash(f'Error updating user: {str(e)}', 'error')
 
-    return render_template('edit_user.html', user=user, features=FEATURES)
+    return render_template(
+        'edit_user.html',
+        user=user,
+        features=FEATURES,
+        groups=AccessGroup.query.order_by(AccessGroup.name).all(),
+        member_group_ids={row.group_id for row in user.group_memberships},
+    )
 
 @app.route('/users/<int:user_id>/toggle-active', methods=['POST'])
 @login_required
@@ -1102,9 +1148,532 @@ def delete_user(user_id):
         logger.exception("Error deleting user")
         return jsonify({'error': str(e)}), 500
 
+def _require_admin():
+    if not current_user.is_admin:
+        flash('Access denied - Admin only', 'error')
+        return redirect(url_for('home'))
+    return None
+
+
+@app.route('/users/groups', methods=['POST'])
+@login_required
+def create_access_group():
+    """Create a shared access group (admin only)."""
+    denied = _require_admin()
+    if denied:
+        return denied
+    name = (request.form.get('name') or '').strip()
+    role = (request.form.get('role') or User.ROLE_USER).strip()
+    if role not in User.VALID_ROLES:
+        role = User.ROLE_USER
+    if not name:
+        flash('Group name is required', 'error')
+        return redirect(url_for('list_users'))
+    campaign_id = (request.form.get('assigned_campaign_id') or '').strip()
+    campaign_name = (request.form.get('assigned_campaign_name') or '').strip()
+    if role == User.ROLE_EVENT_COORDINATOR and not campaign_id:
+        flash('Choose the event for this coordinator group', 'error')
+        return redirect(url_for('list_users'))
+    group = AccessGroup(name=name, role=role)
+    if role == User.ROLE_EVENT_COORDINATOR:
+        group.assigned_campaign_id = campaign_id
+        group.assigned_campaign_name = campaign_name or campaign_id
+        group.set_feature_permissions(
+            {fid: fid in ('badges', 'registration', 'password_reset') for fid in FEATURES}
+        )
+    elif role == User.ROLE_ADMIN:
+        group.assigned_campaign_id = None
+        group.assigned_campaign_name = None
+        group.set_feature_permissions({fid: True for fid in FEATURES})
+    else:
+        group.set_feature_permissions(permissions_from_form(request.form))
+    db.session.add(group)
+    db.session.commit()
+    flash(f'Group {group.name} created', 'success')
+    return redirect(url_for('list_users'))
+
+
+@app.route('/users/groups/<int:group_id>/members', methods=['POST'])
+@login_required
+def add_access_group_member(group_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    group = AccessGroup.query.get(group_id)
+    user = User.query.get(request.form.get('user_id', type=int))
+    if not group or not user:
+        flash('User or group not found', 'error')
+        return redirect(url_for('list_users'))
+    already = {row.group_id for row in user.group_memberships}
+    already.add(group.id)
+    try:
+        set_user_groups(user, already)
+        db.session.commit()
+        flash(f'{user.email or user.username} added to {group.name}', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('list_users'))
+
+
+@app.route('/users/groups/<int:group_id>/members/<int:user_id>/remove', methods=['POST'])
+@login_required
+def remove_access_group_member(group_id, user_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    user = User.query.get(user_id)
+    if not user:
+        flash('User not found', 'error')
+        return redirect(url_for('list_users'))
+    remaining = [row.group_id for row in user.group_memberships if row.group_id != group_id]
+    try:
+        _guard_last_admin(user, remaining)
+        set_user_groups(user, remaining, user.get_feature_permissions())
+        db.session.commit()
+        flash('Removed from group', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('list_users'))
+
+
+@app.route('/users/groups/<int:group_id>/delete', methods=['POST'])
+@login_required
+def delete_access_group(group_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    group = AccessGroup.query.get(group_id)
+    if not group:
+        flash('Group not found', 'error')
+        return redirect(url_for('list_users'))
+    members = [row.user for row in list(group.members) if row.user]
+    if group.role == User.ROLE_ADMIN:
+        remaining_admins = 0
+        for admin in User.query.filter_by(is_admin=True, is_active=True).all():
+            still_admin = any(
+                item.role == User.ROLE_ADMIN and item.id != group.id
+                for item in admin.access_groups()
+            )
+            if still_admin:
+                remaining_admins += 1
+        if remaining_admins == 0:
+            flash('Cannot delete the only administrator group', 'error')
+            return redirect(url_for('list_users'))
+    for user in members:
+        remaining = [row.group_id for row in user.group_memberships if row.group_id != group.id]
+        set_user_groups(user, remaining, user.get_feature_permissions())
+    db.session.delete(group)
+    db.session.commit()
+    flash(f'Group {group.name} deleted', 'success')
+    return redirect(url_for('list_users'))
+
+
 # ========================================
 # Main Application Routes
 # ========================================
+
+def _registration_desk():
+    from utils.dynamics_crm import DynamicsCRMClient
+    return RegistrationDesk(DynamicsCRMClient())
+
+
+def _collect_registration_payment(desk, contact_id, quote, skip, pending):
+    """Charge now, or return a hosted checkout. None means nothing to charge."""
+    if skip or not quote.charges:
+        return None
+    charged_trans_id = None
+    result = desk.collect(
+        contact_id,
+        quote,
+        skip_payment=False,
+        return_url=url_for("registration_payment_done", _external=True),
+        cancel_url=url_for(
+            "registration_desk_page",
+            campaign_id=pending.get("campaign_id", ""),
+            email=pending.get("email", ""),
+            _external=True,
+        ),
+        communicator_url=url_for("registration_communicator", _external=True),
+    )
+    if isinstance(result, HostedCheckout):
+        session["pending_registration"] = dict(
+            pending,
+            profile_id=quote.profile_id,
+            amount=f"{quote.amount:.2f}",
+        )
+        return result
+    charged_trans_id = result
+    try:
+        return desk.record_transaction(
+            contact_id,
+            pending["event_id"],
+            quote.profile_id,
+            quote.amount,
+            result,
+        )
+    except Exception:
+        logger.exception(
+            "Authorize.net transaction %s was approved but the CRM receipt failed",
+            charged_trans_id,
+        )
+        pending["authorize_trans_id"] = charged_trans_id
+        return None
+
+
+def _hosted_payment_page(checkout):
+    return render_template(
+        "registration_pay.html",
+        token=checkout.token,
+        form_url=HOSTED_FORM_URL,
+    )
+
+
+def _finish_pending_registration(trans_id):
+    pending = session.pop("pending_registration", None)
+    if not pending or not trans_id:
+        flash("The payment did not finish. Nothing was changed.", "error")
+        return _registration_page()
+    desk = _registration_desk()
+    campaign_id = pending.get("campaign_id", "")
+    email = pending.get("email", "")
+    try:
+        dynamics_id = desk.record_transaction(
+            pending.get("contact_id") or (pending.get("contact_ids") or [""])[0],
+            pending["event_id"],
+            pending["profile_id"],
+            pending["amount"],
+            trans_id,
+        )
+        if pending.get("action") == "move":
+            desk.move_guest(
+                current_user, pending["guest_id"], campaign_id, pending["event_id"]
+            )
+        else:
+            for contact_id in pending.get("contact_ids") or []:
+                desk.add_guest(
+                    current_user,
+                    contact_id,
+                    campaign_id,
+                    pending["event_id"],
+                    dynamics_id,
+                )
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        flash(
+            f"The card was charged, but the sign-up was not updated: {exc}",
+            "error",
+        )
+    except Exception:
+        logger.exception("Registration update failed after payment %s", trans_id)
+        flash("The card was charged, but the sign-up was not updated.", "error")
+    else:
+        flash(f"Charged ${pending['amount']} and updated the sign-up.", "success")
+    return _registration_page(campaign_id, email)
+
+
+def _registration_page(campaign_id="", email="", notice=""):
+    desk = _registration_desk()
+    events = desk.parent_events_for(current_user)
+    selected = (campaign_id or "").strip()
+    if len(events) == 1:
+        selected = events[0]["id"]
+    context = {
+        "events": events,
+        "campaign_id": selected,
+        "email": (email or "").strip(),
+        "sub_events": [],
+        "contacts": [],
+        "notice": notice,
+        "error": "",
+        "prices": {},
+    }
+    if not selected or not context["email"]:
+        return render_template("registration.html", **context)
+    try:
+        desk._require_parent(current_user, selected)
+        context["sub_events"] = desk.sub_events(selected)
+        try:
+            priced = desk.priced_events(selected)
+        except Exception:
+            logger.exception("Could not load event prices")
+            priced = {}
+        context["prices"] = {
+            event_id: {
+                "name": event.name,
+                "cost": float(event.cost),
+                "profile": event.profile_id or "",
+                "profile_name": event.profile_name,
+            }
+            for event_id, event in priced.items()
+        }
+        contacts = desk.find_contacts(context["email"])
+        for contact in contacts:
+            contact["guests"] = desk.guests_for_contact(contact["id"], selected)
+            contact["household"] = desk.household(contact["household_id"])
+            for person in contact["household"]:
+                person["guests"] = desk.guests_for_contact(person["id"], selected)
+            contact["household_ids"] = ",".join(
+                person["id"] for person in contact["household"] if person.get("id")
+            )
+            for guest in contact["guests"]:
+                related = []
+                for person in contact["household"]:
+                    for other in person["guests"]:
+                        if (
+                            other.get("active")
+                            and other.get("event_id") == guest.get("event_id")
+                            and other.get("id")
+                        ):
+                            related.append(other["id"])
+                guest["household_guest_ids"] = ",".join(related)
+        context["contacts"] = contacts
+    except CampaignAccessDenied as exc:
+        context["error"] = exc.message
+    except RegistrationError as exc:
+        context["error"] = str(exc)
+    except Exception:
+        logger.exception("Registration search failed")
+        context["error"] = "Could not load this customer from Dynamics"
+    return render_template("registration.html", **context)
+
+
+@app.route("/registration/communicator", methods=["GET"])
+def registration_communicator():
+    """Relay page Authorize.net loads inside its payment iframe."""
+    return render_template("registration_communicator.html")
+
+
+@app.route("/registration/payment-done", methods=["POST"])
+@login_required
+def registration_payment_done():
+    return _finish_pending_registration((request.form.get("trans_id") or "").strip())
+
+
+@app.route("/registration", methods=["GET"])
+@login_required
+def registration_desk_page():
+    """Look up a customer and their sign-ups for one parent event."""
+    return _registration_page(
+        request.args.get("campaign_id", ""),
+        request.args.get("email", ""),
+    )
+
+
+def _password_reset_page(email=""):
+    address = (email or "").strip()
+    contacts = []
+    error = ""
+    if address:
+        try:
+            contacts = _registration_desk().find_contacts(address)
+        except RegistrationError as exc:
+            error = str(exc)
+        except Exception:
+            logger.exception("Password reset search failed")
+            error = "Could not load this customer from Dynamics"
+    return render_template(
+        "password_reset.html",
+        email=address,
+        contacts=contacts,
+        error=error,
+    )
+
+
+@app.route("/password-reset", methods=["GET"])
+@login_required
+def password_reset_page():
+    """Set a my.afrp.org password for any contact."""
+    return _password_reset_page(request.args.get("email", ""))
+
+
+@app.route("/password-reset", methods=["POST"])
+@login_required
+def password_reset_save():
+    email = request.form.get("email", "")
+    contact_id = (request.form.get("contact_id") or "").strip()
+    password = request.form.get("password") or ""
+    valid, error = validate_password(password)
+    if not valid:
+        flash(error, "error")
+        return _password_reset_page(email)
+    try:
+        _registration_desk().set_local_password(current_user, contact_id, password)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        flash(str(getattr(exc, "message", exc)), "error")
+        return _password_reset_page(email)
+    except Exception:
+        logger.exception("Portal password reset failed for contact %s", contact_id)
+        flash("Could not update the portal password", "error")
+        return _password_reset_page(email)
+    logger.info(
+        "Portal password reset for contact %s by %s",
+        contact_id,
+        current_user.username,
+    )
+    flash("Portal password updated. Tell the customer the new password.", "success")
+    return _password_reset_page(email)
+
+
+@app.route("/registration/add", methods=["POST"])
+@login_required
+def registration_add():
+    campaign_id = request.form.get("campaign_id", "")
+    email = request.form.get("email", "")
+    event_id = (request.form.get("event_id") or "").strip()
+    contact_ids = [request.form.get("contact_id", "").strip()]
+    if request.form.get("apply_household") == "on":
+        contact_ids = [
+            item.strip() for item in request.form.get("household_ids", "").split(",") if item.strip()
+        ] or contact_ids
+    desk = _registration_desk()
+    skip = request.form.get("skip_payment") == "on"
+    contact_ids = [item for item in contact_ids if item]
+    if not contact_ids or not event_id:
+        flash("Choose an event and a customer", "error")
+        return _registration_page(campaign_id, email)
+    transaction_id = None
+    try:
+        quote = desk.quote_for_add(campaign_id, event_id, len(contact_ids))
+        payment = _collect_registration_payment(
+            desk,
+            contact_ids[0],
+            quote,
+            skip,
+            {
+                "action": "add",
+                "campaign_id": campaign_id,
+                "email": email,
+                "event_id": event_id,
+                "contact_ids": contact_ids,
+            },
+        )
+        if isinstance(payment, HostedCheckout):
+            return _hosted_payment_page(payment)
+        transaction_id = payment
+        added = 0
+        for contact_id in contact_ids:
+            desk.add_guest(
+                current_user, contact_id, campaign_id, event_id, transaction_id
+            )
+            added += 1
+            logger.info(
+                "Staff %s added contact %s to event %s",
+                current_user.username,
+                contact_id,
+                event_id,
+            )
+    except (CampaignAccessDenied, RegistrationError, MissingMerchant, PaymentDeclined) as exc:
+        if transaction_id:
+            flash(f"The card was charged, but the sign-up was not updated: {exc}", "error")
+        else:
+            flash(str(getattr(exc, "message", exc)), "error")
+    except Exception:
+        logger.exception("Add registration failed")
+        flash(
+            "The card was charged, but the sign-up was not updated."
+            if transaction_id else "Could not add the sign-up",
+            "error",
+        )
+    else:
+        if skip or not quote.charges:
+            detail = "No card was charged."
+        else:
+            detail = f"Charged ${quote.amount:.2f}."
+        flash(
+            f"Signed up {added} {'person' if added == 1 else 'people'}. {detail}",
+            "success",
+        )
+    return _registration_page(campaign_id, email)
+
+
+@app.route("/registration/move", methods=["POST"])
+@login_required
+def registration_move():
+    campaign_id = request.form.get("campaign_id", "")
+    email = request.form.get("email", "")
+    guest_id = (request.form.get("guest_id") or "").strip()
+    event_id = (request.form.get("event_id") or "").strip()
+    skip = request.form.get("skip_payment") == "on"
+    desk = _registration_desk()
+    try:
+        guest = desk._guest(guest_id)
+        quote = desk.quote_for_move(
+            campaign_id, guest.get("_crca7_event_value") or "", event_id
+        )
+        payment = _collect_registration_payment(
+            desk,
+            guest.get("_crca7_existingcontact_value") or "",
+            quote,
+            skip,
+            {
+                "action": "move",
+                "campaign_id": campaign_id,
+                "email": email,
+                "event_id": event_id,
+                "guest_id": guest_id,
+                "contact_id": guest.get("_crca7_existingcontact_value") or "",
+            },
+        )
+        if isinstance(payment, HostedCheckout):
+            return _hosted_payment_page(payment)
+        desk.move_guest(current_user, guest_id, campaign_id, event_id)
+        logger.info(
+            "Staff %s moved guest %s to event %s",
+            current_user.username,
+            guest_id,
+            event_id,
+        )
+        if skip or not quote.charges:
+            flash("Sign-up changed. No card was charged.", "success")
+        elif quote.accounts_differ:
+            flash(
+                f"Sign-up changed. Charged ${quote.amount:.2f} on {quote.profile_name}. "
+                "The earlier payment was not refunded.",
+                "success",
+            )
+        else:
+            flash(
+                f"Sign-up changed. Charged the ${quote.amount:.2f} difference. "
+                "The original payment stays on this registration.",
+                "success",
+            )
+    except (CampaignAccessDenied, RegistrationError, MissingMerchant, PaymentDeclined) as exc:
+        flash(str(getattr(exc, "message", exc)), "error")
+    except Exception:
+        logger.exception("Move registration failed for guest %s", guest_id)
+        flash("Could not change the sign-up", "error")
+    return _registration_page(campaign_id, email)
+
+
+@app.route("/registration/remove", methods=["POST"])
+@login_required
+def registration_remove():
+    campaign_id = request.form.get("campaign_id", "")
+    email = request.form.get("email", "")
+    guest_ids = [request.form.get("guest_id", "").strip()]
+    if request.form.get("apply_household") == "on":
+        guest_ids = [
+            item.strip() for item in request.form.get("household_guest_ids", "").split(",") if item.strip()
+        ] or guest_ids
+    desk = _registration_desk()
+    removed = 0
+    try:
+        for guest_id in guest_ids:
+            if not guest_id:
+                continue
+            desk.remove_guest(current_user, guest_id, campaign_id)
+            removed += 1
+            logger.info("Staff %s inactivated guest %s", current_user.username, guest_id)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        flash(str(getattr(exc, "message", exc)), "error")
+    except Exception:
+        logger.exception("Remove registration failed")
+        flash("Could not remove the sign-up", "error")
+    else:
+        flash(f"Marked {removed} sign-up{'s' if removed != 1 else ''} inactive.", "success")
+    return _registration_page(campaign_id, email)
+
 
 @app.route('/', methods=['GET'])
 @login_required

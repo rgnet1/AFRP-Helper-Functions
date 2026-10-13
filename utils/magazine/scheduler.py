@@ -283,6 +283,11 @@ class User(db.Model, UserMixin):
     assigned_campaign_name = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
+    group_memberships = db.relationship(
+        'AccessGroupMember',
+        back_populates='user',
+        cascade='all, delete-orphan',
+    )
     
     def set_password(self, password):
         """Hash and store password using bcrypt.
@@ -347,14 +352,37 @@ class User(db.Model, UserMixin):
         import json
         self.feature_permissions = json.dumps(stored)
 
+    def access_groups(self):
+        return [row.group for row in (self.group_memberships or []) if row.group is not None]
+
     def has_feature(self, feature_id: str) -> bool:
-        if self.is_admin:
+        if self.is_admin or any(group.role == self.ROLE_ADMIN for group in self.access_groups()):
+            return True
+        groups = self.access_groups()
+        if groups:
+            for group in groups:
+                if group.role == self.ROLE_EVENT_COORDINATOR and feature_id in (
+                    'badges',
+                    'registration',
+                    'password_reset',
+                ):
+                    return True
+                if group.role == self.ROLE_USER and group.get_feature_permissions().get(feature_id):
+                    return True
+            return False
+        if self.is_event_coordinator() and feature_id in (
+            'badges',
+            'registration',
+            'password_reset',
+        ):
             return True
         return bool(self.get_feature_permissions().get(feature_id, False))
 
     def get_role(self) -> str:
-        if self.is_admin:
+        if self.is_admin or any(group.role == self.ROLE_ADMIN for group in self.access_groups()):
             return self.ROLE_ADMIN
+        if any(group.role == self.ROLE_EVENT_COORDINATOR for group in self.access_groups()):
+            return self.ROLE_EVENT_COORDINATOR
         role = (self.role or self.ROLE_USER).strip()
         if role not in self.VALID_ROLES or role == self.ROLE_ADMIN:
             return self.ROLE_USER
@@ -363,8 +391,38 @@ class User(db.Model, UserMixin):
     def is_event_coordinator(self) -> bool:
         return not self.is_admin and self.get_role() == self.ROLE_EVENT_COORDINATOR
 
+    def allowed_campaign_ids(self) -> list:
+        """Parent campaigns this coordinator may use. Admins are unrestricted."""
+        if self.is_admin or any(group.role == self.ROLE_ADMIN for group in self.access_groups()):
+            return []
+        ids = []
+        for group in self.access_groups():
+            if group.role != self.ROLE_EVENT_COORDINATOR:
+                continue
+            cid = (group.assigned_campaign_id or '').strip()
+            if cid and cid not in ids:
+                ids.append(cid)
+        if ids:
+            return ids
+        legacy = (self.assigned_campaign_id or '').strip()
+        return [legacy] if legacy and self.is_event_coordinator() else []
+
+    def allowed_campaign_names(self) -> list:
+        names = []
+        allowed = set(self.allowed_campaign_ids())
+        for group in self.access_groups():
+            cid = (group.assigned_campaign_id or '').strip()
+            if cid in allowed and group.assigned_campaign_name:
+                names.append(group.assigned_campaign_name)
+        if not names and self.assigned_campaign_name and self.allowed_campaign_ids():
+            names.append(self.assigned_campaign_name)
+        return names
+
     def campaign_access_restricted(self) -> bool:
-        return self.is_event_coordinator() and bool(self.assigned_campaign_id)
+        return self.is_event_coordinator() and bool(self.allowed_campaign_ids())
+
+    def group_labels(self) -> list:
+        return [group.display_label() for group in self.access_groups()]
 
     def allowed_features(self):
         from utils.auth.permissions import FEATURES, allowed_features_for_user
@@ -382,7 +440,9 @@ class User(db.Model, UserMixin):
         self.is_admin = role == self.ROLE_ADMIN
 
         if role == self.ROLE_EVENT_COORDINATOR:
-            self.set_feature_permissions({fid: fid == 'badges' for fid in FEATURES})
+            self.set_feature_permissions(
+                {fid: fid in ('badges', 'registration', 'password_reset') for fid in FEATURES}
+            )
             self.assigned_campaign_id = (assigned_campaign_id or '').strip() or None
             self.assigned_campaign_name = (assigned_campaign_name or '').strip() or None
         else:
@@ -411,6 +471,63 @@ class User(db.Model, UserMixin):
     
     def __repr__(self):
         return f'<User {self.username}>'
+
+
+class AccessGroup(db.Model):
+    """Shared role and campaign permissions. Members inherit the same access."""
+    __tablename__ = 'access_group'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default=User.ROLE_USER)
+    assigned_campaign_id = db.Column(db.String(64), nullable=True)
+    assigned_campaign_name = db.Column(db.String(255), nullable=True)
+    feature_permissions = db.Column(db.Text, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    members = db.relationship(
+        'AccessGroupMember',
+        back_populates='group',
+        cascade='all, delete-orphan',
+    )
+
+    def get_feature_permissions(self):
+        from utils.auth.permissions import normalize_feature_permissions
+        return normalize_feature_permissions(self.feature_permissions)
+
+    def set_feature_permissions(self, permissions: dict):
+        import json
+        from utils.auth.permissions import FEATURES, normalize_feature_permissions
+        merged = normalize_feature_permissions(permissions)
+        self.feature_permissions = json.dumps({fid: merged[fid] for fid in FEATURES})
+
+    def display_label(self) -> str:
+        campaign = (self.assigned_campaign_name or "").strip()
+        name = (self.name or "").strip()
+        if (
+            self.role == User.ROLE_EVENT_COORDINATOR
+            and campaign
+            and campaign.lower() not in name.lower()
+        ):
+            return f"{name} ({campaign})"
+        return name
+
+    def role_label(self) -> str:
+        if self.role == User.ROLE_ADMIN:
+            return 'Administrator'
+        if self.role == User.ROLE_EVENT_COORDINATOR:
+            return 'Event Coordinator'
+        return 'Standard user'
+
+
+class AccessGroupMember(db.Model):
+    __tablename__ = 'access_group_member'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey('access_group.id'), nullable=False)
+    user = db.relationship('User', back_populates='group_memberships')
+    group = db.relationship('AccessGroup', back_populates='members')
+    __table_args__ = (db.UniqueConstraint('user_id', 'group_id', name='uq_access_group_member'),)
 
 
 class ScheduleManager:

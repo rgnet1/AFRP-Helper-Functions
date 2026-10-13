@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pay - AFRP CRM Helper</title>
+    <style>
+        body { font-family: Georgia, Palatino, serif; background: #f4f7f4; margin: 0; color: #1c241c; }
+        header { background: #3d7a3d; color: #fff; padding: 16px 24px; }
+        .wrap { max-width: 720px; margin: 24px auto; padding: 0 16px; }
+        iframe { width: 100%; height: 520px; border: 1px solid #e2e8e2; border-radius: 12px; background: #fff; }
+        p { font-family: Arial, sans-serif; color: #5c6b5c; }
+    </style>
+</head>
+<body>
+<header><h1 style="margin:0;font-size:22px;font-weight:normal;">Pay the difference</h1></header>
+<div class="wrap">
+    <p>The card form is Authorize.net. This page never sees the card number.</p>
+    <iframe id="authnet" name="authnet" title="Authorize.net"></iframe>
+    <form id="send" method="POST" action="{{ form_url }}" target="authnet">
+        <input type="hidden" name="token" value="{{ token }}">
+    </form>
+    <form id="done" method="POST" action="{{ url_for('registration_payment_done') }}">
+        <input type="hidden" name="trans_id" id="trans_id">
+    </form>
+</div>
+<script>
+window.CommunicationHandler = {
+    onReceiveCommunication: function (query) {
+        var params = new URLSearchParams(query);
+        if (params.get("action") === "cancel") {
+            window.location = {{ url_for('registration_desk_page')|tojson }};
+            return;
+        }
+        if (params.get("action") !== "transactResponse") return;
+        var response = {};
+        try { response = JSON.parse(params.get("response") || "{}"); } catch (e) { return; }
+        if (!response.transId) return;
+        document.getElementById("trans_id").value = response.transId;
+        document.getElementById("done").submit();
+    }
+};
+document.getElementById("send").submit();
+</script>
+</body>
+</html>

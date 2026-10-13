@@ -18,6 +18,17 @@ FEATURES = {
         "home_tile": True,
         "path_prefixes": ["/magazine", "/api/schedules", "/run-magazine-download"],
     },
+    "registration": {
+        "label": "Event Registration",
+        "home_tile": True,
+        "path_prefixes": ["/registration"],
+    },
+    "password_reset": {
+        "label": "Portal Password",
+        "home_tile": True,
+        "assignable": False,
+        "path_prefixes": ["/password-reset"],
+    },
     "badges": {
         "label": "Badge Generator",
         "home_tile": True,
