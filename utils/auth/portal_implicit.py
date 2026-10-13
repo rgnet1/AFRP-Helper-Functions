@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import threading
 import time
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
@@ -35,6 +36,7 @@ _cached_public_key_at: float = 0.0
 # Power Pages omits the nonce claim, so accepted tokens are remembered until
 # they expire to stop a captured token being replayed.
 _used_tokens: Dict[str, float] = {}
+_used_tokens_lock = threading.Lock()
 
 
 class PortalTokenError(Exception):
@@ -70,6 +72,15 @@ def new_portal_state() -> str:
 
 def new_portal_nonce() -> str:
     return secrets.token_hex(PORTAL_OAUTH_RANDOM_BYTES)
+
+
+def portal_callback_state_ok(provided: Optional[str], expected: Optional[str]) -> bool:
+    """True only when both values are present and match (timing-safe)."""
+    got = (provided or "").strip()
+    want = (expected or "").strip()
+    if not got or not want or len(got) != len(want):
+        return False
+    return secrets.compare_digest(got, want)
 
 
 def portal_bridge_path() -> str:
@@ -242,21 +253,23 @@ def verify_portal_id_token(
 def _claim_one_time_use(token: str, payload: Dict[str, Any]) -> None:
     import hashlib
 
-    now = time.time()
-    for key in [k for k, exp in _used_tokens.items() if exp < now]:
-        _used_tokens.pop(key, None)
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    if digest in _used_tokens:
-        raise PortalTokenError("Portal ID token was already used")
+    now = time.time()
     try:
         expires = float(payload.get("exp"))
     except (TypeError, ValueError):
         expires = now + 3600
-    _used_tokens[digest] = expires
+    with _used_tokens_lock:
+        for key in [k for k, exp in _used_tokens.items() if exp < now]:
+            _used_tokens.pop(key, None)
+        if digest in _used_tokens:
+            raise PortalTokenError("Portal ID token was already used")
+        _used_tokens[digest] = expires
 
 
 def reset_used_tokens() -> None:
-    _used_tokens.clear()
+    with _used_tokens_lock:
+        _used_tokens.clear()
 
 
 def reset_public_key_cache() -> None:

@@ -15,6 +15,7 @@ from utils.auth.permissions import path_is_public
 from utils.auth.portal_implicit import (
     PortalTokenError,
     build_portal_bridge_url,
+    portal_callback_state_ok,
     reset_public_key_cache,
     reset_used_tokens,
     verify_portal_id_token,
@@ -135,6 +136,17 @@ class PortalTokenTests(unittest.TestCase):
         self.assertNotIn("/_services/auth/token?", url)
         self.assertIn("redirect_uri", url)
         self.assertIn("afrp-helper", url)
+
+
+class PortalCallbackStateTests(unittest.TestCase):
+    def test_missing_or_wrong_state_is_rejected(self):
+        self.assertFalse(portal_callback_state_ok(None, "abc"))
+        self.assertFalse(portal_callback_state_ok("abc", None))
+        self.assertFalse(portal_callback_state_ok("", "abc"))
+        self.assertFalse(portal_callback_state_ok("abc", "xyz"))
+
+    def test_matching_state_is_accepted(self):
+        self.assertTrue(portal_callback_state_ok("abc123", "abc123"))
 
 
 class PortalWhitelistTests(unittest.TestCase):

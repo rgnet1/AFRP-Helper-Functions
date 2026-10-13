@@ -70,9 +70,13 @@
       text = (text || '').trim();
       if (text.indexOf('eyJ') === 0) {
         sessionStorage.removeItem(signinKey);
+        // Hash fragment is not sent to the server or written to access logs.
+        // Helper's callback page POSTs the token same-origin.
         var url = new URL(redirectUri);
-        url.searchParams.set('id_token', text);
-        url.searchParams.set('state', state);
+        url.hash = new URLSearchParams({
+          id_token: text,
+          state: state
+        }).toString();
         window.location.href = url.toString();
         return;
       }

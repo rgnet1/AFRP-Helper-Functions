@@ -17,7 +17,6 @@
             background: #fff;
             padding: 24px 32px;
             border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             max-width: 420px;
             text-align: center;
         }
@@ -28,22 +27,30 @@
         <p>Completing sign-in with my.afrp.org…</p>
         <p id="msg" style="color:#666;font-size:14px;"></p>
     </div>
+    <form id="complete" method="POST" action="{{ url_for('portal_callback') }}" style="display:none;">
+        <input type="hidden" name="id_token" id="id_token">
+        <input type="hidden" name="state" id="state">
+    </form>
     <script>
         (function () {
             var hash = window.location.hash || '';
             if (hash.charAt(0) === '#') {
                 hash = hash.substring(1);
             }
-            var params = new URLSearchParams(hash);
-            var token = params.get('id_token') || params.get('token') || params.get('access_token');
-            if (token) {
-                var url = new URL({{ url_for('portal_callback', _external=True) | tojson }});
-                url.searchParams.set('id_token', token);
-                var state = params.get('state');
-                if (state) {
-                    url.searchParams.set('state', state);
-                }
-                window.location.replace(url.toString());
+            var fromHash = new URLSearchParams(hash);
+            var fromQuery = new URLSearchParams(window.location.search);
+            var token = fromHash.get('id_token') || fromHash.get('token') || fromHash.get('access_token')
+                || fromQuery.get('id_token') || fromQuery.get('token');
+            var state = fromHash.get('state') || fromQuery.get('state') || '';
+
+            if (window.location.search || window.location.hash) {
+                history.replaceState({}, '', {{ url_for('portal_callback') | tojson }});
+            }
+
+            if (token && state) {
+                document.getElementById('id_token').value = token;
+                document.getElementById('state').value = state;
+                document.getElementById('complete').submit();
                 return;
             }
             document.getElementById('msg').textContent =

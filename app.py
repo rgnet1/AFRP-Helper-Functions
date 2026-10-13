@@ -54,6 +54,7 @@ from utils.auth.portal_implicit import (
     build_portal_bridge_url,
     new_portal_nonce,
     new_portal_state,
+    portal_callback_state_ok,
     portal_login_enabled,
     portal_redirect_uri,
     verify_portal_id_token,
@@ -809,16 +810,7 @@ def _complete_portal_login(id_token: str):
             issued_after=started_at,
         )
     except PortalTokenError as exc:
-        try:
-            import jwt as _jwt
-            claims = _jwt.decode(id_token, options={"verify_signature": False})
-            logger.warning(
-                "Portal sign-in token validation failed: %s; claims=%s",
-                exc,
-                {k: claims[k] for k in claims if k != "lp_sdes"},
-            )
-        except Exception:
-            logger.warning("Portal sign-in token validation failed: %s (token not decodable)", exc)
+        logger.warning("Portal sign-in token validation failed: %s", exc)
         flash(DENIED_MESSAGE, 'error')
         return _render_login(403)
 
@@ -865,29 +857,35 @@ def portal_login():
         return redirect(url_for('login'))
 
 
-@app.route('/auth/portal/callback', methods=['GET'])
+@app.route('/auth/portal/callback', methods=['GET', 'POST'])
 @limiter.limit("5 per 15 minutes")
 def portal_callback():
-    """Complete portal sign-in from query token or URL fragment (via bridge template)."""
+    """Complete portal sign-in via same-origin POST (token never accepted on GET)."""
     if current_user.is_authenticated:
         return redirect(url_for('home'))
 
-    if request.args.get('error'):
+    if request.values.get('error'):
         flash(DENIED_MESSAGE, 'error')
         logger.warning("Portal sign-in rejected by identity provider")
         return _render_login(403)
 
-    query_state = (request.args.get('state') or '').strip()
-    if query_state and query_state != session.get('portal_oauth_state'):
+    if request.method == 'GET':
+        # Token may be in the URL fragment or a leftover query string. The
+        # bridge template POSTs it so access logs never see id_token.
+        return render_template('portal_callback.html')
+
+    provided_state = (request.form.get('state') or '').strip()
+    if not portal_callback_state_ok(provided_state, session.get('portal_oauth_state')):
         flash(DENIED_MESSAGE, 'error')
-        logger.warning("Portal sign-in rejected: query state mismatch")
+        logger.warning("Portal sign-in rejected: missing or mismatched callback state")
         return _render_login(403)
 
-    id_token = (request.args.get('id_token') or request.args.get('token') or '').strip()
-    if id_token:
-        return _complete_portal_login(id_token)
-
-    return render_template('portal_callback.html')
+    id_token = (request.form.get('id_token') or request.form.get('token') or '').strip()
+    if not id_token:
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Portal sign-in rejected: missing token in POST body")
+        return _render_login(403)
+    return _complete_portal_login(id_token)
 
 
 @app.route('/logout')
