@@ -268,6 +268,8 @@ Visual interface for mapping spreadsheet columns to badge placeholders:
 3. Set download schedule
 4. Monitor progress in logs
 
+**Alerts:** After each scheduled run, the job can notify via **ntfy**, **Telegram**, or **Discord** (optional **email** to real inboxes). Set `NOTIFY_CHANNELS` and the matching variables in `config/.env`. Legacy SMS via `PHONE_NUMBER` and Verizon vtext is no longer supported.
+
 ## Backup & Restore
 
 Complete system backup and restore capability for data protection and migration.

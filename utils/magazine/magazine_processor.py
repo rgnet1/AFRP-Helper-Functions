@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 from utils.magazine.config import MagazineConfig
 from utils.magazine.dropbox_handler import DropboxHandler
 from utils.magazine.server_handler import ServerHandler
-from utils.magazine.send_text import SMSSender
+from utils.magazine.notifier import Notifier
 from utils.magazine.sharepoint import upload_file_to_sharepoint
 
 class MagazineProcessor:
@@ -19,9 +19,27 @@ class MagazineProcessor:
         """
         self.config = config
         self.dropbox = DropboxHandler(config)
-        self.notifier = SMSSender(config.email, config.email_password)
+        self._notifier: Optional[Notifier] = None
         self.file_name = None
         self.year = None
+
+    def _notify_after_run(self, message: str) -> None:
+        """Best-effort alert after the magazine check finishes. Never raises."""
+        if not message:
+            return
+        try:
+            if self._notifier is None:
+                try:
+                    self._notifier = Notifier.from_config(self.config)
+                except ValueError as e:
+                    logging.error(f"Magazine check finished; notification not configured: {e}")
+                    print(f"Magazine check finished; notification not configured: {e}", flush=True)
+                    self._notifier = Notifier([])
+            logging.info(f"Sending notification: {message}")
+            self._notifier.notify(message)
+        except Exception as e:
+            logging.error(f"Magazine check finished; notification failed: {e}")
+            print(f"Magazine check finished; notification failed: {e}", flush=True)
 
     def convert_filename(self, filename: str) -> Tuple[str, Optional[str]]:
         """Convert magazine filename to standard format.
@@ -81,15 +99,8 @@ class MagazineProcessor:
         elif downloaded_file or files_processed:
             message = "Magazine Check: Files were processed and uploaded"
         
-        # Send notifications regardless of whether new files were found
-        if self.config.notification_credentials_valid:
-            logging.info(f"notifier: {self.notifier.email}\n")
-            logging.info(f"Sending notification: {message}\n")
-            for number in self.config.notification_numbers.values():
-                logging.info(f"Sending message to {number}")
-                if number:  # Only send if number is provided
-                    self.notifier.send_message(number, self.notifier.VERIZON, message)
-                    logging.info(f"Message finally sent to {number}")
+        self._notify_after_run(message)
+
     
     def _process_single_file(self, file_path: str, server: ServerHandler) -> None:
         """Process a single magazine file.

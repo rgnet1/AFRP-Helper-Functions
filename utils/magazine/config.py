@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import List, Optional
 from dotenv import load_dotenv
 
 class MagazineConfig:
@@ -25,15 +25,16 @@ class MagazineConfig:
         self.server_password = self._get_env("SERVER_PASSWORD", required=False)
         self.server_path = "/mnt/user/Ramzey/AFRP Archive/Magazine-Issues-2022-Present/"
         
-        # Email/SMS settings
-        self.email = self._get_env("EMAIL")
-        self.email_password = self._get_env("EMAIL_APP_PASSWORD")
-        self.notification_numbers = {
-            key: number for key, number in {
-                "primary": self._get_env("PHONE_NUMBER"),
-                "secondary": self._get_env("PHONE_NUMBER_TWO", required=False)
-            }.items() if number
-        }
+        # Notification settings (optional until a channel is enabled in NOTIFY_CHANNELS)
+        self.notify_channels = [name.lower() for name in self._get_list("NOTIFY_CHANNELS")]
+        self.ntfy_topic = self._get_env("NTFY_TOPIC", required=False)
+        self.ntfy_server = self._get_env("NTFY_SERVER", required=False) or "https://ntfy.sh"
+        self.email = self._get_env("EMAIL", required=False)
+        self.email_password = self._get_env("EMAIL_APP_PASSWORD", required=False)
+        self.notify_emails = self._get_list("NOTIFY_EMAILS")
+        self.telegram_bot_token = self._get_env("TELEGRAM_BOT_TOKEN", required=False)
+        self.telegram_chat_ids = self._get_list("TELEGRAM_CHAT_IDS")
+        self.discord_webhook_url = self._get_env("DISCORD_WEBHOOK_URL", required=False)
         
         # File paths
         self.download_path = f"{self.base_path}/downloads"
@@ -60,12 +61,12 @@ class MagazineConfig:
             raise ValueError(f"Required environment variable {key} is not set")
         return value
 
+    def _get_list(self, key: str) -> List[str]:
+        """Split a comma-separated environment variable into stripped items."""
+        value = os.getenv(key, "")
+        return [item.strip() for item in value.split(",") if item.strip()]
+
     @property
     def dropbox_credentials_valid(self) -> bool:
         """Check if required Dropbox credentials are present."""
         return bool(self.dropbox_client_id and self.dropbox_client_secret)
-
-    @property
-    def notification_credentials_valid(self) -> bool:
-        """Check if required notification credentials are present."""
-        return bool(self.email and self.email_password)
