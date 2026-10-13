@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Completing sign-in…</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .box {
+            background: #fff;
+            padding: 24px 32px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            max-width: 420px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <p>Completing sign-in with my.afrp.org…</p>
+        <p id="msg" style="color:#666;font-size:14px;"></p>
+    </div>
+    <script>
+        (function () {
+            var hash = window.location.hash || '';
+            if (hash.charAt(0) === '#') {
+                hash = hash.substring(1);
+            }
+            var params = new URLSearchParams(hash);
+            var token = params.get('id_token') || params.get('token') || params.get('access_token');
+            if (token) {
+                var url = new URL({{ url_for('portal_callback', _external=True) | tojson }});
+                url.searchParams.set('id_token', token);
+                var state = params.get('state');
+                if (state) {
+                    url.searchParams.set('state', state);
+                }
+                window.location.replace(url.toString());
+                return;
+            }
+            document.getElementById('msg').textContent =
+                'No sign-in token was returned. Try again from the login page.';
+            setTimeout(function () {
+                window.location.replace({{ url_for('login') | tojson }});
+            }, 4000);
+        })();
+    </script>
+</body>
+</html>

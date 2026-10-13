@@ -205,6 +205,48 @@
         .rate-limit-notice i {
             margin-right: 5px;
         }
+
+        .btn-google,
+        .btn-portal {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 16px;
+            background: #fff;
+            color: #333;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .btn-google:hover,
+        .btn-portal:hover {
+            background: #f7f7f7;
+        }
+
+        .btn-portal {
+            border-color: #4b904b;
+            color: #2d5a2d;
+        }
+
+        .portal-note {
+            color: #666;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .divider {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            margin: 8px 0 16px;
+        }
     </style>
 </head>
 <body>
@@ -214,6 +256,26 @@
             <h1>AFRP CRM Helper</h1>
             <p>Please log in to continue</p>
         </div>
+
+        {% if show_portal %}
+        <p class="portal-note">Sign in with the same account you use on <a href="https://my.afrp.org/">my.afrp.org</a> (email/password or Google). Access is limited to people an admin has added here.</p>
+        <a class="btn-portal" href="{{ url_for('portal_login', next=request.args.get('next')) }}">
+            <i class="fas fa-globe"></i> Sign in with my.afrp.org
+        </a>
+        {% endif %}
+
+        {% if show_google %}
+        {% if not show_portal %}
+        <p class="portal-note">Use the same Google account you use on <a href="https://my.afrp.org/">my.afrp.org</a>. Access is limited to people an admin has added here.</p>
+        {% endif %}
+        <a class="btn-google" href="{{ url_for('google_login', next=request.args.get('next')) }}">
+            <i class="fab fa-google"></i> Sign in with Google
+        </a>
+        {% endif %}
+
+        {% if (show_google or show_portal) and show_local %}
+        <div class="divider">or use a Helper password</div>
+        {% endif %}
 
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -232,6 +294,7 @@
             {% endif %}
         {% endwith %}
 
+        {% if show_local %}
         <form method="POST" action="{{ url_for('login') }}">
             <div class="form-group">
                 <label for="username">Username</label>
@@ -279,6 +342,9 @@
                 For security, login attempts are limited to 5 per 15 minutes
             </div>
         </form>
+        {% elif auth_mode in ('google', 'portal') %}
+        <p class="portal-note"><a href="{{ url_for('login', local=1) }}">Admin password login</a></p>
+        {% endif %}
 
         <div class="footer-text">
             <p>&copy; 2026 AFRP CRM Helper</p>
@@ -290,7 +356,7 @@
         const togglePassword = document.getElementById('togglePassword');
         const passwordInput = document.getElementById('password');
 
-        togglePassword.addEventListener('click', function() {
+        if (togglePassword && passwordInput) togglePassword.addEventListener('click', function() {
             const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
             passwordInput.setAttribute('type', type);
             

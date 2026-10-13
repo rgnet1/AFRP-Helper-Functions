@@ -161,11 +161,61 @@ The application includes a secure authentication system to protect access.
 #### Security Features
 
 - Server-side bcrypt password hashing (cost factor 12)
+- Optional Google sign-in (same Google account as [my.afrp.org](https://my.afrp.org/))
+- Access only for emails an admin added under `/users` (no open signup)
+- Optional Dynamics check: contact email, and optionally a Power Pages web role
 - Session management with HttpOnly, Secure cookies
 - Rate limiting (5 login attempts per 15 minutes)
 - Password requirements (min 8 chars, uppercase, lowercase, number, special char)
 - Remember me functionality (30-day sessions)
 - Admin-only user management interface
+
+#### my.afrp.org (Power Pages) sign-in
+
+Uses the portal OAuth implicit-grant flow: users sign in on [my.afrp.org](https://my.afrp.org/) (email/password or Google), the portal issues a signed ID token, and Helper validates it with `/_services/auth/publickey`. Requires the implicit-grant custom certificate and site settings on the portal (see your SSL scripts folder).
+
+1. In Portal Management → Site Settings (website **My AFRP**):
+
+   ```text
+   Connector/ImplicitGrantFlowEnabled = true
+   ImplicitGrantFlow/RegisteredClientId = afrp-helper
+   ImplicitGrantFlow/afrp-helper/RedirectUri = https://<helper-host>/auth/portal/callback;http://localhost:5066/auth/portal/callback
+   CustomCertificates/ImplicitGrantflow = <thumbprint from Custom Certificates>
+   ```
+
+2. **Portal bridge page (required):** Power Pages only accepts **POST** to `/_services/auth/token`; a GET (including after sign-in) returns **404**. Create a Web Page on **My AFRP** with partial URL `afrp-helper-auth`, paste the HTML from [`power_pages/afrp-helper-auth-bridge.html`](power_pages/afrp-helper-auth-bridge.html), and publish. Optional env: `PORTAL_AUTH_BRIDGE_PATH=/afrp-helper-auth` if you use a different slug.
+
+3. In `config/.env`:
+
+   ```bash
+   AUTH_MODE=hybrid
+   PORTAL_BASE_URL=https://my.afrp.org
+   PORTAL_OAUTH_CLIENT_ID=afrp-helper
+   PORTAL_OAUTH_REDIRECT_URI=https://<helper-host>/auth/portal/callback
+   ```
+
+   `AUTH_MODE` values: `local`, `google`, `portal` (portal button only; password at `/login?local=1`), or `hybrid` (portal + Google + Helper password when configured).
+
+4. Add the person under **Users** with the email on their portal account. Optional CRM gate uses the same variables as Google sign-in below.
+
+#### Google sign-in
+
+1. In Google Cloud Console, create an OAuth client (Web) and add the redirect URI `https://<helper-host>/auth/google/callback` (and `http://localhost:5066/auth/google/callback` for local testing).
+2. Set these in `config/.env`:
+
+   ```bash
+   AUTH_MODE=hybrid
+   GOOGLE_CLIENT_ID=...
+   GOOGLE_CLIENT_SECRET=...
+   GOOGLE_OIDC_REDIRECT_URI=http://localhost:5066/auth/google/callback
+   CRM_LOGIN_GATE_ENABLED=false
+   CRM_REQUIRED_WEB_ROLE_NAME=
+   CRM_LOGIN_GATE_FAIL_OPEN=false
+   ```
+
+   `AUTH_MODE` is `local` (password only), `google` (Google button; password form at `/login?local=1`), or `hybrid` (both).
+3. Add the person under **Users** with the email on their Google account.
+4. If `CRM_LOGIN_GATE_ENABLED=true`, that email must match `contacts.emailaddress1`. Set `CRM_REQUIRED_WEB_ROLE_NAME` (for example `Administrators` or `Event Correspondents`) to also require that Power Pages web role. If Dynamics is down, sign-in is denied unless `CRM_LOGIN_GATE_FAIL_OPEN=true`.
 
 #### User Management
 

@@ -1,0 +1,86 @@
+<!--
+  Power Pages: create a Web Page with partial URL "afrp-helper-auth" (or match PORTAL_AUTH_BRIDGE_PATH).
+  Paste this entire block into the page HTML (Source view). Publish the site.
+
+  The page POSTs to /_services/auth/token (required by Power Pages). A GET to that URL returns 404.
+-->
+<p id="status">Signing you in with my.afrp.org…</p>
+<script>
+(function () {
+  var status = document.getElementById('status');
+  var params = new URLSearchParams(window.location.search);
+  var clientId = params.get('client_id') || '';
+  var redirectUri = params.get('redirect_uri') || '';
+  var state = params.get('state') || '';
+  var nonce = params.get('nonce') || '';
+
+  // Exact callback URLs this page may send a token to. Without this list, a
+  // crafted link could deliver a signed-in member's token to another site.
+  // Keep in sync with every ImplicitGrantFlow/<client>/RedirectUri site setting.
+  var ALLOWED_REDIRECT_URIS = [
+    'http://localhost:5066/auth/portal/callback',
+    'https://afrp.bonito-turtle.ts.net/auth/portal/callback'
+  ];
+
+  if (!clientId || !redirectUri || !state || !nonce) {
+    status.textContent = 'Missing sign-in parameters. Start again from AFRP CRM Helper.';
+    return;
+  }
+
+  if (ALLOWED_REDIRECT_URIS.indexOf(redirectUri) === -1) {
+    status.textContent = 'This sign-in return address is not allowed.';
+    return;
+  }
+
+  var body = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'token',
+    state: state,
+    nonce: nonce,
+    redirect_uri: redirectUri
+  });
+
+  // With redirect: 'manual', a not-signed-in redirect comes back as an opaque
+  // response (type 'opaqueredirect', status 0) whose Location is unreadable.
+  var signinKey = 'afrpHelperSigninTried:' + state;
+
+  function goToSignIn() {
+    if (sessionStorage.getItem(signinKey)) {
+      status.textContent = 'Still not signed in after sign-in. Sign in at my.afrp.org, then start again from Helper.';
+      return;
+    }
+    sessionStorage.setItem(signinKey, '1');
+    var bridgeReturn = window.location.pathname + window.location.search;
+    window.location.href = '/SignIn?ReturnUrl=' + encodeURIComponent(bridgeReturn);
+  }
+
+  fetch('/_services/auth/token', {
+    method: 'POST',
+    body: body,
+    credentials: 'same-origin',
+    redirect: 'manual'
+  }).then(function (resp) {
+    if (resp.type === 'opaqueredirect' || resp.status === 0 ||
+        resp.status === 301 || resp.status === 302 ||
+        resp.status === 401 || resp.status === 403) {
+      goToSignIn();
+      return;
+    }
+    return resp.text().then(function (text) {
+      text = (text || '').trim();
+      if (text.indexOf('eyJ') === 0) {
+        sessionStorage.removeItem(signinKey);
+        var url = new URL(redirectUri);
+        url.searchParams.set('id_token', text);
+        url.searchParams.set('state', state);
+        window.location.href = url.toString();
+        return;
+      }
+      status.textContent = 'Could not obtain a sign-in token (HTTP ' + resp.status + '): ' +
+        text.substring(0, 300);
+    });
+  }).catch(function (err) {
+    status.textContent = 'Sign-in request failed: ' + (err && err.message ? err.message : err);
+  });
+})();
+</script>

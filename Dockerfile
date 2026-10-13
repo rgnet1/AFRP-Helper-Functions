@@ -1,4 +1,4 @@
-FROM python:3.10-slim-bullseye
+FROM python:3.10-slim-bookworm
 
 # Create necessary directories and set permissions
 RUN mkdir -p /config /app/downloads /app/logs /app/data /app/temp && \

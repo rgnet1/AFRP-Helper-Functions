@@ -141,6 +141,30 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" id="email" name="email" required value="{{ user.email or '' }}"
+                           style="width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;">
+                    <p class="help-text">Must match the email on their my.afrp.org account. Any My AFRP sign-in method works (email/password, Google, etc.).</p>
+                </div>
+
+                <div class="form-group">
+                    <label>Sign-in methods</label>
+                    <div class="readonly-field">{{ user.sign_in_label() }}</div>
+                    {% if user.password_hash %}
+                    <label>
+                        <input type="checkbox" name="clear_password">
+                        Remove Helper password (My AFRP sign-in only)
+                    </label>
+                    {% endif %}
+                    {% if user.google_sub %}
+                    <label>
+                        <input type="checkbox" name="unlink_google">
+                        Unlink direct Google sign-in (My AFRP sign-in is unaffected)
+                    </label>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
                     <label for="role">Role *</label>
                     <select id="role" name="role" required>
                         <option value="user" {% if user.get_role() == 'user' %}selected{% endif %}>Standard User</option>

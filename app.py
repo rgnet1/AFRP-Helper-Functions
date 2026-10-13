@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response, flash, redirect, url_for
+from flask import Flask, render_template, request, send_file, send_from_directory, jsonify, Response, flash, redirect, url_for, session
 from werkzeug.utils import secure_filename
 from flask_login import LoginManager, login_required, current_user, login_user, logout_user
 from flask_bcrypt import Bcrypt
@@ -32,6 +32,31 @@ from utils.auth import (
     path_is_public,
     path_requires_admin,
     feature_for_path,
+)
+from utils.auth.google_oidc import (
+    GoogleOidcError,
+    auth_mode,
+    build_authorize_url,
+    exchange_code,
+    google_login_enabled,
+    google_redirect_uri,
+    local_login_enabled,
+    new_oauth_state,
+)
+from utils.auth.login_gate import (
+    DENIED_MESSAGE,
+    crm_allows_login,
+    resolve_user_for_google,
+    resolve_user_for_portal,
+)
+from utils.auth.portal_implicit import (
+    PortalTokenError,
+    build_portal_bridge_url,
+    new_portal_nonce,
+    new_portal_state,
+    portal_login_enabled,
+    portal_redirect_uri,
+    verify_portal_id_token,
 )
 from utils.auth.campaign_access import (
     CampaignAccessDenied,
@@ -644,7 +669,7 @@ def login():
         if user and user.check_password(password):
             if not user.is_active:
                 flash('Account is disabled', 'error')
-                return render_template('login.html')
+                return _render_login()
             
             # Log in user
             login_user(user, remember=remember)
@@ -665,7 +690,205 @@ def login():
             flash('Invalid username or password', 'error')
             logger.warning(f"Failed login attempt for username: {username}")
     
-    return render_template('login.html')
+    return _render_login()
+
+
+def _login_template_context():
+    show_local = local_login_enabled() or request.args.get('local') == '1'
+    if auth_mode() in ('google', 'portal') and request.args.get('local') != '1':
+        show_local = False
+    return {
+        'show_google': google_login_enabled(),
+        'show_portal': portal_login_enabled(),
+        'show_local': show_local,
+        'auth_mode': auth_mode(),
+    }
+
+
+def _render_login(status=200):
+    return render_template('login.html', **_login_template_context()), status
+
+
+def _finish_login(user):
+    remember = request.args.get('remember') == '1' or request.form.get('remember') == 'on'
+    login_user(user, remember=remember)
+    user.last_login = datetime.utcnow()
+    db.session.commit()
+    next_page = (
+        session.pop('google_oauth_next', None)
+        or session.pop('portal_oauth_next', None)
+        or request.args.get('next')
+    )
+    if next_page and is_safe_url(next_page):
+        from urllib.parse import urlparse, urljoin
+        next_path = urlparse(urljoin(request.host_url, next_page)).path
+        if user_can_access_path(user, next_path):
+            return redirect(next_page)
+    return redirect(url_for('home'))
+
+
+@app.route('/auth/google/login')
+@limiter.limit("5 per 15 minutes")
+def google_login():
+    """Start Google sign-in using the same Google account as my.afrp.org."""
+    if User.query.first() is None:
+        return redirect(url_for('setup'))
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    if not google_login_enabled():
+        flash('Google sign-in is not enabled', 'error')
+        return redirect(url_for('login'))
+
+    state = new_oauth_state()
+    session['google_oauth_state'] = state
+    next_page = request.args.get('next')
+    if next_page and is_safe_url(next_page):
+        session['google_oauth_next'] = next_page
+    else:
+        session.pop('google_oauth_next', None)
+    redirect_uri = google_redirect_uri(url_for('google_callback', _external=True))
+    try:
+        return redirect(build_authorize_url(redirect_uri, state))
+    except GoogleOidcError as exc:
+        logger.warning("Google sign-in is not configured: %s", exc)
+        flash('Google sign-in is not configured', 'error')
+        return redirect(url_for('login'))
+
+
+@app.route('/auth/google/callback')
+@limiter.limit("5 per 15 minutes")
+def google_callback():
+    """Complete Google sign-in if the account is whitelisted."""
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    expected = session.pop('google_oauth_state', None)
+    if not expected or request.args.get('state') != expected:
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Google sign-in rejected: state mismatch")
+        return _render_login(403)
+
+    if request.args.get('error'):
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Google sign-in rejected by identity provider")
+        return _render_login(403)
+
+    redirect_uri = google_redirect_uri(url_for('google_callback', _external=True))
+    try:
+        identity = exchange_code(request.args.get('code', ''), redirect_uri)
+    except GoogleOidcError:
+        logger.warning("Google sign-in token exchange failed")
+        flash(DENIED_MESSAGE, 'error')
+        return _render_login(403)
+
+    user = resolve_user_for_google(identity['email'], identity['sub'])
+    if user is None or not crm_allows_login(identity['email']):
+        logger.info("Google sign-in denied for %s", identity['email'])
+        flash(DENIED_MESSAGE, 'error')
+        return _render_login(403)
+
+    user.link_google(identity['sub'])
+    logger.info("User logged in via Google: %s", user.username)
+    return _finish_login(user)
+
+
+def _complete_portal_login(id_token: str):
+    expected_state = session.pop('portal_oauth_state', None)
+    expected_nonce = session.pop('portal_oauth_nonce', None)
+    started_at = session.pop('portal_oauth_started', None)
+    if not expected_state:
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Portal sign-in rejected: missing session state")
+        return _render_login(403)
+
+    try:
+        identity = verify_portal_id_token(
+            id_token,
+            expected_state=expected_state,
+            expected_nonce=expected_nonce,
+            issued_after=started_at,
+        )
+    except PortalTokenError as exc:
+        try:
+            import jwt as _jwt
+            claims = _jwt.decode(id_token, options={"verify_signature": False})
+            logger.warning(
+                "Portal sign-in token validation failed: %s; claims=%s",
+                exc,
+                {k: claims[k] for k in claims if k != "lp_sdes"},
+            )
+        except Exception:
+            logger.warning("Portal sign-in token validation failed: %s (token not decodable)", exc)
+        flash(DENIED_MESSAGE, 'error')
+        return _render_login(403)
+
+    user = resolve_user_for_portal(identity['email'])
+    if user is None or not crm_allows_login(identity['email']):
+        logger.info("Portal sign-in denied for %s", identity['email'])
+        flash(DENIED_MESSAGE, 'error')
+        return _render_login(403)
+
+    user.link_portal()
+    logger.info("User logged in via portal: %s", user.username)
+    return _finish_login(user)
+
+
+@app.route('/auth/portal/login')
+@limiter.limit("5 per 15 minutes")
+def portal_login():
+    """Start my.afrp.org sign-in; portal returns an ID token to our callback."""
+    if User.query.first() is None:
+        return redirect(url_for('setup'))
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    if not portal_login_enabled():
+        flash('Portal sign-in is not enabled', 'error')
+        return redirect(url_for('login'))
+
+    state = new_portal_state()
+    nonce = new_portal_nonce()
+    session['portal_oauth_state'] = state
+    session['portal_oauth_nonce'] = nonce
+    session['portal_oauth_started'] = pytime.time()
+    next_page = request.args.get('next')
+    if next_page and is_safe_url(next_page):
+        session['portal_oauth_next'] = next_page
+    else:
+        session.pop('portal_oauth_next', None)
+
+    redirect_uri = portal_redirect_uri(url_for('portal_callback', _external=True))
+    try:
+        return redirect(build_portal_bridge_url(redirect_uri, state, nonce))
+    except PortalTokenError as exc:
+        logger.warning("Portal sign-in is not configured: %s", exc)
+        flash('Portal sign-in is not configured', 'error')
+        return redirect(url_for('login'))
+
+
+@app.route('/auth/portal/callback', methods=['GET'])
+@limiter.limit("5 per 15 minutes")
+def portal_callback():
+    """Complete portal sign-in from query token or URL fragment (via bridge template)."""
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+
+    if request.args.get('error'):
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Portal sign-in rejected by identity provider")
+        return _render_login(403)
+
+    query_state = (request.args.get('state') or '').strip()
+    if query_state and query_state != session.get('portal_oauth_state'):
+        flash(DENIED_MESSAGE, 'error')
+        logger.warning("Portal sign-in rejected: query state mismatch")
+        return _render_login(403)
+
+    id_token = (request.args.get('id_token') or request.args.get('token') or '').strip()
+    if id_token:
+        return _complete_portal_login(id_token)
+
+    return render_template('portal_callback.html')
+
 
 @app.route('/logout')
 @login_required
@@ -701,54 +924,56 @@ def create_user():
         return redirect(url_for('home'))
     
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         password_confirm = request.form.get('password_confirm', '')
-        email = request.form.get('email', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        myafrp_only = request.form.get('myafrp_only') == 'on'
         role = _user_role_from_form(request.form)
-        
-        # Validate username
-        valid, error = validate_username(username)
+
+        if not email:
+            flash('Email is required so this person can sign in with My AFRP', 'error')
+            return render_template('create_user.html', features=FEATURES)
+
+        valid, error = validate_email(email)
         if not valid:
             flash(error, 'error')
-            return render_template('create_user.html')
-        
-        # Check if username already exists
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists', 'error')
-            return render_template('create_user.html')
-        
-        # Validate email if provided
-        if email:
-            valid, error = validate_email(email)
+            return render_template('create_user.html', features=FEATURES)
+
+        if User.query.filter(db.func.lower(User.email) == email).first():
+            flash('Email already exists', 'error')
+            return render_template('create_user.html', features=FEATURES)
+
+        if myafrp_only:
+            username = _username_from_email(email)
+        else:
+            username = request.form.get('username', '').strip()
+            valid, error = validate_username(username)
             if not valid:
                 flash(error, 'error')
-                return render_template('create_user.html')
-            
-            # Check if email already exists
-            if User.query.filter_by(email=email).first():
-                flash('Email already exists', 'error')
-                return render_template('create_user.html')
-        
-        # Validate password
-        valid, error = validate_password(password)
-        if not valid:
-            flash(error, 'error')
-            return render_template('create_user.html')
-        
-        # Check password confirmation
-        if password != password_confirm:
-            flash('Passwords do not match', 'error')
-            return render_template('create_user.html')
+                return render_template('create_user.html', features=FEATURES)
+            if User.query.filter_by(username=username).first():
+                flash('Username already exists', 'error')
+                return render_template('create_user.html', features=FEATURES)
+
+        if not myafrp_only:
+            valid, error = validate_password(password)
+            if not valid:
+                flash(error, 'error')
+                return render_template('create_user.html', features=FEATURES)
+            if password != password_confirm:
+                flash('Passwords do not match', 'error')
+                return render_template('create_user.html', features=FEATURES)
         
         # Create user
         try:
             user = User(
                 username=username,
-                email=email if email else None,
-                is_active=True
+                email=email,
+                is_active=True,
+                auth_provider='portal' if myafrp_only else 'local',
             )
-            user.set_password(password)
+            if not myafrp_only:
+                user.set_password(password)
             _apply_user_access_from_form(user, request.form)
             db.session.add(user)
             db.session.commit()
@@ -768,6 +993,20 @@ def create_user():
     
     return render_template('create_user.html', features=FEATURES)
 
+def _username_from_email(email):
+    """Derive a unique, valid username from an email's local part."""
+    base = re.sub(r'[^a-zA-Z0-9_-]', '_', email.split('@', 1)[0]).strip('_') or 'user'
+    base = base[:70]
+    if len(base) < 3:
+        base = f"{base}_user"
+    candidate = base
+    suffix = 2
+    while User.query.filter_by(username=candidate).first():
+        candidate = f"{base}{suffix}"
+        suffix += 1
+    return candidate
+
+
 @app.route('/users/<int:user_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_user(user_id):
@@ -783,6 +1022,21 @@ def edit_user(user_id):
 
     if request.method == 'POST':
         try:
+            email = request.form.get('email', '').strip().lower()
+            if not email:
+                raise ValueError('Email is required so this person can sign in with My AFRP')
+            valid, error = validate_email(email)
+            if not valid:
+                raise ValueError(error)
+            existing = User.query.filter(db.func.lower(User.email) == email).first()
+            if existing and existing.id != user.id:
+                raise ValueError('Email already exists')
+            user.email = email
+            if request.form.get('clear_password') == 'on':
+                user.clear_password()
+            if request.form.get('unlink_google') == 'on':
+                user.google_sub = None
+                user.auth_provider = 'local' if user.password_hash else 'portal'
             _apply_user_access_from_form(user, request.form)
             db.session.commit()
             logger.info(f"User updated: {user.username} by {current_user.username}")

@@ -39,7 +39,7 @@ FEATURES = {
 
 ALL_FEATURES_BACKFILL = json.dumps({fid: True for fid in FEATURES})
 
-PUBLIC_PATH_PREFIXES = ("/login", "/setup", "/logout")
+PUBLIC_PATH_PREFIXES = ("/login", "/setup", "/logout", "/auth/google", "/auth/portal")
 ADMIN_PATH_PREFIX = "/users"
 HOME_PATH = "/"
 

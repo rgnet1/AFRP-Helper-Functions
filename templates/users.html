@@ -290,6 +290,7 @@
                     <tr>
                         <th>Username</th>
                         <th>Email</th>
+                        <th>Sign-in</th>
                         <th>Role</th>
                         <th>Features</th>
                         <th>Status</th>
@@ -308,6 +309,7 @@
                             {% endif %}
                         </td>
                         <td>{{ user.email or '-' }}</td>
+                        <td>{{ user.sign_in_label() }}</td>
                         <td>
                             {% if user.is_admin %}
                             <span class="badge badge-admin">Admin</span>

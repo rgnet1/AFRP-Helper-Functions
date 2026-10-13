@@ -167,21 +167,30 @@
 
             <form method="POST">
                 <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" id="email" name="email" required>
+                    <p class="help-text">Must match the email on their my.afrp.org account. They can sign in with any My AFRP method (email/password, Google, etc.).</p>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="myafrp_only" name="myafrp_only">
+                        My AFRP sign-in only (no Helper username or password)
+                    </label>
+                    <p class="help-text">A username is generated from the email automatically.</p>
+                </div>
+
+                <div class="form-group" id="usernameGroup">
                     <label for="username">Username *</label>
                     <input type="text" id="username" name="username" required minlength="3" maxlength="80">
                 </div>
 
-                <div class="form-group">
-                    <label for="email">Email (optional)</label>
-                    <input type="email" id="email" name="email">
-                </div>
-
-                <div class="form-group">
+                <div class="form-group" id="passwordGroup">
                     <label for="password">Password *</label>
                     <input type="password" id="password" name="password" required>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="passwordConfirmGroup">
                     <label for="password_confirm">Confirm Password *</label>
                     <input type="password" id="password_confirm" name="password_confirm" required>
                 </div>
@@ -281,6 +290,19 @@
         roleSelect.addEventListener('change', syncRoleUi);
         syncRoleUi();
         loadCampaignOptions();
+
+        const myafrpOnly = document.getElementById('myafrp_only');
+        function syncMyafrpOnly() {
+            const hide = myafrpOnly.checked;
+            ['usernameGroup', 'passwordGroup', 'passwordConfirmGroup'].forEach(id => {
+                document.getElementById(id).classList.toggle('hidden-group', hide);
+            });
+            ['username', 'password', 'password_confirm'].forEach(id => {
+                document.getElementById(id).required = !hide;
+            });
+        }
+        myafrpOnly.addEventListener('change', syncMyafrpOnly);
+        syncMyafrpOnly();
     </script>
 </body>
 </html>

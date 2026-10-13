@@ -271,8 +271,10 @@ class User(db.Model, UserMixin):
     
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=True)
     email = db.Column(db.String(120), unique=True, nullable=True)
+    google_sub = db.Column(db.String(255), unique=True, nullable=True)
+    auth_provider = db.Column(db.String(20), default='local', nullable=False)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     feature_permissions = db.Column(db.Text, default='{}')
@@ -299,7 +301,40 @@ class User(db.Model, UserMixin):
         bcrypt = current_app.extensions.get('bcrypt')
         if not bcrypt:
             raise RuntimeError("Bcrypt extension not initialized")
+        if not self.password_hash:
+            return False
         return bcrypt.check_password_hash(self.password_hash, password)
+
+    def link_google(self, google_sub: str) -> None:
+        """Attach a verified Google subject and update the auth provider."""
+        self.google_sub = google_sub
+        if self.password_hash:
+            self.auth_provider = 'both'
+        else:
+            self.auth_provider = 'google'
+
+    def link_portal(self) -> None:
+        """Record that the user signed in via my.afrp.org portal token."""
+        if self.password_hash or self.google_sub:
+            self.auth_provider = 'both'
+        else:
+            self.auth_provider = 'portal'
+
+    def clear_password(self) -> None:
+        """Disable Helper password login; the user signs in through My AFRP."""
+        if not self.email:
+            raise ValueError("Add an email before removing the password")
+        self.password_hash = None
+        self.auth_provider = 'portal'
+
+    def sign_in_label(self) -> str:
+        """Human-readable summary of how this user can sign in."""
+        methods = []
+        if self.email:
+            methods.append('My AFRP')
+        if self.password_hash:
+            methods.append('Helper password')
+        return ' + '.join(methods) or 'None'
 
     def get_feature_permissions(self):
         from utils.auth.permissions import normalize_feature_permissions
@@ -362,6 +397,8 @@ class User(db.Model, UserMixin):
             'id': self.id,
             'username': self.username,
             'email': self.email,
+            'auth_provider': self.auth_provider or 'local',
+            'google_linked': bool(self.google_sub),
             'is_admin': self.is_admin,
             'is_active': self.is_active,
             'role': self.get_role(),
