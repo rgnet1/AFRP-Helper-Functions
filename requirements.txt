@@ -2,6 +2,7 @@ Flask==2.3.2
 qrcode==7.3
 Pillow==10.0.0
 numpy==1.26
+opencv-python-headless==4.10.0.84
 gunicorn==20.1.0
 dropbox==12.0.2
 paramiko==3.3.1

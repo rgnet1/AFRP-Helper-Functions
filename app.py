@@ -1169,10 +1169,6 @@ def _sync_coordinators_quietly():
         logger.exception("Could not sync event coordinators from Dynamics")
 
 
-with app.app_context():
-    _sync_coordinators_quietly()
-
-
 @app.route('/users/password-window', methods=['POST'])
 @login_required
 def update_password_window():
@@ -1198,6 +1194,33 @@ def update_password_window():
     return redirect(url_for("list_users"))
 
 
+@app.route("/registration/preferences", methods=["POST"])
+@login_required
+def registration_save_preferences():
+    """Update saved questions and a table without charging."""
+    if not (current_user.is_admin or current_user.is_event_coordinator()):
+        flash("Only event coordinators and admins can change these answers.", "error")
+        return redirect(url_for("home"))
+    campaign_id = request.form.get("campaign_id", "")
+    email, first_name, last_name = _contact_search_from(request.form)
+    contact_id = (request.form.get("contact_id") or "").strip()
+    event_id = (request.form.get("event_id") or "").strip()
+    answers, table_id = _signup_details_from_form(request.form)
+    try:
+        desk = _registration_desk()
+        desk._require_event(current_user, campaign_id, event_id)
+        if not contact_id:
+            raise RegistrationError("Choose a customer")
+        desk.save_signup_details(contact_id, event_id, answers, table_id)
+        flash("Questions and preferences saved.", "success")
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        flash(str(getattr(exc, "message", exc)), "error")
+    except Exception:
+        logger.exception("Could not update event preferences")
+        flash("Could not save the questions.", "error")
+    return _registration_page(campaign_id, email, first_name, last_name)
+
+
 @app.route("/registration/event-requirements", methods=["GET"])
 @login_required
 def registration_event_requirements():
@@ -1209,12 +1232,96 @@ def registration_event_requirements():
     try:
         desk = _registration_desk()
         desk._require_event(current_user, campaign_id, event_id)
-        return jsonify(desk.event_requirements(event_id))
+        return jsonify(desk.event_requirements(
+            event_id, (request.args.get("contact_id") or "").strip()
+        ))
     except CampaignAccessDenied as exc:
         return jsonify({"error": exc.message}), 403
     except Exception:
         logger.exception("Could not load event questions")
         return jsonify({"error": "Could not load questions for this event"}), 500
+
+
+def _seating_parent(desk, event_id: str) -> str:
+    row = desk.crm._make_request(
+        f"campaigns({event_id})?$select=_aha_parentcampaign_value"
+    )
+    return (row.get("_aha_parentcampaign_value") or event_id).strip()
+
+
+@app.route("/seating", methods=["GET"])
+@login_required
+def seating_page():
+    return render_template("seating.html")
+
+
+@app.route("/api/seating/events", methods=["GET"])
+@login_required
+def seating_events():
+    from utils.registration import seating as seating_map
+    try:
+        events = seating_map.events_with_tables(_registration_desk(), current_user)
+    except Exception:
+        logger.exception("Could not list seating events")
+        return jsonify({"error": "Could not load events with seating charts"}), 500
+    return jsonify({"events": events})
+
+
+@app.route("/api/seating/<event_id>", methods=["GET"])
+@login_required
+def seating_state(event_id):
+    from utils.registration import seating as seating_map
+    desk = _registration_desk()
+    try:
+        desk._require_event(current_user, _seating_parent(desk, event_id), event_id)
+        return jsonify(seating_map.seating_board(
+            desk, event_id, (request.args.get("contact_id") or "").strip()
+        ))
+    except CampaignAccessDenied as exc:
+        return jsonify({"error": exc.message}), 403
+    except Exception:
+        logger.exception("Could not load seating for %s", event_id)
+        return jsonify({"error": "Could not load this seating chart"}), 500
+
+
+@app.route("/api/seating/<event_id>/guests", methods=["GET"])
+@login_required
+def seating_guests(event_id):
+    from utils.registration import seating as seating_map
+    desk = _registration_desk()
+    try:
+        desk._require_event(current_user, _seating_parent(desk, event_id), event_id)
+        return jsonify({"guests": seating_map.guests_for_event(
+            desk, event_id, request.args.get("q", "")
+        )})
+    except CampaignAccessDenied as exc:
+        return jsonify({"error": exc.message}), 403
+    except Exception:
+        logger.exception("Could not search seated guests")
+        return jsonify({"error": "Could not search this event"}), 500
+
+
+@app.route("/api/seating/<event_id>/assign", methods=["POST"])
+@login_required
+def seating_assign(event_id):
+    if not (current_user.is_admin or current_user.is_event_coordinator()):
+        return jsonify({"error": "Only event coordinators and admins can change seats"}), 403
+    body = request.get_json(silent=True) or {}
+    contact_id = (body.get("contact_id") or "").strip()
+    table_id = (body.get("table_id") or "").strip()
+    desk = _registration_desk()
+    try:
+        desk._require_event(current_user, _seating_parent(desk, event_id), event_id)
+        if not contact_id or not table_id:
+            raise RegistrationError("Choose a person and a table")
+        desk._claim_table(contact_id, event_id, table_id)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        return jsonify({"error": str(getattr(exc, "message", exc))}), 400
+    except Exception:
+        logger.exception("Could not move seat")
+        return jsonify({"error": "Could not change the seat"}), 500
+    from utils.registration import seating as seating_map
+    return jsonify(seating_map.seating_board(desk, event_id, contact_id))
 
 
 def _require_admin():
@@ -1346,6 +1453,10 @@ def delete_access_group(group_id):
 def _registration_desk():
     from utils.dynamics_crm import DynamicsCRMClient
     return RegistrationDesk(DynamicsCRMClient())
+
+
+with app.app_context():
+    _sync_coordinators_quietly()
 
 
 def _collect_registration_payment(desk, contact_id, quote, skip, pending):
@@ -1513,6 +1624,10 @@ def _registration_page(campaign_id="", email="", first_name="", last_name="", no
         }
         contacts = desk.find_contacts(address, first, last)
         context["truncated"] = contacts.truncated
+        event_names = {selected: next((event["name"] for event in events if event.get("id") == selected), "Main event")}
+        for sub in context["sub_events"]:
+            if sub.get("id"):
+                event_names[sub["id"]] = sub.get("name") or "Event"
         for contact in contacts:
             contact["guests"] = desk.guests_for_contact(contact["id"], selected)
             contact["on_parent"] = any(
@@ -1527,6 +1642,11 @@ def _registration_page(campaign_id="", email="", first_name="", last_name="", no
                 and (guest.get("event_id") or "").strip().lower() != selected.lower()
                 for guest in contact["guests"]
             )
+            try:
+                contact["preferences"] = desk.preference_forms(contact["id"], selected, event_names)
+            except Exception:
+                logger.exception("Could not load saved event questions for %s", contact["id"])
+                contact["preferences"] = []
             contact["household"] = desk.household(contact["household_id"])
             for person in contact["household"]:
                 person["guests"] = desk.guests_for_contact(person["id"], selected)

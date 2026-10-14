@@ -29,6 +29,12 @@ FEATURES = {
         "assignable": False,
         "path_prefixes": ["/password-reset"],
     },
+    "seating": {
+        "label": "Seating",
+        "home_tile": True,
+        "assignable": False,
+        "path_prefixes": ["/seating", "/api/seating"],
+    },
     "badges": {
         "label": "Badge Generator",
         "home_tile": True,

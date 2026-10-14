@@ -365,6 +365,7 @@ class User(db.Model, UserMixin):
                     'badges',
                     'registration',
                     'password_reset',
+                    'seating',
                 ):
                     return True
                 if group.role == self.ROLE_USER and group.get_feature_permissions().get(feature_id):
@@ -374,6 +375,7 @@ class User(db.Model, UserMixin):
             'badges',
             'registration',
             'password_reset',
+            'seating',
         ):
             return True
         return bool(self.get_feature_permissions().get(feature_id, False))
@@ -441,7 +443,7 @@ class User(db.Model, UserMixin):
 
         if role == self.ROLE_EVENT_COORDINATOR:
             self.set_feature_permissions(
-                {fid: fid in ('badges', 'registration', 'password_reset') for fid in FEATURES}
+                {fid: fid in ('badges', 'registration', 'password_reset', 'seating') for fid in FEATURES}
             )
             self.assigned_campaign_id = (assigned_campaign_id or '').strip() or None
             self.assigned_campaign_name = (assigned_campaign_name or '').strip() or None

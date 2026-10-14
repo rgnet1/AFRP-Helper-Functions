@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas0 \
     libjpeg62-turbo \
     zlib1g \
+    libglib2.0-0 \
+    libgomp1 \
+    tesseract-ocr \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y build-essential python3-dev pkg-config libcairo2-dev \
     && apt-get clean \

@@ -73,7 +73,7 @@ def _sync_campaign(crm, campaign_id: str, campaign_name: str) -> None:
             assigned_campaign_name=campaign_name or campaign_id,
         )
         group.set_feature_permissions(
-            {fid: fid in ('badges', 'registration', 'password_reset') for fid in FEATURES}
+            {fid: fid in ('badges', 'registration', 'password_reset', 'seating') for fid in FEATURES}
         )
         db.session.add(group)
         db.session.flush()

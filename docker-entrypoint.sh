@@ -28,6 +28,6 @@ echo "=========================================="
 # Start the application with gunicorn
 # The scheduler will be initialized by the app
 # %(U)s is the path without the query string so id_token never appears in access logs.
-exec gunicorn --bind 0.0.0.0:5066 --workers 1 --threads 2 \
+exec gunicorn --bind 0.0.0.0:5066 --workers 1 --threads 2 --timeout 120 \
   --access-logformat '%(h)s %(l)s %(u)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s' \
   app:app

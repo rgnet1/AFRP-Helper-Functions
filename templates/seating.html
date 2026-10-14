@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Seating - AFRP CRM Helper</title>
+    <style>
+        :root { --green: #3d7a3d; --ink: #1c241c; --muted: #5c6b5c; --line: #e2e8e2; --paper: #f4f7f4; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Georgia, Palatino, serif; background: var(--paper); color: var(--ink); }
+        header { background: var(--green); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: #fff; text-decoration: none; font-family: Arial, sans-serif; font-size: 14px; }
+        h1 { margin: 0; font-size: 22px; font-weight: normal; }
+        .layout { display: grid; grid-template-columns: 260px 1fr 280px; gap: 16px; padding: 20px; align-items: start; }
+        @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+        .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+        button, input, select { font-family: Arial, sans-serif; font-size: 14px; }
+        .event { display: block; width: 100%; text-align: left; background: #f4f7f4; border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
+        .event.current { background: var(--green); color: #fff; border-color: var(--green); }
+        .main-event { background: #fff; font-weight: bold; }
+        .expand-hint { display: block; margin-top: 4px; font-family: Arial, sans-serif; font-size: 12px; font-weight: normal; color: var(--muted); }
+        .main-event.current .expand-hint, .event.current .expand-hint { color: #e7f2e7; }
+        .sub-events { margin: 0 0 8px 14px; }
+        .sub-event { background: #f7faf7; }
+        .chart { background: #fbfbfb; border-radius: 12px; min-height: 180px; }
+        .floor { width: 100%; height: auto; display: block; }
+        .table-dot { cursor: pointer; }
+        .table-dot circle { fill: #d7ead4; stroke: #3d7a3d; stroke-width: 0.35; }
+        .table-dot.full circle { fill: #f3d0d0; stroke: #8a3b3b; }
+        .table-dot.current circle, .table-dot.open circle { stroke: #1d4e89; stroke-width: 0.7; }
+        .table-dot text { fill: #1c241c; font-family: Arial, sans-serif; pointer-events: none; }
+        .dance-floor { fill: #d5dbe3; stroke: #b7c0cc; stroke-width: 0.35; }
+        .table-dot.head rect { fill: #efe6c9; stroke: #8a7340; stroke-width: 0.4; }
+        .landmark { fill: #5c6b5c; font-family: Arial, sans-serif; font-size: 2.4px; }
+        #expanded { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+        #expanded ul { margin: 8px 0 0; padding-left: 18px; font-family: Arial, sans-serif; font-size: 14px; }
+        .tip { position: fixed; z-index: 5; background: #1c241c; color: #fff; padding: 8px 10px; border-radius: 8px; font-family: Arial, sans-serif; font-size: 13px; max-width: 240px; white-space: pre-line; pointer-events: none; display: none; }
+        label { display: block; font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #c9d4c9; border-radius: 8px; }
+        .primary { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; margin-top: 10px; }
+        .person { display: block; width: 100%; text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--line); padding: 8px 0; cursor: pointer; }
+        .error { color: #8a3b3b; font-family: Arial, sans-serif; font-size: 14px; }
+        .meta { font-family: Arial, sans-serif; font-size: 13px; color: var(--muted); }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Seating</h1>
+    <a href="{{ url_for('home') }}">Back home</a>
+</header>
+<div class="layout">
+    <section class="card">
+        <h2 style="margin:0 0 10px;font-size:16px;font-weight:normal;">Events with a seating chart</h2>
+        <div id="events" class="meta">Loading…</div>
+    </section>
+    <section class="card">
+        <h2 id="event-title" style="margin:0 0 10px;font-size:18px;font-weight:normal;">Choose an event</h2>
+        <div id="chart" class="chart" hidden></div>
+        <div id="expanded" hidden>
+            <h3 id="expanded-title" style="margin:0;font-size:16px;font-weight:normal;"></h3>
+            <p id="expanded-meta" class="meta"></p>
+            <ul id="expanded-people"></ul>
+        </div>
+    </section>
+    <section class="card">
+        <h2 style="margin:0 0 8px;font-size:16px;font-weight:normal;">Change a seat</h2>
+        <label for="guest-search">Person on this event</label>
+        <input id="guest-search" placeholder="Name or email" disabled>
+        <div id="guest-results"></div>
+        <p id="picked" class="meta"></p>
+        <label for="seat-select">Table</label>
+        <select id="seat-select" disabled></select>
+        <button id="save-seat" class="primary" type="button" disabled>Save seat</button>
+        <p id="seat-error" class="error"></p>
+    </section>
+</div>
+<div id="tip" class="tip"></div>
+<script>
+var state = { eventId: "", contactId: "", expandedId: "", board: null };
+var tip = document.getElementById("tip");
+var svgNS = "http://www.w3.org/2000/svg";
+function seatText(table) {
+    var count = table.chairs ? " · " + table.seated + " of " + table.chairs : "";
+    var extra = (table.vip ? " · VIP" : "") + (table.current ? " · current seat" : "") + (table.available ? "" : " · full");
+    return table.name + count + extra;
+}
+function tableNumber(table) {
+    if (table.name && table.name.toLowerCase().indexOf("head") >= 0) return "Head";
+    if (table.number) return String(table.number);
+    var match = String(table.name || "").match(/\d+/);
+    return match ? match[0] : "";
+}
+function tipText(table) {
+    var names = (table.people || []).map(function (person) { return person.name; });
+    return table.name + " · " + table.seated + " of " + table.chairs + (names.length ? "\n" + names.join(", ") : "\nEmpty");
+}
+function loadEvents() {
+    fetch("/api/seating/events").then(function (r) { return r.json(); }).then(function (data) {
+        var box = document.getElementById("events");
+        if (data.error) {
+            box.textContent = data.error;
+            return;
+        }
+        var events = data.events || [];
+        if (!events.length) {
+            box.textContent = "No events you can open have a seating chart.";
+            return;
+        }
+        box.innerHTML = "";
+        events.forEach(function (parent) {
+            var group = document.createElement("div");
+            var toggle = document.createElement("button");
+            toggle.type = "button";
+            toggle.className = "event main-event";
+            toggle.appendChild(document.createTextNode(parent.name));
+            var hint = document.createElement("span");
+            hint.className = "expand-hint";
+            hint.textContent = "Click to expand";
+            toggle.appendChild(hint);
+            var subs = document.createElement("div");
+            subs.className = "sub-events";
+            subs.hidden = true;
+            (parent.children || []).forEach(function (child) {
+                var button = document.createElement("button");
+                button.type = "button";
+                button.className = "event sub-event";
+                button.textContent = child.name;
+                button.addEventListener("click", function () {
+                    document.querySelectorAll(".sub-event").forEach(function (item) { item.classList.remove("current"); });
+                    button.classList.add("current");
+                    openEvent(child.id, parent.name + " — " + child.name);
+                });
+                subs.appendChild(button);
+            });
+            toggle.addEventListener("click", function () {
+                subs.hidden = !subs.hidden;
+                hint.textContent = subs.hidden ? "Click to expand" : "Click to collapse";
+            });
+            group.appendChild(toggle);
+            group.appendChild(subs);
+            box.appendChild(group);
+        });
+    });
+}
+function draw(board) {
+    state.board = board;
+    var chart = document.getElementById("chart");
+    chart.hidden = false;
+    chart.innerHTML = "";
+    var layout = board.layout || {};
+    var placed = layout.tables || [];
+    var byId = {};
+    (board.tables || []).forEach(function (table) { byId[table.id] = table; });
+    if (!placed.length) {
+        var note = document.createElement("p");
+        note.className = "meta";
+        note.textContent = "This chart could not be drawn.";
+        chart.appendChild(note);
+    } else {
+        var aspect = layout.width ? (100 * layout.height / layout.width) : 100;
+        var svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 100 " + aspect);
+        svg.setAttribute("class", "floor");
+        (layout.landmarks || []).forEach(function (mark) {
+            if (mark.kind === "dance") {
+                var floor = document.createElementNS(svgNS, "rect");
+                floor.setAttribute("class", "dance-floor");
+                floor.setAttribute("x", mark.x);
+                floor.setAttribute("y", mark.y * aspect / 100);
+                floor.setAttribute("width", mark.w);
+                floor.setAttribute("height", mark.h * aspect / 100);
+                svg.appendChild(floor);
+                return;
+            }
+            var text = document.createElementNS(svgNS, "text");
+            text.setAttribute("class", "landmark");
+            text.setAttribute("x", mark.x);
+            text.setAttribute("y", mark.y * aspect / 100);
+            text.textContent = mark.label;
+            svg.appendChild(text);
+        });
+        placed.forEach(function (spot) {
+            var table = byId[spot.id];
+            if (!table) return;
+            var group = document.createElementNS(svgNS, "g");
+            var classes = "table-dot";
+            if (!table.available) classes += " full";
+            if (table.current) classes += " current";
+            if (table.id === state.expandedId) classes += " open";
+            if (spot.shape === "rect") classes += " head";
+            group.setAttribute("class", classes);
+            var cy = spot.cy * aspect / 100;
+            var shape;
+            if (spot.shape === "rect") {
+                shape = document.createElementNS(svgNS, "rect");
+                shape.setAttribute("x", spot.cx - spot.w / 2);
+                shape.setAttribute("y", cy - (spot.h * aspect / 100) / 2);
+                shape.setAttribute("width", spot.w);
+                shape.setAttribute("height", spot.h * aspect / 100);
+                shape.setAttribute("rx", 0.8);
+            } else {
+                shape = document.createElementNS(svgNS, "circle");
+                shape.setAttribute("cx", spot.cx);
+                shape.setAttribute("cy", cy);
+                shape.setAttribute("r", Math.max(spot.r, 1.2));
+            }
+            var label = document.createElementNS(svgNS, "text");
+            label.setAttribute("x", spot.cx);
+            label.setAttribute("y", cy);
+            label.setAttribute("text-anchor", "middle");
+            label.setAttribute("dominant-baseline", "central");
+            label.setAttribute("font-size", Math.max(spot.r * 0.85, 1.4));
+            label.textContent = tableNumber(table);
+            group.appendChild(shape);
+            group.appendChild(label);
+            group.addEventListener("mouseenter", function (event) {
+                tip.textContent = tipText(table);
+                tip.style.display = "block";
+                tip.style.left = (event.clientX + 12) + "px";
+                tip.style.top = (event.clientY + 12) + "px";
+            });
+            group.addEventListener("mousemove", function (event) {
+                tip.style.left = (event.clientX + 12) + "px";
+                tip.style.top = (event.clientY + 12) + "px";
+            });
+            group.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+            group.addEventListener("click", function () { expandTable(table); });
+            svg.appendChild(group);
+        });
+        chart.appendChild(svg);
+    }
+    renderExpanded(byId);
+    fillSeatSelect(board.tables || []);
+}
+function renderExpanded(byId) {
+    var panel = document.getElementById("expanded");
+    var table = byId[state.expandedId];
+    if (!table) {
+        panel.hidden = true;
+        return;
+    }
+    panel.hidden = false;
+    document.getElementById("expanded-title").textContent = table.name;
+    document.getElementById("expanded-meta").textContent = table.seated + " of " + table.chairs + " seated" + (table.vip ? " · VIP" : "") + (state.contactId ? "" : " · Look up a person to move them here.");
+    var list = document.getElementById("expanded-people");
+    list.innerHTML = "";
+    (table.people || []).forEach(function (person) {
+        var item = document.createElement("li");
+        item.textContent = person.name + (person.email ? " · " + person.email : "");
+        list.appendChild(item);
+    });
+    if (!(table.people || []).length) {
+        var empty = document.createElement("li");
+        empty.textContent = "Empty";
+        list.appendChild(empty);
+    }
+}
+function fillSeatSelect(tables) {
+    var select = document.getElementById("seat-select");
+    var chosen = state.expandedId || select.value;
+    select.innerHTML = '<option value="">Choose a table…</option>';
+    tables.forEach(function (table) {
+        var option = document.createElement("option");
+        option.value = table.id;
+        option.textContent = seatText(table);
+        option.disabled = !table.available && table.id !== chosen;
+        if (chosen && table.id === chosen) option.selected = true;
+        else if (!chosen && state.contactId && table.current) option.selected = true;
+        select.appendChild(option);
+    });
+    select.disabled = !state.contactId;
+    document.getElementById("save-seat").disabled = !state.contactId;
+}
+function expandTable(table) {
+    state.expandedId = table.id;
+    document.getElementById("seat-select").value = table.id;
+    if (state.board) draw(state.board);
+}
+function showLoading() {
+    var chart = document.getElementById("chart");
+    chart.hidden = false;
+    chart.innerHTML = "";
+    var note = document.createElement("p");
+    note.className = "meta";
+    note.textContent = "Loading seating chart…";
+    chart.appendChild(note);
+    document.getElementById("expanded").hidden = true;
+    tip.style.display = "none";
+}
+function openEvent(eventId, name) {
+    state.eventId = eventId;
+    state.contactId = "";
+    state.expandedId = "";
+    state.board = null;
+    state.loadId = (state.loadId || 0) + 1;
+    document.getElementById("event-title").textContent = name;
+    document.getElementById("guest-search").disabled = false;
+    document.getElementById("picked").textContent = "";
+    document.getElementById("seat-select").innerHTML = '<option value="">Choose a table…</option>';
+    document.getElementById("seat-select").disabled = true;
+    document.getElementById("save-seat").disabled = true;
+    showLoading();
+    refresh();
+}
+function refresh() {
+    if (!state.eventId) return;
+    var loadId = state.loadId || 0;
+    var url = "/api/seating/" + state.eventId;
+    if (state.contactId) url += "?contact_id=" + encodeURIComponent(state.contactId);
+    fetch(url).then(function (r) { return r.json(); }).then(function (board) {
+        if (loadId !== (state.loadId || 0)) return;
+        if (board.error) {
+            document.getElementById("seat-error").textContent = board.error;
+            showLoading();
+            document.querySelector("#chart .meta").textContent = board.error;
+            return;
+        }
+        draw(board);
+    });
+}
+document.getElementById("guest-search").addEventListener("input", function () {
+    var query = this.value.trim();
+    if (!state.eventId || query.length < 2) {
+        document.getElementById("guest-results").innerHTML = "";
+        return;
+    }
+    fetch("/api/seating/" + state.eventId + "/guests?q=" + encodeURIComponent(query))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var box = document.getElementById("guest-results");
+            box.innerHTML = "";
+            (data.guests || []).forEach(function (guest) {
+                var button = document.createElement("button");
+                button.type = "button";
+                button.className = "person";
+                button.textContent = guest.name + (guest.email ? " · " + guest.email : "");
+                button.addEventListener("click", function () {
+                    state.contactId = guest.id;
+                    document.getElementById("seat-select").value = "";
+                    document.getElementById("picked").textContent = "Changing " + guest.name;
+                    refresh();
+                });
+                box.appendChild(button);
+            });
+        });
+});
+document.getElementById("save-seat").addEventListener("click", function () {
+    var tableId = document.getElementById("seat-select").value;
+    document.getElementById("seat-error").textContent = "";
+    fetch("/api/seating/" + state.eventId + "/assign", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({contact_id: state.contactId, table_id: tableId})
+    }).then(function (r) { return r.json().then(function (data) { return {ok: r.ok, data: data}; }); })
+      .then(function (result) {
+          if (!result.ok) {
+              document.getElementById("seat-error").textContent = result.data.error || "Could not change the seat";
+              if (result.data.tables) draw(result.data);
+              return;
+          }
+          draw(result.data);
+      });
+});
+loadEvents();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

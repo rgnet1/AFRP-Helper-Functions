@@ -183,6 +183,14 @@
         </a>
         {% endif %}
 
+        {% if 'seating' in allowed_features %}
+        <a href="/seating" class="tile">
+            <div class="tile-icon" aria-hidden="true">🪑</div>
+            <div class="tile-title">Seating</div>
+            <div class="tile-subtitle">See tables and move people</div>
+        </a>
+        {% endif %}
+
         {% if 'badges' in allowed_features %}
          <a href="/badges" class="tile">
             <div class="tile-icon" aria-hidden="true">🏷️</div>

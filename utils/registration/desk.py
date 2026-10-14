@@ -80,6 +80,21 @@ def _quote(value: str) -> str:
     return (value or "").replace("'", "''")
 
 
+def _choice_labels(raw) -> list:
+    text = (raw or "").strip()
+    if not text:
+        return []
+    if "~" in text:
+        parts = text.split("~")
+    elif ";" in text:
+        parts = text.split(";")
+    elif "," in text:
+        parts = text.split(",")
+    else:
+        parts = [text]
+    return [part.strip() for part in parts if part and part.strip()]
+
+
 def _crm_date(value) -> Optional[date]:
     text = (value or "")[:10]
     if len(text) < 10:
@@ -370,7 +385,7 @@ class RegistrationDesk:
             body["aha_Transaction@odata.bind"] = f"/msnfp_transactions({transaction_id})"
         self._send("POST", "crca7_eventguests", body)
 
-    def event_requirements(self, event_id: str) -> dict:
+    def event_requirements(self, event_id: str, contact_id: str = "") -> dict:
         """Questions and seating tables for one event."""
         question_filter = f"_aha_campaign_value eq {event_id}"
         question_rows = self.crm._make_request(
@@ -379,7 +394,6 @@ class RegistrationDesk:
             "aha_displayorder"
             f"&$filter={url_quote(question_filter)}&$top=50"
         ).get("value") or []
-        from utils.dynamics_crm import parse_choice_labels
         formatted = "@OData.Community.Display.V1.FormattedValue"
         questions = []
         for row in question_rows:
@@ -389,39 +403,173 @@ class RegistrationDesk:
             questions.append({
                 "id": row.get("aha_eventformquestionsid"),
                 "question": text,
-                "choices": parse_choice_labels(row.get("aha_choicelabels")),
+                "choices": _choice_labels(row.get("aha_choicelabels")),
                 "required": bool(row.get("aha_isrequiredquestion")),
                 "multiline": bool(row.get("aha_ismultilinetext")),
                 "order": row.get("aha_displayorder") or 0,
                 "type": row.get(f"aha_questiontype{formatted}") or "",
             })
         questions.sort(key=lambda item: (item["order"], item["question"]))
-        table_filter = f"_aha_event_value eq {event_id} and statecode eq 0"
+        return {"questions": questions, "tables": self.live_tables(event_id, contact_id)}
+
+    def live_tables(self, event_id: str, contact_id: str = "") -> list:
+        """Tables for one event with a live seat count, not the delayed rollup.
+
+        Occupancy is the number of active reservations. A VIP or reserved table
+        stays selectable for staff while it has an open chair. A full table is
+        not, except the contact's own current seat.
+        """
         table_rows = self.crm._make_request(
-            "aha_seatingtables?$select=aha_seatingtableid,aha_name,"
-            "aha_numberofchairs,aha_numberofseatsfilled"
-            f"&$filter={url_quote(table_filter)}&$top=100"
+            "aha_seatingtables?$select=aha_seatingtableid,aha_name,aha_numberofchairs,"
+            "aha_isreservedforvips,crca7_tablenumberint"
+            f"&$filter={url_quote(f'_aha_event_value eq {event_id} and statecode eq 0')}"
+            "&$top=200"
         ).get("value") or []
+        reservations = self.crm._paginate(
+            "aha_tablereservations?$select=_aha_table_value,_aha_contact_value"
+            f"&$filter={url_quote(f'_aha_event_value eq {event_id} and statecode eq 0')}"
+        )
+        seated = {}
+        current_table = ""
+        contact_key = (contact_id or "").lower()
+        for row in reservations:
+            table_key = (row.get("_aha_table_value") or "").lower()
+            if not table_key:
+                continue
+            seated[table_key] = seated.get(table_key, 0) + 1
+            if contact_key and (row.get("_aha_contact_value") or "").lower() == contact_key:
+                current_table = table_key
         tables = []
         for row in table_rows:
-            if not row.get("aha_seatingtableid"):
+            table_id = row.get("aha_seatingtableid")
+            if not table_id:
                 continue
-            chairs = row.get("aha_numberofchairs") or 0
-            filled = row.get("aha_numberofseatsfilled") or 0
+            chairs = int(row.get("aha_numberofchairs") or 0)
+            taken = seated.get(table_id.lower(), 0)
+            current = table_id.lower() == current_table
+            open_seats = max(0, chairs - taken) if chairs else None
             tables.append({
-                "id": row.get("aha_seatingtableid"),
+                "id": table_id,
                 "name": row.get("aha_name") or "Table",
-                "open_seats": max(0, int(chairs) - int(filled)) if chairs else None,
+                "number": row.get("crca7_tablenumberint"),
+                "chairs": chairs,
+                "seated": taken,
+                "open_seats": open_seats,
+                "vip": bool(row.get("aha_isreservedforvips")),
+                "current": current,
+                "available": current or open_seats is None or open_seats > 0,
             })
-        tables.sort(key=lambda item: item["name"])
-        return {"questions": questions, "tables": tables}
+        tables.sort(key=lambda item: (not item["current"], item["name"]))
+        return tables
+
+    def preference_forms(self, contact_id: str, parent_id: str, event_names: dict) -> list:
+        """Questions and the contact's saved answers for the main event and sub-events."""
+        ids = [event_id for event_id in (event_names or {}) if event_id]
+        if parent_id and parent_id not in ids:
+            ids.insert(0, parent_id)
+        if not ids:
+            return []
+        question_filter = " or ".join(f"_aha_campaign_value eq {event_id}" for event_id in ids)
+        question_rows = self.crm._make_request(
+            "aha_eventformquestionses?$select=aha_eventformquestionsid,aha_newcolumn,"
+            "aha_choicelabels,aha_ismultilinetext,aha_displayorder,_aha_campaign_value"
+            f"&$filter={url_quote(question_filter)}&$top=200"
+        ).get("value") or []
+        response_filter = (
+            f"_aha_contact_value eq {contact_id} and ("
+            + " or ".join(f"_aha_campaign_value eq {event_id}" for event_id in ids)
+            + ")"
+        )
+        response_rows = self.crm._make_request(
+            "aha_eventformresponseses?$select=aha_guestresponse,_aha_formquestion_value,"
+            "_aha_campaign_value"
+            f"&$filter={url_quote(response_filter)}&$top=200"
+        ).get("value") or []
+        answers = {
+            (row.get("_aha_formquestion_value") or "").lower(): (row.get("aha_guestresponse") or "")
+            for row in response_rows
+        }
+        table_filter = " or ".join(
+            f"_aha_event_value eq {event_id}" for event_id in ids
+        )
+        table_rows = self.crm._make_request(
+            "aha_seatingtables?$select=aha_seatingtableid,aha_name,_aha_event_value,"
+            "aha_numberofchairs,aha_isreservedforvips"
+            f"&$filter={url_quote(f'statecode eq 0 and ({table_filter})')}&$top=200"
+        ).get("value") or []
+        seat_rows = self.crm._paginate(
+            "aha_tablereservations?$select=_aha_table_value,_aha_event_value,_aha_contact_value"
+            f"&$filter={url_quote(f'statecode eq 0 and ({table_filter})')}"
+        )
+        chosen_tables = {}
+        seated_counts = {}
+        contact_key = (contact_id or "").lower()
+        for row in seat_rows:
+            event_key = (row.get("_aha_event_value") or "").lower()
+            table_key = (row.get("_aha_table_value") or "").lower()
+            if event_key and table_key:
+                seated_counts[(event_key, table_key)] = seated_counts.get((event_key, table_key), 0) + 1
+            if contact_key and (row.get("_aha_contact_value") or "").lower() == contact_key and event_key:
+                chosen_tables[event_key] = row.get("_aha_table_value") or ""
+        grouped = {}
+        for event_id in ids:
+            grouped[event_id.lower()] = {
+                "event_id": event_id,
+                "event_name": (event_names or {}).get(event_id) or (event_names or {}).get(event_id.lower()) or "Event",
+                "questions": [],
+                "tables": [],
+                "table_id": chosen_tables.get(event_id.lower(), ""),
+            }
+        for row in question_rows:
+            event_id = (row.get("_aha_campaign_value") or "").lower()
+            bucket = grouped.get(event_id)
+            text = (row.get("aha_newcolumn") or "").strip()
+            question_id = row.get("aha_eventformquestionsid")
+            if not bucket or not text or not question_id:
+                continue
+            bucket["questions"].append({
+                "id": question_id,
+                "question": text,
+                "choices": _choice_labels(row.get("aha_choicelabels")),
+                "multiline": bool(row.get("aha_ismultilinetext")),
+                "order": row.get("aha_displayorder") or 0,
+                "answer": answers.get(question_id.lower(), ""),
+            })
+        for row in table_rows:
+            event_id = (row.get("_aha_event_value") or "").lower()
+            bucket = grouped.get(event_id)
+            if not bucket or not row.get("aha_seatingtableid"):
+                continue
+            chairs = int(row.get("aha_numberofchairs") or 0)
+            table_id = row.get("aha_seatingtableid")
+            taken = seated_counts.get((event_id, table_id.lower()), 0)
+            current = (chosen_tables.get(event_id) or "").lower() == table_id.lower()
+            open_seats = max(0, chairs - taken) if chairs else None
+            bucket["tables"].append({
+                "id": table_id,
+                "name": row.get("aha_name") or "Table",
+                "chairs": chairs,
+                "seated": taken,
+                "open_seats": open_seats,
+                "vip": bool(row.get("aha_isreservedforvips")),
+                "current": current,
+                "available": current or open_seats is None or open_seats > 0,
+            })
+        forms = []
+        for event_id in ids:
+            bucket = grouped[event_id.lower()]
+            bucket["questions"].sort(key=lambda item: (item["order"], item["question"]))
+            bucket["tables"].sort(key=lambda item: item["name"])
+            if bucket["questions"] or bucket["tables"]:
+                forms.append(bucket)
+        return forms
 
     def save_signup_details(self, contact_id: str, event_id: str, answers, table_id: str = "") -> None:
         """Write form answers and a table seat after the sign-up is saved."""
         for answer in answers or []:
             question_id = (answer.get("question_id") or "").strip()
             response = (answer.get("response") or "").strip()
-            if not question_id or not response:
+            if not question_id:
                 continue
             filt = (
                 f"_aha_contact_value eq {contact_id} and "
@@ -438,6 +586,8 @@ class RegistrationDesk:
                     {"aha_guestresponse": response},
                 )
                 continue
+            if not response:
+                continue
             self._send(
                 "POST",
                 "aha_eventformresponseses",
@@ -450,34 +600,69 @@ class RegistrationDesk:
                     ),
                 },
             )
+        self._claim_table(contact_id, event_id, table_id)
+
+    def _claim_table(self, contact_id: str, event_id: str, table_id: str) -> None:
+        """Move this person to a table only if a seat is still open."""
         table_id = (table_id or "").strip()
         if not table_id:
             return
+        before = {row["id"].lower(): row for row in self.live_tables(event_id, contact_id)}
+        target = before.get(table_id.lower())
+        if not target:
+            raise RegistrationError("That table is not on this event.")
+        if target["current"]:
+            return
+        if not target["available"]:
+            raise RegistrationError(
+                f"{target['name']} is full ({target['seated']} of {target['chairs']}). Choose another table."
+            )
         filt = (
-            f"_aha_contact_value eq {contact_id} and _aha_event_value eq {event_id}"
+            f"_aha_contact_value eq {contact_id} and _aha_event_value eq {event_id} "
+            "and statecode eq 0"
         )
         existing = self.crm._make_request(
-            "aha_tablereservations?$select=aha_tablereservationid"
+            "aha_tablereservations?$select=aha_tablereservationid,_aha_table_value"
             f"&$filter={url_quote(filt)}&$top=1"
         ).get("value") or []
         table_bind = {"aha_Table@odata.bind": f"/aha_seatingtables({table_id})"}
+        created_id = ""
+        previous_table = ""
         if existing and existing[0].get("aha_tablereservationid"):
+            previous_table = existing[0].get("_aha_table_value") or ""
             self._send(
                 "PATCH",
                 f"aha_tablereservations({existing[0]['aha_tablereservationid']})",
                 table_bind,
             )
-            return
-        self._send(
-            "POST",
-            "aha_tablereservations",
-            {
-                "aha_name": "Seat",
-                "aha_Contact@odata.bind": f"/contacts({contact_id})",
-                "aha_Event@odata.bind": f"/campaigns({event_id})",
-                **table_bind,
-            },
-        )
+            reservation_id = existing[0]["aha_tablereservationid"]
+        else:
+            created = self._send(
+                "POST",
+                "aha_tablereservations",
+                {
+                    "aha_name": "Seat",
+                    "aha_Contact@odata.bind": f"/contacts({contact_id})",
+                    "aha_Event@odata.bind": f"/campaigns({event_id})",
+                    **table_bind,
+                },
+            )
+            reservation_id = created.get("aha_tablereservationid") or ""
+            created_id = reservation_id
+        after = {row["id"].lower(): row for row in self.live_tables(event_id, contact_id)}
+        updated = after.get(table_id.lower())
+        if updated and updated["chairs"] and updated["seated"] > updated["chairs"]:
+            if created_id:
+                self._send("DELETE", f"aha_tablereservations({created_id})", None)
+            elif previous_table:
+                self._send(
+                    "PATCH",
+                    f"aha_tablereservations({reservation_id})",
+                    {"aha_Table@odata.bind": f"/aha_seatingtables({previous_table})"},
+                )
+            raise RegistrationError(
+                f"{target['name']} was just taken. Choose another table."
+            )
 
     def priced_events(self, parent_id: str) -> dict:
         """Cost and merchant account for the parent event and each sub-event."""
