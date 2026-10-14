@@ -294,8 +294,20 @@ def charge_saved_card(profile: dict, customer_profile_id: str, amount: Decimal, 
 
 
 def _hosted_setting(payload: dict) -> str:
-    """JSON setting value. A raw & in a URL makes Accept Hosted render a blank form."""
-    return json.dumps(payload).replace("&", "\\u0026")
+    """JSON setting value.
+
+    Authorize.net pastes these URLs into a script tag. A query string (&)
+    truncates that script, and the card form stays on a blank Order Summary.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    cleaned = {}
+    for key, value in payload.items():
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            parts = urlsplit(value)
+            value = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        cleaned[key] = value
+    return json.dumps(cleaned)
 
 
 def hosted_payment_token(

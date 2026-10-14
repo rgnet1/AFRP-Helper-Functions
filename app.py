@@ -1323,10 +1323,16 @@ def _collect_registration_payment(desk, contact_id, quote, skip, pending):
 
 
 def _hosted_payment_page(checkout):
+    pending = session.get("pending_registration") or {}
     return render_template(
         "registration_pay.html",
         token=checkout.token,
         form_url=HOSTED_FORM_URL,
+        cancel_to=url_for(
+            "registration_desk_page",
+            campaign_id=pending.get("campaign_id", ""),
+            email=pending.get("email", ""),
+        ),
     )
 
 

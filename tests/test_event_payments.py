@@ -156,10 +156,7 @@ class HostedFormTests(unittest.TestCase):
         raw = by_name["hostedPaymentReturnOptions"]
         self.assertNotIn("&", raw)
         parsed = json.loads(raw)
-        self.assertEqual(
-            parsed["cancelUrl"],
-            "https://example.com/registration?campaign_id=1&email=a@b.com",
-        )
+        self.assertEqual(parsed["cancelUrl"], "https://example.com/registration")
         self.assertEqual(token, "token")
 
 

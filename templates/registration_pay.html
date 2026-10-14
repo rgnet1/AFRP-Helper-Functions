@@ -51,7 +51,7 @@ window.CommunicationHandler = {
             return;
         }
         if (params.action === "cancel") {
-            window.location = {{ url_for('registration_desk_page')|tojson }};
+            window.location = {{ cancel_to|tojson }};
             return;
         }
         if (params.action !== "transactResponse") return;
