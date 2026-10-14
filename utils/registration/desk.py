@@ -6,7 +6,6 @@ import base64
 import hashlib
 import os
 import secrets
-import struct
 from typing import Dict, List, Optional
 from urllib.parse import quote as url_quote
 
@@ -34,9 +33,12 @@ STATUS_INACTIVE = 2
 STATE_ACTIVE = 0
 STATE_INACTIVE = 1
 
-# ASP.NET Core Identity V3 (Power Pages local accounts). 10,000 is the
-# iteration count those portal hashes were created with.
-_IDENTITY_ITERATIONS = 10000
+# Power Pages local accounts use ASP.NET Identity V2: one 0x00 marker byte,
+# a 16-byte salt, and a 32-byte PBKDF2-HMAC-SHA1 subkey. The iteration count
+# is fixed at 1,000 and is not stored in the hash.
+_IDENTITY_ITERATIONS = 1000
+_IDENTITY_SALT_BYTES = 16
+_IDENTITY_SUBKEY_BYTES = 32
 
 
 class RegistrationError(Exception):
@@ -60,22 +62,16 @@ class HostedCheckout:
 
 
 def hash_portal_password(password: str) -> str:
-    """Return an ASP.NET Identity V3 password hash (base64)."""
-    salt = os.urandom(16)
+    """Return an ASP.NET Identity V2 password hash, which is what my.afrp.org checks."""
+    salt = os.urandom(_IDENTITY_SALT_BYTES)
     subkey = hashlib.pbkdf2_hmac(
-        "sha256",
+        "sha1",
         password.encode("utf-8"),
         salt,
         _IDENTITY_ITERATIONS,
-        dklen=32,
+        dklen=_IDENTITY_SUBKEY_BYTES,
     )
-    payload = bytearray(13 + len(salt) + len(subkey))
-    payload[0] = 0x01
-    payload[1:5] = struct.pack(">I", 1)  # HMAC-SHA256
-    payload[5:9] = struct.pack(">I", _IDENTITY_ITERATIONS)
-    payload[9:13] = struct.pack(">I", len(salt))
-    payload[13:13 + len(salt)] = salt
-    payload[13 + len(salt):] = subkey
+    payload = bytes([0x00]) + salt + subkey
     return base64.b64encode(payload).decode("ascii")
 
 

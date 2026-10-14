@@ -1,6 +1,7 @@
 """Registration desk access rules and Dynamics writes."""
 
 import base64
+import hashlib
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -28,11 +29,16 @@ def _user(restricted=False, campaigns=None):
 
 
 class HashTests(unittest.TestCase):
-    def test_hash_is_identity_v3(self):
+    def test_hash_is_identity_v2(self):
         encoded = hash_portal_password("Correct-Horse-1!")
         raw = base64.b64decode(encoded)
-        self.assertEqual(raw[0], 0x01)
-        self.assertGreater(len(raw), 13)
+        self.assertEqual(raw[0], 0x00)
+        self.assertEqual(len(raw), 49)
+        salt = raw[1:17]
+        expected = hashlib.pbkdf2_hmac(
+            "sha1", b"Correct-Horse-1!", salt, 1000, dklen=32
+        )
+        self.assertEqual(raw[17:], expected)
 
 
 class DeskAccessTests(unittest.TestCase):
