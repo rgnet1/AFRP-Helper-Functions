@@ -1332,6 +1332,8 @@ def _hosted_payment_page(checkout):
             "registration_desk_page",
             campaign_id=pending.get("campaign_id", ""),
             email=pending.get("email", ""),
+            first_name=pending.get("first_name", ""),
+            last_name=pending.get("last_name", ""),
         ),
     )
 
@@ -1375,26 +1377,46 @@ def _finish_pending_registration(trans_id):
         flash("The card was charged, but the sign-up was not updated.", "error")
     else:
         flash(f"Charged ${pending['amount']} and updated the sign-up.", "success")
-    return _registration_page(campaign_id, email)
+    return _registration_page(campaign_id, email, pending.get("first_name", ""), pending.get("last_name", ""))
 
 
-def _registration_page(campaign_id="", email="", notice=""):
+def _contact_search_from(source):
+    source = source or {}
+    return (
+        (source.get("email") or "").strip(),
+        (source.get("first_name") or "").strip(),
+        (source.get("last_name") or "").strip(),
+    )
+
+
+def _registration_page(campaign_id="", email="", first_name="", last_name="", notice=""):
     desk = _registration_desk()
     events = desk.parent_events_for(current_user)
     selected = (campaign_id or "").strip()
     if len(events) == 1:
         selected = events[0]["id"]
+    address = (email or "").strip()
+    first = (first_name or "").strip()
+    last = (last_name or "").strip()
+    searching = bool(address or first or last)
     context = {
         "events": events,
         "campaign_id": selected,
-        "email": (email or "").strip(),
+        "email": address,
+        "first_name": first,
+        "last_name": last,
+        "searched": searching,
+        "truncated": False,
         "sub_events": [],
         "contacts": [],
         "notice": notice,
         "error": "",
         "prices": {},
     }
-    if not selected or not context["email"]:
+    if not searching:
+        return render_template("registration.html", **context)
+    if not selected:
+        context["error"] = "Choose an event"
         return render_template("registration.html", **context)
     try:
         desk._require_parent(current_user, selected)
@@ -1413,7 +1435,8 @@ def _registration_page(campaign_id="", email="", notice=""):
             }
             for event_id, event in priced.items()
         }
-        contacts = desk.find_contacts(context["email"])
+        contacts = desk.find_contacts(address, first, last)
+        context["truncated"] = contacts.truncated
         for contact in contacts:
             contact["guests"] = desk.guests_for_contact(contact["id"], selected)
             contact["household"] = desk.household(contact["household_id"])
@@ -1460,19 +1483,26 @@ def registration_payment_done():
 @login_required
 def registration_desk_page():
     """Look up a customer and their sign-ups for one parent event."""
+    email, first_name, last_name = _contact_search_from(request.args)
     return _registration_page(
         request.args.get("campaign_id", ""),
-        request.args.get("email", ""),
+        email,
+        first_name,
+        last_name,
     )
 
 
-def _password_reset_page(email=""):
+def _password_reset_page(email="", first_name="", last_name=""):
     address = (email or "").strip()
+    first = (first_name or "").strip()
+    last = (last_name or "").strip()
     contacts = []
     error = ""
-    if address:
+    truncated = False
+    if address or first or last:
         try:
-            contacts = _registration_desk().find_contacts(address)
+            contacts = _registration_desk().find_contacts(address, first, last)
+            truncated = contacts.truncated
         except RegistrationError as exc:
             error = str(exc)
         except Exception:
@@ -1481,6 +1511,10 @@ def _password_reset_page(email=""):
     return render_template(
         "password_reset.html",
         email=address,
+        first_name=first,
+        last_name=last,
+        searched=bool(address or first or last),
+        truncated=truncated,
         contacts=contacts,
         error=error,
     )
@@ -1490,42 +1524,43 @@ def _password_reset_page(email=""):
 @login_required
 def password_reset_page():
     """Set a my.afrp.org password for any contact."""
-    return _password_reset_page(request.args.get("email", ""))
+    email, first_name, last_name = _contact_search_from(request.args)
+    return _password_reset_page(email, first_name, last_name)
 
 
 @app.route("/password-reset", methods=["POST"])
 @login_required
 def password_reset_save():
-    email = request.form.get("email", "")
+    email, first_name, last_name = _contact_search_from(request.form)
     contact_id = (request.form.get("contact_id") or "").strip()
     password = request.form.get("password") or ""
     valid, error = validate_password(password)
     if not valid:
         flash(error, "error")
-        return _password_reset_page(email)
+        return _password_reset_page(email, first_name, last_name)
     try:
         _registration_desk().set_local_password(current_user, contact_id, password)
     except (CampaignAccessDenied, RegistrationError) as exc:
         flash(str(getattr(exc, "message", exc)), "error")
-        return _password_reset_page(email)
+        return _password_reset_page(email, first_name, last_name)
     except Exception:
         logger.exception("Portal password reset failed for contact %s", contact_id)
         flash("Could not update the portal password", "error")
-        return _password_reset_page(email)
+        return _password_reset_page(email, first_name, last_name)
     logger.info(
         "Portal password reset for contact %s by %s",
         contact_id,
         current_user.username,
     )
     flash("Portal password updated. Tell the customer the new password.", "success")
-    return _password_reset_page(email)
+    return _password_reset_page(email, first_name, last_name)
 
 
 @app.route("/registration/add", methods=["POST"])
 @login_required
 def registration_add():
     campaign_id = request.form.get("campaign_id", "")
-    email = request.form.get("email", "")
+    email, first_name, last_name = _contact_search_from(request.form)
     event_id = (request.form.get("event_id") or "").strip()
     contact_ids = [request.form.get("contact_id", "").strip()]
     if request.form.get("apply_household") == "on":
@@ -1537,7 +1572,7 @@ def registration_add():
     contact_ids = [item for item in contact_ids if item]
     if not contact_ids or not event_id:
         flash("Choose an event and a customer", "error")
-        return _registration_page(campaign_id, email)
+        return _registration_page(campaign_id, email, first_name, last_name)
     transaction_id = None
     try:
         quote = desk.quote_for_add(campaign_id, event_id, len(contact_ids))
@@ -1550,6 +1585,8 @@ def registration_add():
                 "action": "add",
                 "campaign_id": campaign_id,
                 "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
                 "event_id": event_id,
                 "contact_ids": contact_ids,
             },
@@ -1590,14 +1627,14 @@ def registration_add():
             f"Signed up {added} {'person' if added == 1 else 'people'}. {detail}",
             "success",
         )
-    return _registration_page(campaign_id, email)
+    return _registration_page(campaign_id, email, first_name, last_name)
 
 
 @app.route("/registration/move", methods=["POST"])
 @login_required
 def registration_move():
     campaign_id = request.form.get("campaign_id", "")
-    email = request.form.get("email", "")
+    email, first_name, last_name = _contact_search_from(request.form)
     guest_id = (request.form.get("guest_id") or "").strip()
     event_id = (request.form.get("event_id") or "").strip()
     skip = request.form.get("skip_payment") == "on"
@@ -1616,6 +1653,8 @@ def registration_move():
                 "action": "move",
                 "campaign_id": campaign_id,
                 "email": email,
+                "first_name": first_name,
+                "last_name": last_name,
                 "event_id": event_id,
                 "guest_id": guest_id,
                 "contact_id": guest.get("_crca7_existingcontact_value") or "",
@@ -1649,14 +1688,14 @@ def registration_move():
     except Exception:
         logger.exception("Move registration failed for guest %s", guest_id)
         flash("Could not change the sign-up", "error")
-    return _registration_page(campaign_id, email)
+    return _registration_page(campaign_id, email, first_name, last_name)
 
 
 @app.route("/registration/remove", methods=["POST"])
 @login_required
 def registration_remove():
     campaign_id = request.form.get("campaign_id", "")
-    email = request.form.get("email", "")
+    email, first_name, last_name = _contact_search_from(request.form)
     guest_ids = [request.form.get("guest_id", "").strip()]
     if request.form.get("apply_household") == "on":
         guest_ids = [
@@ -1678,7 +1717,7 @@ def registration_remove():
         flash("Could not remove the sign-up", "error")
     else:
         flash(f"Marked {removed} sign-up{'s' if removed != 1 else ''} inactive.", "success")
-    return _registration_page(campaign_id, email)
+    return _registration_page(campaign_id, email, first_name, last_name)
 
 
 @app.route('/', methods=['GET'])

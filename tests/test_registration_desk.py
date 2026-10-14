@@ -10,6 +10,7 @@ from utils.registration.desk import (
     STATUS_PAID,
     STATE_INACTIVE,
     RegistrationDesk,
+    RegistrationError,
     hash_portal_password,
 )
 
@@ -114,6 +115,31 @@ class DeskAccessTests(unittest.TestCase):
         self.assertIn("rgnet1%2Btest%40gmail.com", endpoint)
         self.assertNotIn("rgnet1+test", endpoint)
         self.assertEqual(matches[0]["email"], "rgnet1+test@gmail.com")
+
+    def test_last_name_alone_is_enough(self):
+        desk, crm = self._desk()
+        crm._make_request.side_effect = [
+            {
+                "value": [{
+                    "contactid": CONTACT,
+                    "firstname": "Ramzey",
+                    "lastname": "Ghanaim",
+                    "emailaddress1": "rgnet1+test@gmail.com",
+                    "fullname": "Ramzey Ghanaim",
+                }]
+            },
+            {"value": []},
+        ]
+        matches = desk.find_contacts(last_name="Ghanaim")
+        endpoint = crm._make_request.call_args_list[0].args[0]
+        self.assertIn("contains%28lastname%2C%27Ghanaim%27%29", endpoint)
+        self.assertNotIn("emailaddress1%20eq", endpoint)
+        self.assertEqual(len(matches), 1)
+
+    def test_blank_lookup_is_rejected(self):
+        desk, _crm = self._desk()
+        with self.assertRaises(RegistrationError):
+            desk.find_contacts()
 
     def test_remove_marks_inactive(self):
         desk, _crm = self._desk()

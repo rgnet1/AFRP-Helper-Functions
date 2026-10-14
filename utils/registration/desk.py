@@ -43,6 +43,14 @@ class RegistrationError(Exception):
     """A registration-desk action could not be completed."""
 
 
+class ContactMatches(list):
+    """Contacts from one shared lookup. truncated means more rows were left out."""
+
+    def __init__(self, items=None, truncated=False):
+        super().__init__(items or [])
+        self.truncated = truncated
+
+
 class HostedCheckout:
     """Card entry happens on Authorize.net. CRM changes wait until it succeeds."""
 
@@ -113,19 +121,36 @@ class RegistrationDesk:
         if (event_id or "").strip().lower() not in self._event_ids(parent_id):
             raise CampaignAccessDenied("That event is not part of the selected campaign")
 
-    def find_contacts(self, email: str) -> List[dict]:
-        normalized = (email or "").strip().lower()
-        if not normalized or "@" not in normalized:
+    def find_contacts(self, email: str = "", first_name: str = "", last_name: str = "") -> ContactMatches:
+        """Find contacts by email, first name, or last name. One field is enough."""
+        address = (email or "").strip().lower()
+        first = (first_name or "").strip()
+        last = (last_name or "").strip()
+        if not address and not first and not last:
+            raise RegistrationError("Enter an email, first name, or last name")
+        if address and "@" not in address:
             raise RegistrationError("Enter a full email address")
-        filt = f"emailaddress1 eq '{_quote(normalized)}'"
+        clauses = []
+        if address:
+            clauses.append(f"emailaddress1 eq '{_quote(address)}'")
+        if first:
+            clauses.append(f"contains(firstname,'{_quote(first)}')")
+        if last:
+            clauses.append(f"contains(lastname,'{_quote(last)}')")
+        filt = " and ".join(clauses)
         rows = self.crm._make_request(
-            "contacts?$select=contactid,fullname,emailaddress1,aha_memberid,"
-            "_aha_householdid_value,adx_identity_passwordhash,adx_identity_username"
-            f"&$filter={url_quote(filt)}&$top=10"
+            "contacts?$select=contactid,fullname,firstname,lastname,emailaddress1,"
+            "aha_memberid,_aha_householdid_value,adx_identity_passwordhash,"
+            "adx_identity_username"
+            f"&$filter={url_quote(filt)}&$top=31"
         ).get("value") or []
         matches = []
         for row in rows:
-            if (row.get("emailaddress1") or "").strip().lower() != normalized:
+            if address and (row.get("emailaddress1") or "").strip().lower() != address:
+                continue
+            if first and first.lower() not in (row.get("firstname") or "").lower():
+                continue
+            if last and last.lower() not in (row.get("lastname") or "").lower():
                 continue
             contact_id = row.get("contactid")
             providers = self._identity_providers(contact_id)
@@ -142,7 +167,8 @@ class RegistrationDesk:
                 ),
                 "identity_providers": providers,
             })
-        return matches
+        truncated = len(rows) > 30
+        return ContactMatches(matches[:30], truncated=truncated)
 
     def _identity_providers(self, contact_id: str) -> List[str]:
         if not contact_id:
