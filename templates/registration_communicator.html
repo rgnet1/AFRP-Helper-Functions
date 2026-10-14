@@ -5,22 +5,33 @@
     <title>Payment</title>
     <script>
         function callParentFunction(str) {
-            var handler = window.parent && window.parent.parent &&
-                window.parent.parent.CommunicationHandler;
-            if (str && handler && handler.onReceiveCommunication) {
-                handler.onReceiveCommunication(str);
-            }
+            if (!str) return;
+            var parentWindow = null;
+            try { parentWindow = window.parent && window.parent.parent; } catch (e) { parentWindow = null; }
+            try {
+                if (parentWindow && parentWindow.CommunicationHandler &&
+                    parentWindow.CommunicationHandler.onReceiveCommunication) {
+                    parentWindow.CommunicationHandler.onReceiveCommunication(str);
+                    return;
+                }
+            } catch (e) {}
+            try {
+                if (parentWindow) parentWindow.postMessage(str, "*");
+            } catch (e) {}
         }
         function receiveMessage(event) {
-            if (event && event.data) {
-                callParentFunction(typeof event.data === "string" ? event.data : "");
-            }
+            if (!event || event.data == null) return;
+            var data = event.data;
+            if (typeof data !== "string") return;
+            callParentFunction(data);
         }
         if (window.addEventListener) {
             window.addEventListener("message", receiveMessage, false);
         }
         if (window.location.hash && window.location.hash.length > 1) {
-            callParentFunction(window.location.hash.substring(1));
+            var hash = window.location.hash.substring(1);
+            try { hash = decodeURIComponent(hash); } catch (e) {}
+            callParentFunction(hash);
         }
     </script>
 </head>

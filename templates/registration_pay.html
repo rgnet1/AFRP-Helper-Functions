@@ -24,22 +24,28 @@
     </form>
 </div>
 <script>
+function decodePart(value) {
+    try { return decodeURIComponent(String(value || "").replace(/\+/g, " ")); }
+    catch (e) { return unescape(value || ""); }
+}
 function readParams(query) {
     var raw = query && typeof query === "object" ? (query.qstr || "") : String(query || "");
     if (raw.charAt(0) === "?" || raw.charAt(0) === "#") raw = raw.slice(1);
     var params = {};
-    raw.split("&").forEach(function (part) {
-        var pair = part.split("=");
-        if (!pair[0]) return;
-        var value = pair.slice(1).join("=");
-        try { value = decodeURIComponent(value.replace(/\+/g, " ")); }
-        catch (e) { value = unescape(value); }
-        params[decodeURIComponent(pair[0])] = value;
-    });
+    var action = raw.match(/(?:^|&)action=([^&]*)/);
+    var width = raw.match(/(?:^|&)width=([^&]*)/);
+    var height = raw.match(/(?:^|&)height=([^&]*)/);
+    var response = raw.match(/(?:^|&)response=([\s\S]*)$/);
+    if (action) params.action = decodePart(action[1]);
+    if (width) params.width = decodePart(width[1]);
+    if (height) params.height = decodePart(height[1]);
+    if (response) params.response = decodePart(response[1]);
     return params;
 }
+var paymentFinished = false;
 window.CommunicationHandler = {
     onReceiveCommunication: function (query) {
+        if (paymentFinished) return;
         var params = readParams(query);
         var frame = document.getElementById("authnet");
         if (params.action === "resizeWindow") {
@@ -51,17 +57,29 @@ window.CommunicationHandler = {
             return;
         }
         if (params.action === "cancel") {
+            paymentFinished = true;
             window.location = {{ cancel_to|tojson }};
             return;
         }
         if (params.action !== "transactResponse") return;
         var response = {};
-        try { response = JSON.parse(params.response || "{}"); } catch (e) { return; }
-        if (!response.transId) return;
-        document.getElementById("trans_id").value = response.transId;
+        try { response = JSON.parse(params.response || "{}"); } catch (e) { response = {}; }
+        var transId = response.transId || "";
+        if (!transId) {
+            var match = /"transId"\s*:\s*"([^"]+)"/.exec(params.response || "");
+            transId = match ? match[1] : "";
+        }
+        if (!transId || (response.responseCode && response.responseCode !== "1")) return;
+        paymentFinished = true;
+        document.getElementById("trans_id").value = transId;
         document.getElementById("done").submit();
     }
 };
+window.addEventListener("message", function (event) {
+    if (event.origin !== window.location.origin) return;
+    if (typeof event.data !== "string" || event.data.indexOf("action=") === -1) return;
+    window.CommunicationHandler.onReceiveCommunication(event.data);
+});
 document.getElementById("send").submit();
 </script>
 </body>
