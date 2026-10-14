@@ -293,6 +293,11 @@ def charge_saved_card(profile: dict, customer_profile_id: str, amount: Decimal, 
     raise PaymentDeclined(failures[-1] if failures else "The card was declined")
 
 
+def _hosted_setting(payload: dict) -> str:
+    """JSON setting value. A raw & in a URL makes Accept Hosted render a blank form."""
+    return json.dumps(payload).replace("&", "\\u0026")
+
+
 def hosted_payment_token(
     profile: dict,
     amount: Decimal,
@@ -303,7 +308,7 @@ def hosted_payment_token(
 ) -> str:
     """Token for Authorize.net's hosted form. The card is entered on their page."""
     settings = {
-        "hostedPaymentReturnOptions": json.dumps(
+        "hostedPaymentReturnOptions": _hosted_setting(
             {
                 "showReceipt": False,
                 "url": return_url,
@@ -312,10 +317,16 @@ def hosted_payment_token(
                 "cancelUrlText": "Cancel",
             }
         ),
-        "hostedPaymentIFrameCommunicatorUrl": json.dumps({"url": communicator_url}),
-        "hostedPaymentButtonOptions": json.dumps({"text": "Pay"}),
-        "hostedPaymentPaymentOptions": json.dumps(
+        "hostedPaymentIFrameCommunicatorUrl": _hosted_setting({"url": communicator_url}),
+        "hostedPaymentButtonOptions": _hosted_setting({"text": "Pay"}),
+        "hostedPaymentPaymentOptions": _hosted_setting(
             {"cardCodeRequired": True, "showCreditCard": True, "showBankAccount": False}
+        ),
+        "hostedPaymentBillingAddressOptions": _hosted_setting(
+            {"show": True, "required": False}
+        ),
+        "hostedPaymentShippingAddressOptions": _hosted_setting(
+            {"show": False, "required": False}
         ),
     }
     result = _authorize(

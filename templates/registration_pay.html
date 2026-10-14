@@ -6,8 +6,8 @@
     <style>
         body { font-family: Georgia, Palatino, serif; background: #f4f7f4; margin: 0; color: #1c241c; }
         header { background: #3d7a3d; color: #fff; padding: 16px 24px; }
-        .wrap { max-width: 720px; margin: 24px auto; padding: 0 16px; }
-        iframe { width: 100%; height: 520px; border: 1px solid #e2e8e2; border-radius: 12px; background: #fff; }
+        .wrap { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+        iframe { display: block; width: 100%; min-width: 760px; height: 740px; border: 1px solid #e2e8e2; border-radius: 12px; background: #fff; }
         p { font-family: Arial, sans-serif; color: #5c6b5c; }
     </style>
 </head>
@@ -24,16 +24,39 @@
     </form>
 </div>
 <script>
+function readParams(query) {
+    var raw = query && typeof query === "object" ? (query.qstr || "") : String(query || "");
+    if (raw.charAt(0) === "?" || raw.charAt(0) === "#") raw = raw.slice(1);
+    var params = {};
+    raw.split("&").forEach(function (part) {
+        var pair = part.split("=");
+        if (!pair[0]) return;
+        var value = pair.slice(1).join("=");
+        try { value = decodeURIComponent(value.replace(/\+/g, " ")); }
+        catch (e) { value = unescape(value); }
+        params[decodeURIComponent(pair[0])] = value;
+    });
+    return params;
+}
 window.CommunicationHandler = {
     onReceiveCommunication: function (query) {
-        var params = new URLSearchParams(query);
-        if (params.get("action") === "cancel") {
+        var params = readParams(query);
+        var frame = document.getElementById("authnet");
+        if (params.action === "resizeWindow") {
+            var width = parseInt(params.width, 10);
+            var height = parseInt(params.height, 10);
+            if (width >= 450 && width < 760) width = 900;
+            if (width > 100) frame.style.width = width + "px";
+            if (height > 100) frame.style.height = height + "px";
+            return;
+        }
+        if (params.action === "cancel") {
             window.location = {{ url_for('registration_desk_page')|tojson }};
             return;
         }
-        if (params.get("action") !== "transactResponse") return;
+        if (params.action !== "transactResponse") return;
         var response = {};
-        try { response = JSON.parse(params.get("response") || "{}"); } catch (e) { return; }
+        try { response = JSON.parse(params.response || "{}"); } catch (e) { return; }
         if (!response.transId) return;
         document.getElementById("trans_id").value = response.transId;
         document.getElementById("done").submit();

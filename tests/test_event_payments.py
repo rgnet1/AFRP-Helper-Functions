@@ -1,5 +1,6 @@
 """Event price differences and Authorize.net charge rules."""
 
+import json
 import unittest
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -9,6 +10,7 @@ from utils.registration.payments import (
     MissingMerchant,
     PaymentDeclined,
     charge_saved_card,
+    hosted_payment_token,
     inherit_merchant,
     quote_add,
     quote_move,
@@ -131,6 +133,34 @@ class ChargeTests(unittest.TestCase):
         )
         self.assertEqual(trans_id, "txn-9")
         self.assertNotIn("secret", trans_id)
+
+
+class HostedFormTests(unittest.TestCase):
+    def test_return_urls_do_not_contain_raw_ampersands(self):
+        captured = {}
+
+        def poster(body):
+            captured["body"] = body
+            return {"token": "token", "messages": {"message": [{"code": "I00001"}]}}
+
+        token = hosted_payment_token(
+            {"login": "login", "key": "key"},
+            Decimal("12.00"),
+            "https://example.com/registration/payment-done",
+            "https://example.com/registration?campaign_id=1&email=a@b.com",
+            "https://example.com/registration/communicator",
+            poster=poster,
+        )
+        settings = captured["body"]["getHostedPaymentPageRequest"]["hostedPaymentSettings"]["setting"]
+        by_name = {row["settingName"]: row["settingValue"] for row in settings}
+        raw = by_name["hostedPaymentReturnOptions"]
+        self.assertNotIn("&", raw)
+        parsed = json.loads(raw)
+        self.assertEqual(
+            parsed["cancelUrl"],
+            "https://example.com/registration?campaign_id=1&email=a@b.com",
+        )
+        self.assertEqual(token, "token")
 
 
 if __name__ == "__main__":
