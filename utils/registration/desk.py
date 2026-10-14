@@ -6,6 +6,7 @@ import base64
 import hashlib
 import os
 import secrets
+from datetime import date
 from typing import Dict, List, Optional
 from urllib.parse import quote as url_quote
 
@@ -77,6 +78,19 @@ def hash_portal_password(password: str) -> str:
 
 def _quote(value: str) -> str:
     return (value or "").replace("'", "''")
+
+
+def _crm_date(value) -> Optional[date]:
+    text = (value or "")[:10]
+    if len(text) < 10:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+MEMBERSHIP_PAID = 124700002
 
 
 class RegistrationDesk:
@@ -261,6 +275,73 @@ class RegistrationDesk:
             },
         )
 
+    def campaign_date_bounds(self, campaign_ids) -> List[dict]:
+        """Start and end dates for coordinator password windows."""
+        bounds = []
+        for campaign_id in campaign_ids or []:
+            cid = (campaign_id or "").strip()
+            if not cid:
+                continue
+            row = self.crm._make_request(
+                f"campaigns({cid})?$select=name,aha_proposedstart,aha_proposedend"
+            )
+            bounds.append({
+                "name": row.get("name") or "",
+                "start": _crm_date(row.get("aha_proposedstart")),
+                "end": _crm_date(row.get("aha_proposedend")),
+            })
+        return bounds
+
+    def convention_year(self, parent_id: str) -> int:
+        row = self.crm._make_request(
+            f"campaigns({parent_id})?$select=aha_proposedstart"
+        )
+        start = _crm_date(row.get("aha_proposedstart"))
+        if not start:
+            raise RegistrationError(
+                "This event has no start date, so membership cannot be checked."
+            )
+        return start.year
+
+    def has_paid_membership(self, contact_id: str, year: int) -> bool:
+        filt = (
+            f"_crca7_contact_value eq {contact_id} and aha_year eq {year} "
+            f"and statuscode eq {MEMBERSHIP_PAID}"
+        )
+        rows = self.crm._make_request(
+            "msnfp_memberships?$select=msnfp_membershipid"
+            f"&$filter={url_quote(filt)}&$top=1"
+        ).get("value") or []
+        return bool(rows)
+
+    def _on_parent(self, guests: List[dict], parent_id: str) -> bool:
+        parent = (parent_id or "").strip().lower()
+        return any(
+            guest.get("active")
+            and guest.get("status_code") == STATUS_PAID
+            and (guest.get("event_id") or "").strip().lower() == parent
+            for guest in guests
+        )
+
+    def _require_new_signup_rules(self, contact_id: str, parent_id: str, event_id: str, guests: List[dict]) -> None:
+        """Membership for a first sign-up, and the main event before any sub-event."""
+        on_parent = self._on_parent(guests, parent_id)
+        on_convention = any(
+            guest.get("active") and guest.get("status_code") == STATUS_PAID
+            for guest in guests
+        )
+        if not on_convention:
+            year = self.convention_year(parent_id)
+            if not self.has_paid_membership(contact_id, year):
+                raise RegistrationError(
+                    f"This person needs a paid AFRP membership for {year} "
+                    "before they can join this convention."
+                )
+        if (event_id or "").strip().lower() != (parent_id or "").strip().lower() and not on_parent:
+            raise RegistrationError(
+                "Sign this person up for the main event before a sub-event."
+            )
+
     def add_guest(
         self,
         user,
@@ -271,6 +352,7 @@ class RegistrationDesk:
     ) -> None:
         self._require_event(user, parent_id, event_id)
         existing = self.guests_for_contact(contact_id, parent_id)
+        self._require_new_signup_rules(contact_id, parent_id, event_id, existing)
         for guest in existing:
             if (
                 (guest.get("event_id") or "").strip().lower() == event_id.strip().lower()
@@ -287,6 +369,115 @@ class RegistrationDesk:
         if transaction_id:
             body["aha_Transaction@odata.bind"] = f"/msnfp_transactions({transaction_id})"
         self._send("POST", "crca7_eventguests", body)
+
+    def event_requirements(self, event_id: str) -> dict:
+        """Questions and seating tables for one event."""
+        question_filter = f"_aha_campaign_value eq {event_id}"
+        question_rows = self.crm._make_request(
+            "aha_eventformquestionses?$select=aha_eventformquestionsid,aha_newcolumn,"
+            "aha_choicelabels,aha_questiontype,aha_isrequiredquestion,aha_ismultilinetext,"
+            "aha_displayorder"
+            f"&$filter={url_quote(question_filter)}&$top=50"
+        ).get("value") or []
+        from utils.dynamics_crm import parse_choice_labels
+        formatted = "@OData.Community.Display.V1.FormattedValue"
+        questions = []
+        for row in question_rows:
+            text = (row.get("aha_newcolumn") or "").strip()
+            if not text or not row.get("aha_eventformquestionsid"):
+                continue
+            questions.append({
+                "id": row.get("aha_eventformquestionsid"),
+                "question": text,
+                "choices": parse_choice_labels(row.get("aha_choicelabels")),
+                "required": bool(row.get("aha_isrequiredquestion")),
+                "multiline": bool(row.get("aha_ismultilinetext")),
+                "order": row.get("aha_displayorder") or 0,
+                "type": row.get(f"aha_questiontype{formatted}") or "",
+            })
+        questions.sort(key=lambda item: (item["order"], item["question"]))
+        table_filter = f"_aha_event_value eq {event_id} and statecode eq 0"
+        table_rows = self.crm._make_request(
+            "aha_seatingtables?$select=aha_seatingtableid,aha_name,"
+            "aha_numberofchairs,aha_numberofseatsfilled"
+            f"&$filter={url_quote(table_filter)}&$top=100"
+        ).get("value") or []
+        tables = []
+        for row in table_rows:
+            if not row.get("aha_seatingtableid"):
+                continue
+            chairs = row.get("aha_numberofchairs") or 0
+            filled = row.get("aha_numberofseatsfilled") or 0
+            tables.append({
+                "id": row.get("aha_seatingtableid"),
+                "name": row.get("aha_name") or "Table",
+                "open_seats": max(0, int(chairs) - int(filled)) if chairs else None,
+            })
+        tables.sort(key=lambda item: item["name"])
+        return {"questions": questions, "tables": tables}
+
+    def save_signup_details(self, contact_id: str, event_id: str, answers, table_id: str = "") -> None:
+        """Write form answers and a table seat after the sign-up is saved."""
+        for answer in answers or []:
+            question_id = (answer.get("question_id") or "").strip()
+            response = (answer.get("response") or "").strip()
+            if not question_id or not response:
+                continue
+            filt = (
+                f"_aha_contact_value eq {contact_id} and "
+                f"_aha_formquestion_value eq {question_id}"
+            )
+            existing = self.crm._make_request(
+                "aha_eventformresponseses?$select=aha_eventformresponsesid"
+                f"&$filter={url_quote(filt)}&$top=1"
+            ).get("value") or []
+            if existing and existing[0].get("aha_eventformresponsesid"):
+                self._send(
+                    "PATCH",
+                    f"aha_eventformresponseses({existing[0]['aha_eventformresponsesid']})",
+                    {"aha_guestresponse": response},
+                )
+                continue
+            self._send(
+                "POST",
+                "aha_eventformresponseses",
+                {
+                    "aha_guestresponse": response,
+                    "aha_Contact@odata.bind": f"/contacts({contact_id})",
+                    "aha_Campaign@odata.bind": f"/campaigns({event_id})",
+                    "aha_FormQuestion@odata.bind": (
+                        f"/aha_eventformquestionses({question_id})"
+                    ),
+                },
+            )
+        table_id = (table_id or "").strip()
+        if not table_id:
+            return
+        filt = (
+            f"_aha_contact_value eq {contact_id} and _aha_event_value eq {event_id}"
+        )
+        existing = self.crm._make_request(
+            "aha_tablereservations?$select=aha_tablereservationid"
+            f"&$filter={url_quote(filt)}&$top=1"
+        ).get("value") or []
+        table_bind = {"aha_Table@odata.bind": f"/aha_seatingtables({table_id})"}
+        if existing and existing[0].get("aha_tablereservationid"):
+            self._send(
+                "PATCH",
+                f"aha_tablereservations({existing[0]['aha_tablereservationid']})",
+                table_bind,
+            )
+            return
+        self._send(
+            "POST",
+            "aha_tablereservations",
+            {
+                "aha_name": "Seat",
+                "aha_Contact@odata.bind": f"/contacts({contact_id})",
+                "aha_Event@odata.bind": f"/campaigns({event_id})",
+                **table_bind,
+            },
+        )
 
     def priced_events(self, parent_id: str) -> dict:
         """Cost and merchant account for the parent event and each sub-event."""
@@ -369,6 +560,30 @@ class RegistrationDesk:
         current_event = guest.get("_crca7_event_value") or ""
         self._require_event(user, parent_id, current_event)
         self._require_event(user, parent_id, event_id)
+        contact_id = guest.get("_crca7_existingcontact_value") or ""
+        current = current_event.strip().lower()
+        dest = (event_id or "").strip().lower()
+        parent = (parent_id or "").strip().lower()
+        guests = self.guests_for_contact(contact_id, parent_id) if contact_id else []
+        if current == parent and dest != parent:
+            other_subs = [
+                row for row in guests
+                if row.get("active")
+                and row.get("status_code") == STATUS_PAID
+                and (row.get("event_id") or "").strip().lower() != parent
+                and row.get("id") != guest_id
+            ]
+            if other_subs:
+                raise RegistrationError(
+                    "Remove the other sign-ups before moving this person off the main event."
+                )
+            raise RegistrationError(
+                "Keep the main event. Add the sub-event instead of moving the main sign-up."
+            )
+        if dest != parent and not self._on_parent(guests, parent_id):
+            raise RegistrationError(
+                "Sign this person up for the main event before a sub-event."
+            )
         self._send(
             "PATCH",
             f"crca7_eventguests({guest_id})",

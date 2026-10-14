@@ -60,7 +60,12 @@ from utils.auth.portal_implicit import (
     verify_portal_id_token,
 )
 from utils.auth.groups import count_other_admins, set_user_groups
-from utils.registration.desk import HostedCheckout, RegistrationDesk, RegistrationError
+from utils.registration.desk import (
+    STATUS_PAID,
+    HostedCheckout,
+    RegistrationDesk,
+    RegistrationError,
+)
 from utils.registration.payments import HOSTED_FORM_URL, MissingMerchant, PaymentDeclined
 from utils.magazine.scheduler import AccessGroup
 from utils.auth.campaign_access import (
@@ -940,9 +945,16 @@ def list_users():
         flash('Access denied - Admin only', 'error')
         return redirect(url_for('home'))
     
+    _sync_coordinators_quietly()
     users = User.query.order_by(User.created_at.desc()).all()
     groups = AccessGroup.query.order_by(AccessGroup.name).all()
-    return render_template('users.html', users=users, groups=groups, features=FEATURES)
+    return render_template(
+        'users.html',
+        users=users,
+        groups=groups,
+        features=FEATURES,
+        days_before=_days_before_event(),
+    )
 
 @app.route('/users/create', methods=['GET', 'POST'])
 @login_required
@@ -1147,6 +1159,63 @@ def delete_user(user_id):
         db.session.rollback()
         logger.exception("Error deleting user")
         return jsonify({'error': str(e)}), 500
+
+def _sync_coordinators_quietly():
+    try:
+        from utils.auth.coordinator_sync import sync_event_coordinators
+        sync_event_coordinators(_registration_desk().crm)
+    except Exception:
+        db.session.rollback()
+        logger.exception("Could not sync event coordinators from Dynamics")
+
+
+with app.app_context():
+    _sync_coordinators_quietly()
+
+
+@app.route('/users/password-window', methods=['POST'])
+@login_required
+def update_password_window():
+    """Set how many days before an event coordinators may reset passwords."""
+    denied = _require_admin()
+    if denied:
+        return denied
+    from utils.magazine.scheduler import AppSetting
+    raw = (request.form.get("days_before") or "0").strip()
+    try:
+        days = max(0, int(raw))
+    except ValueError:
+        flash("Days before event must be a number", "error")
+        return redirect(url_for("list_users"))
+    row = AppSetting.query.get("password_reset_days_before")
+    if row is None:
+        row = AppSetting(key="password_reset_days_before", value=str(days))
+        db.session.add(row)
+    else:
+        row.value = str(days)
+    db.session.commit()
+    flash(f"Coordinators can reset passwords {days} day{'s' if days != 1 else ''} before the event.", "success")
+    return redirect(url_for("list_users"))
+
+
+@app.route("/registration/event-requirements", methods=["GET"])
+@login_required
+def registration_event_requirements():
+    """Questions and tables for the event chosen on the registration desk."""
+    campaign_id = (request.args.get("campaign_id") or "").strip()
+    event_id = (request.args.get("event_id") or "").strip()
+    if not campaign_id or not event_id:
+        return jsonify({"questions": [], "tables": []})
+    try:
+        desk = _registration_desk()
+        desk._require_event(current_user, campaign_id, event_id)
+        return jsonify(desk.event_requirements(event_id))
+    except CampaignAccessDenied as exc:
+        return jsonify({"error": exc.message}), 403
+    except Exception:
+        logger.exception("Could not load event questions")
+        return jsonify({"error": "Could not load questions for this event"}), 500
+
 
 def _require_admin():
     if not current_user.is_admin:
@@ -1367,6 +1436,13 @@ def _finish_pending_registration(trans_id):
                     pending["event_id"],
                     dynamics_id,
                 )
+        _save_signup_details(
+            desk,
+            pending.get("contact_ids") or [pending.get("contact_id") or ""],
+            pending["event_id"],
+            pending.get("answers") or [],
+            pending.get("table_id") or "",
+        )
     except (CampaignAccessDenied, RegistrationError) as exc:
         flash(
             f"The card was charged, but the sign-up was not updated: {exc}",
@@ -1439,6 +1515,18 @@ def _registration_page(campaign_id="", email="", first_name="", last_name="", no
         context["truncated"] = contacts.truncated
         for contact in contacts:
             contact["guests"] = desk.guests_for_contact(contact["id"], selected)
+            contact["on_parent"] = any(
+                guest.get("active")
+                and guest.get("status_code") == STATUS_PAID
+                and (guest.get("event_id") or "").strip().lower() == selected.lower()
+                for guest in contact["guests"]
+            )
+            contact["other_active_subs"] = any(
+                guest.get("active")
+                and guest.get("status_code") == STATUS_PAID
+                and (guest.get("event_id") or "").strip().lower() != selected.lower()
+                for guest in contact["guests"]
+            )
             contact["household"] = desk.household(contact["household_id"])
             for person in contact["household"]:
                 person["guests"] = desk.guests_for_contact(person["id"], selected)
@@ -1492,6 +1580,81 @@ def registration_desk_page():
     )
 
 
+def _days_before_event():
+    from utils.magazine.scheduler import AppSetting
+    row = AppSetting.query.get("password_reset_days_before")
+    try:
+        return max(0, int(row.value)) if row else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _password_reset_allowed(user):
+    """Admins always. Coordinators only inside the event date window."""
+    if getattr(user, "is_admin", False) or user.get_role() == User.ROLE_ADMIN:
+        return True, ""
+    if not user.is_event_coordinator():
+        return True, ""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from utils.auth.password_window import password_window_status
+    today = datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    try:
+        events = _registration_desk().campaign_date_bounds(user.allowed_campaign_ids())
+    except Exception:
+        logger.exception("Could not load coordinator event dates")
+        return False, "Event dates could not be loaded, so portal password is closed."
+    return password_window_status(today, _days_before_event(), events)
+
+
+def _guard_password_reset():
+    allowed, message = _password_reset_allowed(current_user)
+    if allowed:
+        return None
+    flash(message or "Portal password is closed.", "error")
+    return redirect(url_for("home"))
+
+
+def _signup_details_from_form(form):
+    answers = []
+    for key in form:
+        if not key.startswith("answer_"):
+            continue
+        answers.append({
+            "question_id": key[len("answer_"):],
+            "response": (form.get(key) or "").strip(),
+        })
+    return answers, (form.get("table_id") or "").strip()
+
+
+def _require_signup_details(desk, event_id, answers, table_id):
+    spec = desk.event_requirements(event_id)
+    by_id = {row["question_id"]: row["response"] for row in answers}
+    missing = [
+        row["question"] for row in spec["questions"] if not by_id.get(row["id"])
+    ]
+    if missing:
+        raise RegistrationError("Answer every question for this event.")
+    known_tables = {row["id"] for row in spec["tables"]}
+    if known_tables and not table_id:
+        raise RegistrationError("Choose a table for this event.")
+    if table_id and known_tables and table_id not in known_tables:
+        raise RegistrationError("That table is not on this event.")
+    return answers, table_id
+
+
+def _save_signup_details(desk, contact_ids, event_id, answers, table_id):
+    if not answers and not table_id:
+        return
+    try:
+        for contact_id in contact_ids:
+            if contact_id:
+                desk.save_signup_details(contact_id, event_id, answers, table_id)
+    except Exception:
+        logger.exception("Could not save event questions or seating")
+        flash("The sign-up was saved, but the questions or table were not.", "error")
+
+
 def _password_reset_page(email="", first_name="", last_name=""):
     address = (email or "").strip()
     first = (first_name or "").strip()
@@ -1524,6 +1687,9 @@ def _password_reset_page(email="", first_name="", last_name=""):
 @login_required
 def password_reset_page():
     """Set a my.afrp.org password for any contact."""
+    denied = _guard_password_reset()
+    if denied:
+        return denied
     email, first_name, last_name = _contact_search_from(request.args)
     return _password_reset_page(email, first_name, last_name)
 
@@ -1531,6 +1697,9 @@ def password_reset_page():
 @app.route("/password-reset", methods=["POST"])
 @login_required
 def password_reset_save():
+    denied = _guard_password_reset()
+    if denied:
+        return denied
     email, first_name, last_name = _contact_search_from(request.form)
     contact_id = (request.form.get("contact_id") or "").strip()
     password = request.form.get("password") or ""
@@ -1573,8 +1742,10 @@ def registration_add():
     if not contact_ids or not event_id:
         flash("Choose an event and a customer", "error")
         return _registration_page(campaign_id, email, first_name, last_name)
+    answers, table_id = _signup_details_from_form(request.form)
     transaction_id = None
     try:
+        answers, table_id = _require_signup_details(desk, event_id, answers, table_id)
         quote = desk.quote_for_add(campaign_id, event_id, len(contact_ids))
         payment = _collect_registration_payment(
             desk,
@@ -1589,6 +1760,8 @@ def registration_add():
                 "last_name": last_name,
                 "event_id": event_id,
                 "contact_ids": contact_ids,
+                "answers": answers,
+                "table_id": table_id,
             },
         )
         if isinstance(payment, HostedCheckout):
@@ -1606,6 +1779,7 @@ def registration_add():
                 contact_id,
                 event_id,
             )
+        _save_signup_details(desk, contact_ids, event_id, answers, table_id)
     except (CampaignAccessDenied, RegistrationError, MissingMerchant, PaymentDeclined) as exc:
         if transaction_id:
             flash(f"The card was charged, but the sign-up was not updated: {exc}", "error")
@@ -1639,7 +1813,12 @@ def registration_move():
     event_id = (request.form.get("event_id") or "").strip()
     skip = request.form.get("skip_payment") == "on"
     desk = _registration_desk()
+    answers, table_id = _signup_details_from_form(request.form)
+    if not guest_id or not event_id:
+        flash("Choose the sign-up to change", "error")
+        return _registration_page(campaign_id, email, first_name, last_name)
     try:
+        answers, table_id = _require_signup_details(desk, event_id, answers, table_id)
         guest = desk._guest(guest_id)
         quote = desk.quote_for_move(
             campaign_id, guest.get("_crca7_event_value") or "", event_id
@@ -1658,11 +1837,20 @@ def registration_move():
                 "event_id": event_id,
                 "guest_id": guest_id,
                 "contact_id": guest.get("_crca7_existingcontact_value") or "",
+                "answers": answers,
+                "table_id": table_id,
             },
         )
         if isinstance(payment, HostedCheckout):
             return _hosted_payment_page(payment)
         desk.move_guest(current_user, guest_id, campaign_id, event_id)
+        _save_signup_details(
+            desk,
+            [guest.get("_crca7_existingcontact_value") or ""],
+            event_id,
+            answers,
+            table_id,
+        )
         logger.info(
             "Staff %s moved guest %s to event %s",
             current_user.username,
@@ -1724,9 +1912,15 @@ def registration_remove():
 @login_required
 def home():
     # This route displays the home page with tiles
+    _sync_coordinators_quietly()
+    features = list(current_user.allowed_features())
+    if "password_reset" in features:
+        allowed, _message = _password_reset_allowed(current_user)
+        if not allowed:
+            features = [feature for feature in features if feature != "password_reset"]
     return render_template(
         'home.html',
-        allowed_features=current_user.allowed_features(),
+        allowed_features=features,
         features=FEATURES,
     )
 

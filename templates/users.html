@@ -296,7 +296,15 @@
             <div class="card-header">
                 <h2><i class="fas fa-users"></i> Access groups</h2>
             </div>
-            <p class="group-help">People in a group share its permissions. An event coordinator group is tied to one event.</p>
+            <p class="group-help">People in a group share its permissions. An event coordinator group is tied to one event. Coordinators listed on the event in Dynamics are added here automatically.</p>
+            <form method="POST" action="{{ url_for('update_password_window') }}" class="group-create">
+                <div>
+                    <label for="daysBefore">Days before event</label>
+                    <input id="daysBefore" type="number" name="days_before" min="0" value="{{ days_before|default(0) }}" style="min-width:120px;max-width:140px;">
+                </div>
+                <button type="submit" class="btn btn-primary">Save</button>
+                <p class="group-help" style="flex-basis:100%;margin:0;">Coordinators can set a portal password from this many days before their event starts until it ends. 0 means the event dates only. Administrators are not limited.</p>
+            </form>
             <form method="POST" action="{{ url_for('create_access_group') }}" id="createGroupForm" class="group-create">
                 <div>
                     <label for="groupName">Name</label>

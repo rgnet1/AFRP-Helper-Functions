@@ -530,6 +530,14 @@ class AccessGroupMember(db.Model):
     __table_args__ = (db.UniqueConstraint('user_id', 'group_id', name='uq_access_group_member'),)
 
 
+class AppSetting(db.Model):
+    """Small key/value settings edited by administrators."""
+    __tablename__ = 'app_setting'
+
+    key = db.Column(db.String(80), primary_key=True)
+    value = db.Column(db.String(255), nullable=False, default='')
+
+
 class ScheduleManager:
     def __init__(self, app=None):
         self.app = None

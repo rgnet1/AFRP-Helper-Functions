@@ -188,12 +188,15 @@
                                 {% if guest.event_id != campaign_id %}
                                 <option value="{{ campaign_id }}">{{ parent_name }}</option>
                                 {% endif %}
+                                {% if guest.event_id != campaign_id or not contact.other_active_subs %}
                                 {% for sub in sub_events %}
-                                {% if sub.id != guest.event_id %}
+                                {% if sub.id != guest.event_id and guest.event_id != campaign_id %}
                                 <option value="{{ sub.id }}">{{ sub.name }}</option>
                                 {% endif %}
                                 {% endfor %}
+                                {% endif %}
                             </select>
+                            <div class="requirements"></div>
                             <label class="check"><input type="checkbox" name="skip_payment" class="skip"> Do not charge</label>
                             <button class="primary save-change" type="submit" disabled>Save change</button>
                         </form>
@@ -228,11 +231,15 @@
                     <input type="hidden" name="household_ids" value="{{ contact.household_ids }}">
                     <select name="event_id" class="add-dest" required aria-label="Sign up for another event">
                         <option value="">Sign up for another event…</option>
+                        {% if not contact.on_parent %}
                         <option value="{{ campaign_id }}">{{ parent_name }}</option>
+                        {% else %}
                         {% for sub in sub_events %}
                         <option value="{{ sub.id }}">{{ sub.name }}</option>
                         {% endfor %}
+                        {% endif %}
                     </select>
+                    <div class="requirements"></div>
                     <label class="check"><input type="checkbox" name="skip_payment" class="skip-add"> Do not charge</label>
                     <button class="primary add-button" type="submit">Add this event</button>
                     {% if contact.household|length > 1 %}
@@ -349,6 +356,70 @@
     {% endif %}
 </div>
 <script>
+function renderRequirements(box, data) {
+    box.innerHTML = "";
+    (data.questions || []).forEach(function (question) {
+        var wrap = document.createElement("div");
+        var label = document.createElement("label");
+        label.className = "field";
+        label.textContent = question.question;
+        wrap.appendChild(label);
+        var input;
+        if (question.choices && question.choices.length) {
+            input = document.createElement("select");
+            input.innerHTML = '<option value="">Choose…</option>';
+            question.choices.forEach(function (choice) {
+                var option = document.createElement("option");
+                option.value = choice;
+                option.textContent = choice;
+                input.appendChild(option);
+            });
+        } else {
+            input = document.createElement(question.multiline ? "textarea" : "input");
+            if (!question.multiline) input.type = "text";
+        }
+        input.name = "answer_" + question.id;
+        input.required = true;
+        wrap.appendChild(input);
+        box.appendChild(wrap);
+    });
+    if ((data.tables || []).length) {
+        var wrap = document.createElement("div");
+        var label = document.createElement("label");
+        label.className = "field";
+        label.textContent = "Table";
+        wrap.appendChild(label);
+        var select = document.createElement("select");
+        select.name = "table_id";
+        select.required = true;
+        select.innerHTML = '<option value="">Choose a table…</option>';
+        data.tables.forEach(function (table) {
+            var option = document.createElement("option");
+            option.value = table.id;
+            option.textContent = table.name + (table.open_seats === null ? "" : " · " + table.open_seats + " open");
+            select.appendChild(option);
+        });
+        wrap.appendChild(select);
+        box.appendChild(wrap);
+    }
+}
+function loadRequirements(form, eventId) {
+    var box = form.querySelector(".requirements");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!eventId) return;
+    var campaign = document.getElementById("campaign_id");
+    var campaignId = campaign ? campaign.value : "";
+    fetch("{{ url_for('registration_event_requirements') }}?campaign_id=" + encodeURIComponent(campaignId) + "&event_id=" + encodeURIComponent(eventId))
+        .then(function (response) { return response.json(); })
+        .then(function (data) { renderRequirements(box, data || {}); })
+        .catch(function () { box.textContent = "Could not load questions for this event."; });
+}
+document.querySelectorAll("form.change").forEach(function (form) {
+    var select = form.querySelector(".dest, .add-dest");
+    if (!select) return;
+    select.addEventListener("change", function () { loadRequirements(form, select.value); });
+});
 document.getElementById("lookup-form").addEventListener("submit", function (event) {
     var email = document.getElementById("email").value.trim();
     var first = document.getElementById("first_name").value.trim();

@@ -79,7 +79,13 @@ class DeskAccessTests(unittest.TestCase):
         self.assertTrue(crm._make_request.called or True)
 
     def test_add_posts_paid_guest_without_transaction(self):
-        desk, crm = self._desk(guests=[])
+        desk, crm = self._desk(guests=[{
+            "crca7_eventguestid": "g-parent",
+            "statuscode": STATUS_PAID,
+            "statecode": 0,
+            "_crca7_event_value": PARENT,
+            "_aha_transaction_value": None,
+        }])
         with patch("utils.registration.desk.requests.request") as request:
             response = MagicMock()
             response.status_code = 204
@@ -141,6 +147,28 @@ class DeskAccessTests(unittest.TestCase):
         self.assertIn("contains%28lastname%2C%27Ghanaim%27%29", endpoint)
         self.assertNotIn("emailaddress1%20eq", endpoint)
         self.assertEqual(len(matches), 1)
+
+    def test_sub_event_requires_the_main_event(self):
+        desk, crm = self._desk()
+        crm._make_request.side_effect = [
+            {"value": []},
+            {"aha_proposedstart": "2026-07-01T00:00:00Z"},
+            {"value": [{"msnfp_membershipid": "member"}]},
+        ]
+        with self.assertRaises(RegistrationError) as caught:
+            desk.add_guest(_user(False), CONTACT, PARENT, SUB)
+        self.assertIn("main event", str(caught.exception))
+
+    def test_first_signup_requires_paid_membership(self):
+        desk, crm = self._desk()
+        crm._make_request.side_effect = [
+            {"value": []},
+            {"aha_proposedstart": "2026-07-01T00:00:00Z"},
+            {"value": []},
+        ]
+        with self.assertRaises(RegistrationError) as caught:
+            desk.add_guest(_user(False), CONTACT, PARENT, PARENT)
+        self.assertIn("membership", str(caught.exception).lower())
 
     def test_blank_lookup_is_rejected(self):
         desk, _crm = self._desk()
