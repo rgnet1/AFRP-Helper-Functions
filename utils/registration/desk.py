@@ -117,10 +117,11 @@ class RegistrationDesk:
         normalized = (email or "").strip().lower()
         if not normalized or "@" not in normalized:
             raise RegistrationError("Enter a full email address")
+        filt = f"emailaddress1 eq '{_quote(normalized)}'"
         rows = self.crm._make_request(
             "contacts?$select=contactid,fullname,emailaddress1,aha_memberid,"
             "_aha_householdid_value,adx_identity_passwordhash,adx_identity_username"
-            f"&$filter=emailaddress1 eq '{_quote(normalized)}'&$top=10"
+            f"&$filter={url_quote(filt)}&$top=10"
         ).get("value") or []
         matches = []
         for row in rows:

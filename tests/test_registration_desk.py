@@ -97,6 +97,24 @@ class DeskAccessTests(unittest.TestCase):
         body = request.call_args.kwargs["json"]
         self.assertEqual(set(body), {"crca7_Event@odata.bind"})
 
+    def test_plus_in_email_is_encoded_in_the_filter(self):
+        desk, crm = self._desk()
+        crm._make_request.side_effect = [
+            {
+                "value": [{
+                    "contactid": CONTACT,
+                    "emailaddress1": "rgnet1+test@gmail.com",
+                    "fullname": "Test",
+                }]
+            },
+            {"value": []},
+        ]
+        matches = desk.find_contacts("rgnet1+test@gmail.com")
+        endpoint = crm._make_request.call_args_list[0].args[0]
+        self.assertIn("rgnet1%2Btest%40gmail.com", endpoint)
+        self.assertNotIn("rgnet1+test", endpoint)
+        self.assertEqual(matches[0]["email"], "rgnet1+test@gmail.com")
+
     def test_remove_marks_inactive(self):
         desk, _crm = self._desk()
         desk._guest = MagicMock(return_value={"_crca7_event_value": SUB})
