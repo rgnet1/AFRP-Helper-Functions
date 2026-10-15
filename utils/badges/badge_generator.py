@@ -42,6 +42,7 @@ from utils.badges.display_name import build_display_name, normalize_display_name
 from utils.badges.meal_options import (
     apply_meal_preference_mapping,
     build_meal_preference_value,
+    is_banquet_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,8 @@ CLUB_LOGO_PLACEHOLDER = "{{CLUB_LOGO}}"
 AFRP_LOGO_PLACEHOLDER = "{{AFRP_LOGO}}"
 QR_CODE_PLACEHOLDER = "{{QR_CODE}}"
 DISPLAY_NAME_PLACEHOLDER = "{{DISPLAY_NAME}}"
+TABLE_NUMBER_PLACEHOLDER = "{{TABLE_NUMBER}}"
+_TABLE_COLUMN_SUFFIX = " ~ Table"
 FIELD_VISIBILITY_KEY = "_field_visibility"
 MAX_STAGED_LOGO_EDGE = 512
 IMAGE_TAG_RE = re.compile(r"<image\b[^>]*/?>", re.IGNORECASE | re.DOTALL)
@@ -644,6 +647,77 @@ def _is_field_enabled(
     return True
 
 
+def _table_columns(columns) -> list[str]:
+    return [str(col) for col in columns if str(col).endswith(_TABLE_COLUMN_SUFFIX)]
+
+
+def _prefer_banquet_table_column(table_columns: list[str]) -> str:
+    banquet = [
+        col for col in table_columns
+        if is_banquet_event(col[: -len(_TABLE_COLUMN_SUFFIX)])
+    ]
+    if len(banquet) == 1:
+        return banquet[0]
+    if len(table_columns) == 1:
+        return table_columns[0]
+    if banquet:
+        return banquet[0]
+    return ""
+
+
+def retarget_table_mapping(column_mappings: dict, columns) -> dict:
+    """Point {{TABLE_NUMBER}} at this campaign's banquet table column.
+
+    Saved templates keep a previous convention's name, such as
+    ``Grand Banquet ~ Table``. A later event stores the number on
+    ``Phoenix Grand Banquet ~ Table``.
+    """
+    mapped = column_mappings.get(TABLE_NUMBER_PLACEHOLDER)
+    if not mapped or isinstance(mapped, list):
+        return column_mappings
+    available = {str(col) for col in columns}
+    if mapped in available:
+        return column_mappings
+    chosen = _prefer_banquet_table_column(_table_columns(available))
+    if not chosen:
+        return column_mappings
+    updated = dict(column_mappings)
+    updated[TABLE_NUMBER_PLACEHOLDER] = chosen
+    logger.info(
+        "Table column %r is not in this campaign; using %r",
+        mapped,
+        chosen,
+    )
+    return updated
+
+
+def _table_number_for_row(row: dict, mapped_column: str) -> str:
+    """Use the mapped table column, or the banquet table this person has."""
+    direct = ""
+    if mapped_column and not isinstance(mapped_column, list):
+        direct = _clean_optional_name_part(_row_value_str(row, mapped_column))
+    if direct:
+        return direct
+    populated = []
+    for name in _table_columns(row):
+        value = _clean_optional_name_part(_row_value_str(row, name))
+        if not value:
+            continue
+        event = name[: -len(_TABLE_COLUMN_SUFFIX)]
+        populated.append((0 if is_banquet_event(event) else 1, name, value))
+    if not populated:
+        return ""
+    populated.sort(key=lambda item: item[0])
+    pool = [item for item in populated if item[0] == 0] or populated
+    if len(pool) == 1:
+        return pool[0][2]
+    for _, name, value in pool:
+        event = name[: -len(_TABLE_COLUMN_SUFFIX)]
+        if _clean_optional_name_part(_row_value_str(row, event)):
+            return value
+    return pool[0][2]
+
+
 def _mapped_row_value(row: dict, column_mappings: dict, placeholder: str, default_column: str) -> str:
     column = column_mappings.get(placeholder, default_column)
     if isinstance(column, list):
@@ -707,6 +781,8 @@ def _apply_column_mappings(
                     event_name = col.split(" ~ ")[-1] if " ~ " in col else col
                     sub_events.append(event_name)
             value = "\n".join(sub_events)
+        elif placeholder == TABLE_NUMBER_PLACEHOLDER:
+            value = _table_number_for_row(row, column_name)
         else:
             value = _row_value_str(row, column_name)
         if placeholder == "{{MEAL_PREFERENCE}}":
@@ -914,6 +990,7 @@ class BadgeGenerator:
         logger.info(f"Loading Excel file: {excel_file}")
         self.df = pd.read_excel(excel_file)
         logger.info(f"Loaded {len(self.df)} rows from Excel")
+        self.column_mappings = retarget_table_mapping(self.column_mappings, self.df.columns)
         
         # Validate template exists
         if self.avery_template not in self.AVERY_TEMPLATES:

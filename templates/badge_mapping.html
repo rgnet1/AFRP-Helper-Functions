@@ -1383,7 +1383,7 @@
             await loadAveryTemplates();
             loadBackgrounds();
             await loadSavedTemplates();
-            loadSampleExcelColumns();
+            await loadSampleExcelColumns();
             setupUploadAreas();
             setupEventListeners();
             setupMarginControls();
@@ -1630,7 +1630,9 @@
             };
             if (exact[ph]) return exact[ph];
             if (ph === '{{TABLE_NUMBER}}') {
-                return sampleExcelColumns.find(col => /table/i.test(col)) || '';
+                const tables = sampleExcelColumns.filter(col => / ~ Table$/.test(col));
+                const banquet = tables.find(col => /banquet|ballroom/i.test(col));
+                return banquet || tables[0] || sampleExcelColumns.find(col => /table/i.test(col)) || '';
             }
             return '';
         }
@@ -3468,7 +3470,14 @@
             regularPlaceholders.forEach(placeholder => {
                 if (systemPlaceholders.has(placeholder)) return; // Skip system placeholders
                 
-                const savedValue = savedMappings[placeholder];
+                let savedValue = savedMappings[placeholder];
+                if (
+                    placeholder === '{{TABLE_NUMBER}}'
+                    && savedValue
+                    && !sampleExcelColumns.includes(savedValue)
+                ) {
+                    savedValue = defaultColumnForPlaceholder(placeholder) || savedValue;
+                }
                 console.log(`Rendering ${placeholder}, savedValue:`, savedValue);
                 html += `
                     <div class="placeholder-item">
@@ -3864,10 +3873,37 @@
             }
         }
 
-        function loadSampleExcelColumns() {
-            // For now, use default columns
-            // In a real app, you might fetch these from a sample file
-            sampleExcelColumns = defaultExcelColumns;
+        function campaignIdForColumns() {
+            const fromQuery = new URLSearchParams(window.location.search).get('campaign_id');
+            if (fromQuery) return fromQuery;
+            try {
+                const cached = JSON.parse(localStorage.getItem('badgeGenerator_preferences') || '{}');
+                return cached.campaignId || '';
+            } catch (error) {
+                return '';
+            }
+        }
+
+        function columnsForSubEvents(events) {
+            const names = events.map(event => event.name).filter(Boolean);
+            const identity = defaultExcelColumns.filter(col => !/table|banquet|convention|meeting|ahla|sub-event|custom event/i.test(col));
+            return identity.concat(names, names.map(name => `${name} ~ Table`));
+        }
+
+        async function loadSampleExcelColumns() {
+            sampleExcelColumns = defaultExcelColumns.slice();
+            const campaignId = campaignIdForColumns();
+            if (!campaignId) return;
+            try {
+                const response = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/sub-events`);
+                if (!response.ok) return;
+                const data = await response.json();
+                const events = data.sub_events || [];
+                if (!events.length) return;
+                sampleExcelColumns = columnsForSubEvents(events);
+            } catch (error) {
+                console.error('Error loading campaign columns:', error);
+            }
         }
 
         function showToast(message, type = 'success') {

@@ -15,6 +15,7 @@ from utils.badges.badge_generator import (
     _is_field_enabled,
     _replace_qr_placeholder,
     _strip_remaining_placeholders,
+    retarget_table_mapping,
 )
 
 SAMPLE_ROW = {
@@ -218,6 +219,31 @@ class BadgeFieldVisibilityTests(unittest.TestCase):
         self.assertFalse(
             _is_field_enabled(QR_CODE_PLACEHOLDER, mappings_no_qr, None)
         )
+
+    def test_table_mapping_follows_this_campaign_banquet(self):
+        columns = [
+            "First Name",
+            "Phoenix Grand Banquet",
+            "Phoenix Grand Banquet ~ Table",
+            "First Annual Golf Outing ~ Table",
+        ]
+        mappings = {"{{TABLE_NUMBER}}": "Grand Banquet ~ Table"}
+        retargeted = retarget_table_mapping(mappings, columns)
+        self.assertEqual(
+            retargeted["{{TABLE_NUMBER}}"],
+            "Phoenix Grand Banquet ~ Table",
+        )
+        row = {
+            "Phoenix Grand Banquet": "yes",
+            "Phoenix Grand Banquet ~ Table": "40",
+            "First Annual Golf Outing ~ Table": "2",
+        }
+        rendered = _apply_column_mappings(
+            "<svg><text>{{TABLE_NUMBER}}</text></svg>",
+            row,
+            mappings,
+        )
+        self.assertIn(">40<", rendered)
 
 
 if __name__ == "__main__":

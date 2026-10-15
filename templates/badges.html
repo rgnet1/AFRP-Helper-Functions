@@ -1020,7 +1020,11 @@
                 saveToCache();
                 if (templateId) {
                     e.preventDefault();
-                    window.location.href = `/badge-mapping?template_id=${encodeURIComponent(templateId)}`;
+                    const params = new URLSearchParams();
+                    params.set('template_id', templateId);
+                    const campaignId = document.getElementById('campaignSelect').value;
+                    if (campaignId) params.set('campaign_id', campaignId);
+                    window.location.href = `/badge-mapping?${params.toString()}`;
                 }
             });
             document.getElementById('generateBadgesBtn').addEventListener('click', generateBadges);
