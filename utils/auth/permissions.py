@@ -35,6 +35,11 @@ FEATURES = {
         "assignable": False,
         "path_prefixes": ["/seating", "/api/seating"],
     },
+    "membership": {
+        "label": "Membership",
+        "home_tile": True,
+        "path_prefixes": ["/membership"],
+    },
     "badges": {
         "label": "Badge Generator",
         "home_tile": True,
@@ -60,6 +65,7 @@ COORDINATOR_FEATURES = (
     "password_reset",
     "seating",
     "badges",
+    "membership",
 )
 
 ALL_FEATURES_BACKFILL = json.dumps({fid: True for fid in FEATURES})

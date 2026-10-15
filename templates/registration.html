@@ -167,6 +167,9 @@
         <div class="person-head">
             <div>
                 <h2>{{ contact.name or contact.email }}</h2>
+                {% if contact.needs_membership %}
+                <p class="note"><a href="{{ url_for('membership_page', contact_id=contact.id, campaign_id=campaign_id, year=membership_year, email=contact.email) }}">Buy a {{ membership_year }} membership</a> for this household before signing up. This event requires a paid AFRP membership.</p>
+                {% endif %}
                 <div class="meta">{{ contact.email }}{% if contact.member_id %} · {{ contact.member_id }}{% endif %}
                     · Password {{ 'on file' if contact.has_local_password else 'not set' }}
                     · Google {{ 'linked' if contact.google_sign_in else 'not linked' }}

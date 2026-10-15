@@ -162,13 +162,20 @@ class DeskAccessTests(unittest.TestCase):
 
     def test_first_signup_requires_paid_membership(self):
         desk, crm = self._desk()
-        crm._make_request.side_effect = [
-            {"value": []},
-            {"aha_proposedstart": "2026-07-01T00:00:00Z"},
-            {"value": []},
-        ]
-        with self.assertRaises(RegistrationError) as caught:
-            desk.add_guest(_user(False), CONTACT, PARENT, PARENT)
+        crm._make_request.return_value = {"value": []}
+        with patch("utils.registration.desk.event_requirements", return_value={
+            "name": "Convention",
+            "membership_required": True,
+            "age_restricted": False,
+            "min_age": None,
+            "max_age": None,
+        }), patch("utils.registration.desk.load_household", return_value=[
+            {"id": CONTACT, "age": 40},
+        ]), patch("utils.registration.desk.person_is_covered", return_value=False), patch.object(
+            desk, "convention_year", return_value=2026
+        ):
+            with self.assertRaises(RegistrationError) as caught:
+                desk.add_guest(_user(False), CONTACT, PARENT, PARENT)
         self.assertIn("membership", str(caught.exception).lower())
 
     def test_preference_forms_include_saved_answers(self):

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Membership - AFRP CRM Helper</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        :root { --green: #3d7a3d; --ink: #1c241c; --muted: #5c6b5c; --line: #e2e8e2; --paper: #f4f7f4; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Georgia, Palatino, serif; background: var(--paper); color: var(--ink); }
+        .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 64px; }
+        .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+        h2 { margin: 0 0 8px; font-weight: normal; font-size: 22px; }
+        label.field { display: block; font-family: Arial, sans-serif; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 12px 0 6px; }
+        input, select { font-family: Arial, sans-serif; font-size: 15px; padding: 10px 12px; border: 1px solid #c9d4c9; border-radius: 8px; }
+        button { font-family: Arial, sans-serif; background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+        .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .meta { font-family: Arial, sans-serif; font-size: 13px; color: var(--muted); }
+        .flash { font-family: Arial, sans-serif; font-size: 14px; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+        .ok { background: #e7f3e7; color: #245124; }
+        .err { background: #fbeaea; color: #6d2a2a; }
+        .person { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-family: Arial, sans-serif; font-size: 14px; }
+        .level { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); font-family: Arial, sans-serif; }
+        .level small { display: block; color: var(--muted); margin-top: 4px; }
+        .blocked { opacity: 0.55; }
+        .cover-note { color: #5c5132; font-weight: 600; }
+        .cover-confirm { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; }
+        .summary-line { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-family: Arial, sans-serif; font-size: 14px; }
+        .summary-total { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font-family: Arial, sans-serif; font-size: 18px; }
+        a.pick { color: var(--green); font-family: Arial, sans-serif; }
+        .crm-loading { position: fixed; inset: 0; background: rgba(244, 247, 244, 0.82); display: none; align-items: center; justify-content: center; z-index: 20; }
+        .crm-loading.show { display: flex; }
+        .crm-loading div { font-family: Arial, sans-serif; text-align: center; color: var(--ink); }
+        .spinner { width: 36px; height: 36px; margin: 0 auto 10px; border: 3px solid #d5e0d5; border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
+</head>
+<body>
+{% set page_title = "Membership" %}
+{% include "_app_header.html" %}
+<div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash {{ 'err' if category == 'error' else 'ok' }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <div class="card">
+        <form method="GET" action="{{ url_for('membership_page') }}" class="row">
+            {% include "_contact_lookup_fields.html" %}
+            <input type="hidden" name="campaign_id" value="{{ campaign_id or '' }}">
+            <div>
+                <label class="field" for="lookup-year">Membership year</label>
+                <select id="lookup-year" name="year" onchange="this.form.submit()">
+                    {% for option in year_choices %}
+                    <option value="{{ option }}" {% if option|string == year|string %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit">Look up</button>
+        </form>
+        <p class="meta">Search for the person who is buying the membership. The household, spouse, and children under 18 come from Dynamics.</p>
+    </div>
+
+    {% if searched and not contact_id %}
+        {% for contact in contacts %}
+        <div class="card">
+            <a class="pick" href="{{ url_for('membership_page', contact_id=contact.id, year=year, campaign_id=campaign_id, email=contact.email) }}">{{ contact.name or contact.email }}</a>
+            <p class="meta">{{ contact.email }}{% if contact.member_id %} · {{ contact.member_id }}{% endif %}</p>
+        </div>
+        {% else %}
+        <div class="card"><p>No contact matches.</p></div>
+        {% endfor %}
+    {% endif %}
+
+    {% if self_person %}
+    <div class="card">
+        <h2>{{ self_person.name }}</h2>
+        <form method="GET" action="{{ url_for('membership_page') }}" class="row">
+            <input type="hidden" name="contact_id" value="{{ self_person.id }}">
+            <input type="hidden" name="campaign_id" value="{{ campaign_id or '' }}">
+            <input type="hidden" name="email" value="{{ email or self_person.email }}">
+            <div>
+                <label class="field" for="coverage-year">Membership year</label>
+                <select id="coverage-year" name="year" onchange="this.form.submit()">
+                    {% for option in year_choices %}
+                    <option value="{{ option }}" {% if option|string == year|string %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </form>
+        <p class="meta">Step 1. Choose who to buy for. From October, next year can be purchased too.</p>
+        <form method="GET" action="{{ url_for('membership_page') }}">
+            <input type="hidden" name="contact_id" value="{{ self_person.id }}">
+            <input type="hidden" name="campaign_id" value="{{ campaign_id or '' }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="email" value="{{ email or self_person.email }}">
+            {% for person in household %}
+            <label class="person">
+                <span>
+                    <input type="checkbox" name="buyer" value="{{ person.id }}"
+                        {% if person.covered %}disabled{% elif not selected_ids and person.id == self_person.id %}checked{% elif person.id in selected_ids %}checked{% endif %}>
+                    {{ person.name }}{% if person.id == self_person.id %} · opened from this person{% endif %}
+                </span>
+                <span class="meta">{{ person.relationship or 'role not set' }}{% if person.age is not none %} · {{ person.age }}{% else %} · age missing{% endif %}{% if person.covered %} · already covered for {{ year }}{% endif %}</span>
+            </label>
+            {% endfor %}
+            <div style="margin-top:12px;"><button type="submit">Choose memberships</button></div>
+        </form>
+    </div>
+
+    {% if plans %}
+    <div class="card">
+        <h2>Step 2. Cheapest membership they qualify for</h2>
+        <form id="membership-purchase" method="POST" action="{{ url_for('membership_purchase') }}">
+            <input type="hidden" name="contact_id" value="{{ self_person.id }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="campaign_id" value="{{ campaign_id or '' }}">
+            <input type="hidden" name="email" value="{{ email or self_person.email }}">
+            {% for plan in plans %}
+            {% set names = plan.people|map(attribute='name')|list %}
+            <div class="level">
+                <input type="hidden" name="plan_contact" value="{{ plan.people[0].id }}">
+                <label class="field" for="plan-{{ loop.index }}">{{ plan.hint }}</label>
+                {% if plan.locked %}
+                <input type="hidden" name="plan_category" value="{{ plan.category_id }}" data-cost="{{ plan.cost or 0 }}" data-label="{{ plan.recommended }}">
+                <p>{{ plan.recommended }}</p>
+                {% else %}
+                <select id="plan-{{ loop.index }}" name="plan_category" class="plan-choice">
+                    {% for option in plan.options %}
+                    <option value="{{ option.id }}" data-cost="{{ option.cost or 0 }}" data-label="{{ option.name }}" {% if option.id == plan.category_id %}selected{% endif %}>
+                        {{ option.name }} · ${{ '%.2f'|format(option.cost or 0) }}{% if option.name == plan.recommended %} · recommended{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                <small class="cover-note">This will only apply to {{ names|join(', ') }}.</small>
+            </div>
+            {% endfor %}
+            <h2 style="margin-top:22px;">Step 3. Summary</h2>
+            <div id="summary-lines"></div>
+            <div class="summary-total"><span>Total to charge</span><span id="summary-total">$0.00</span></div>
+            <label class="note cover-confirm">
+                <input type="checkbox" name="confirm_cover" value="1" required>
+                I understand each membership above applies only to the people named on it.
+            </label>
+            <label class="meta"><input type="checkbox" name="skip_payment"> Do not charge</label>
+            <div style="margin-top:12px;"><button type="submit">Purchase membership</button></div>
+        </form>
+    </div>
+    <script>
+    (function () {
+        var form = document.getElementById("membership-purchase");
+        if (!form) return;
+        var lines = document.getElementById("summary-lines");
+        var total = document.getElementById("summary-total");
+        var skip = form.querySelector("input[name='skip_payment']");
+        function money(value) {
+            return "$" + Number(value || 0).toFixed(2);
+        }
+        function refresh() {
+            var amount = 0;
+            var html = "";
+            form.querySelectorAll("[name='plan_category']").forEach(function (field) {
+                var cost = 0;
+                var label = "";
+                if (field.tagName === "SELECT") {
+                    var option = field.options[field.selectedIndex];
+                    cost = Number(option.getAttribute("data-cost") || 0);
+                    label = option.getAttribute("data-label") || option.text;
+                } else {
+                    cost = Number(field.getAttribute("data-cost") || 0);
+                    label = field.getAttribute("data-label") || "";
+                }
+                var note = field.closest(".level").querySelector(".cover-note");
+                html += '<div class="summary-line"><span>' + label + (note ? " · " + note.textContent.replace("This will only apply to ", "") : "") + '</span><span>' + money(cost) + '</span></div>';
+                amount += cost;
+            });
+            if (skip && skip.checked) amount = 0;
+            lines.innerHTML = html;
+            total.textContent = money(amount);
+        }
+        form.querySelectorAll(".plan-choice, input[name='skip_payment']").forEach(function (field) {
+            field.addEventListener("change", refresh);
+        });
+        refresh();
+    })();
+    </script>
+    {% endif %}
+    {% endif %}
+</div>
+<div id="crm-loading" class="crm-loading" aria-live="polite">
+    <div><div class="spinner"></div>Loading from Dynamics…</div>
+</div>
+<script>
+(function () {
+    var panel = document.getElementById("crm-loading");
+    function showLoading() { panel.classList.add("show"); }
+    document.querySelectorAll("form").forEach(function (form) {
+        form.addEventListener("submit", showLoading);
+    });
+    document.querySelectorAll("a.pick").forEach(function (link) {
+        link.addEventListener("click", showLoading);
+    });
+})();
+</script>
+{% include "_app_footer.html" %}
+</body>
+</html>

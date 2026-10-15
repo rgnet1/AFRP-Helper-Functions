@@ -67,7 +67,23 @@ from utils.registration.desk import (
     RegistrationDesk,
     RegistrationError,
 )
-from utils.registration.payments import HOSTED_FORM_URL, MissingMerchant, PaymentDeclined
+from utils.registration.membership import (
+    cover_list,
+    event_requirements,
+    load_categories,
+    load_household,
+    membership_years,
+    person_is_covered,
+    recommend_purchases,
+)
+from utils.registration.payments import (
+    HOSTED_FORM_URL,
+    ChargeQuote,
+    MissingMerchant,
+    PaymentDeclined,
+    default_profile_ref,
+    money as money_cost,
+)
 from utils.magazine.scheduler import AccessGroup
 from utils.auth.campaign_access import (
     CampaignAccessDenied,
@@ -1685,7 +1701,7 @@ def create_access_group():
         group.assigned_campaign_id = campaign_id
         group.assigned_campaign_name = campaign_name or campaign_id
         group.set_feature_permissions(
-            {fid: fid in ('badges', 'registration', 'password_reset') for fid in FEATURES}
+            {fid: fid in ('badges', 'registration', 'password_reset', 'seating', 'membership') for fid in FEATURES}
         )
     elif role == User.ROLE_ADMIN:
         group.assigned_campaign_id = None
@@ -1799,11 +1815,22 @@ def _collect_registration_payment(desk, contact_id, quote, skip, pending):
         quote,
         skip_payment=False,
         return_url=url_for("registration_payment_done", _external=True),
-        cancel_url=url_for(
-            "registration_desk_page",
-            campaign_id=pending.get("campaign_id", ""),
-            email=pending.get("email", ""),
-            _external=True,
+        cancel_url=(
+            url_for(
+                "membership_page",
+                contact_id=pending.get("contact_id", ""),
+                year=pending.get("year", ""),
+                campaign_id=pending.get("campaign_id", ""),
+                email=pending.get("email", ""),
+                _external=True,
+            )
+            if pending.get("action") == "membership"
+            else url_for(
+                "registration_desk_page",
+                campaign_id=pending.get("campaign_id", ""),
+                email=pending.get("email", ""),
+                _external=True,
+            )
         ),
         communicator_url=url_for("registration_communicator", _external=True),
     )
@@ -1834,17 +1861,27 @@ def _collect_registration_payment(desk, contact_id, quote, skip, pending):
 
 def _hosted_payment_page(checkout):
     pending = session.get("pending_registration") or {}
-    return render_template(
-        "registration_pay.html",
-        token=checkout.token,
-        form_url=HOSTED_FORM_URL,
-        cancel_to=url_for(
+    if pending.get("action") == "membership":
+        cancel_to = url_for(
+            "membership_page",
+            contact_id=pending.get("contact_id", ""),
+            year=pending.get("year", ""),
+            campaign_id=pending.get("campaign_id", ""),
+            email=pending.get("email", ""),
+        )
+    else:
+        cancel_to = url_for(
             "registration_desk_page",
             campaign_id=pending.get("campaign_id", ""),
             email=pending.get("email", ""),
             first_name=pending.get("first_name", ""),
             last_name=pending.get("last_name", ""),
-        ),
+        )
+    return render_template(
+        "registration_pay.html",
+        token=checkout.token,
+        form_url=HOSTED_FORM_URL,
+        cancel_to=cancel_to,
     )
 
 
@@ -1856,6 +1893,8 @@ def _finish_pending_registration(trans_id):
     desk = _registration_desk()
     campaign_id = pending.get("campaign_id", "")
     email = pending.get("email", "")
+    if pending.get("action") == "membership":
+        return _finish_membership_purchase(desk, pending, trans_id)
     try:
         dynamics_id = desk.record_transaction(
             pending.get("contact_id") or (pending.get("contact_ids") or [""])[0],
@@ -1954,6 +1993,17 @@ def _registration_page(campaign_id="", email="", first_name="", last_name="", no
         }
         contacts = desk.find_contacts(address, first, last)
         context["truncated"] = contacts.truncated
+        membership_year = None
+        try:
+            parent_rules = event_requirements(desk.crm, selected)
+            if parent_rules["membership_required"]:
+                membership_year = desk.convention_year(selected)
+        except RegistrationError:
+            membership_year = None
+        except Exception:
+            logger.exception("Could not read membership requirement for %s", selected)
+            membership_year = None
+        context["membership_year"] = membership_year
         event_names = {selected: next((event["name"] for event in events if event.get("id") == selected), "Main event")}
         for sub in context["sub_events"]:
             if sub.get("id"):
@@ -1977,6 +2027,9 @@ def _registration_page(campaign_id="", email="", first_name="", last_name="", no
             except Exception:
                 logger.exception("Could not load saved event questions for %s", contact["id"])
                 contact["preferences"] = []
+            contact["needs_membership"] = bool(
+                membership_year and not person_is_covered(desk.crm, contact["id"], membership_year)
+            )
             contact["household"] = desk.household(contact["household_id"])
             for person in contact["household"]:
                 person["guests"] = desk.guests_for_contact(person["id"], selected)
@@ -2173,6 +2226,296 @@ def password_reset_save():
     )
     flash("Portal password updated. Tell the customer the new password.", "success")
     return _password_reset_page(email, first_name, last_name)
+
+
+def _finish_membership_purchase(desk, pending, trans_id):
+    campaign_id = pending.get("campaign_id", "")
+    email = pending.get("email", "")
+    first_name = pending.get("first_name", "")
+    last_name = pending.get("last_name", "")
+    try:
+        dynamics_id = desk.record_membership_receipt(
+            pending["contact_id"],
+            pending.get("profile_id") or "",
+            pending["amount"],
+            trans_id,
+            campaign_id,
+        )
+        plans = pending.get("plans") or [{
+            "contact_id": pending["contact_id"],
+            "category_id": pending["category_id"],
+        }]
+        names = []
+        for plan in plans:
+            bought = desk.purchase_membership(
+                plan["contact_id"],
+                plan["category_id"],
+                int(pending["year"]),
+                spouse_id=pending.get("spouse_id") or "",
+                confirmed_child_ids=set(pending.get("child_ids") or []),
+                transaction_id=dynamics_id,
+                profile_id=pending.get("profile_id") or "",
+            )
+            names.extend(bought["covered"])
+        bought = {"covered": names}
+    except (RegistrationError, MissingMerchant) as exc:
+        flash(f"The card was charged, but the membership was not saved: {exc}", "error")
+    except Exception:
+        logger.exception("Membership purchase failed after payment")
+        flash("The card was charged, but the membership was not saved.", "error")
+    else:
+        names = ", ".join(bought["covered"])
+        flash(f"Membership saved for {names}.", "success")
+    if campaign_id:
+        return _registration_page(campaign_id, email, first_name, last_name)
+    return redirect(url_for(
+        "membership_page",
+        contact_id=pending.get("contact_id", ""),
+        year=pending.get("year", ""),
+    ))
+
+
+def _membership_quote(amount):
+    profile = default_profile_ref(_registration_desk().crm)
+    amount = money_cost(amount)
+    if amount > 0 and not profile.get("id"):
+        raise MissingMerchant("No default Authorize.net account is set for memberships")
+    return ChargeQuote(
+        amount=amount,
+        profile_id=profile.get("id"),
+        profile_name=profile.get("name") or "",
+        description="No charge." if amount == 0 else f"Charge ${amount} on {profile.get('name') or 'the default account'}.",
+    )
+
+
+def _coverage_note(names, cover_error="") -> str:
+    if cover_error:
+        return cover_error
+    if not names:
+        return ""
+    if len(names) == 1:
+        listed = names[0]
+    elif len(names) == 2:
+        listed = f"{names[0]} and {names[1]}"
+    else:
+        listed = ", ".join(names[:-1]) + f", and {names[-1]}"
+    return f"This will only apply to {listed}."
+
+
+def _membership_today():
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date()
+
+
+def _offered_membership_years(extra_year=None) -> list[int]:
+    years = list(membership_years(_membership_today()))
+    if extra_year and extra_year not in years:
+        years.append(extra_year)
+        years.sort()
+    return years
+
+
+def _membership_context(contact_id="", year="", campaign_id="", email="", first_name="", last_name=""):
+    desk = _registration_desk()
+    categories = []
+    household = []
+    error = ""
+    try:
+        categories = load_categories(desk.crm)
+    except Exception:
+        logger.exception("Could not load membership levels")
+        error = "Could not load membership levels from Dynamics"
+    if contact_id:
+        try:
+            household = load_household(desk.crm, contact_id)
+        except Exception:
+            logger.exception("Could not load household for %s", contact_id)
+            error = error or "Could not load this household from Dynamics"
+    self_person = next((person for person in household if person.get("id") == contact_id), None)
+    offers = []
+    for category in categories:
+        if self_person:
+            covered, cover_error = cover_list(category["name"], self_person, household)
+            names = [person.get("name") or person["id"] for person in covered]
+            choosing_spouse = bool(cover_error) and "spouse" in cover_error.lower()
+            category = dict(
+                category,
+                blocked="" if choosing_spouse or names else cover_error,
+                applies_to=names,
+                cover_note=_coverage_note(names, cover_error if choosing_spouse else ""),
+            )
+        else:
+            category = dict(category, blocked="", applies_to=[], cover_note="")
+        offers.append(category)
+    covered_now = []
+    if household and year:
+        for person in household:
+            try:
+                person["covered"] = person_is_covered(desk.crm, person["id"], int(year))
+            except Exception:
+                person["covered"] = False
+            if person["covered"]:
+                covered_now.append(person["name"] or person["id"])
+    return {
+        "contact_id": contact_id,
+        "year": year,
+        "year_choices": _offered_membership_years(),
+        "campaign_id": campaign_id,
+        "email": email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "categories": offers,
+        "household": household,
+        "self_person": self_person,
+        "error": error,
+        "contacts": [],
+        "searched": False,
+        "truncated": False,
+    }
+
+
+@app.route("/membership", methods=["GET"])
+@login_required
+def membership_page():
+    email, first_name, last_name = _contact_search_from(request.args)
+    contact_id = (request.args.get("contact_id") or "").strip()
+    year = (request.args.get("year") or "").strip()
+    campaign_id = (request.args.get("campaign_id") or "").strip()
+    event_year = None
+    if campaign_id:
+        try:
+            event_year = _registration_desk().convention_year(campaign_id)
+        except RegistrationError:
+            event_year = None
+    choices = _offered_membership_years(event_year)
+    if year.isdigit() and int(year) in choices:
+        selected_year = int(year)
+    elif event_year in choices:
+        selected_year = event_year
+    else:
+        selected_year = choices[0]
+    context = _membership_context(
+        contact_id, str(selected_year), campaign_id, email, first_name, last_name
+    )
+    context["year_choices"] = choices
+    buyers = [item for item in request.args.getlist("buyer") if item]
+    context["selected_ids"] = set(buyers)
+    context["plans"] = []
+    if buyers and context["household"]:
+        context["plans"] = recommend_purchases(
+            set(buyers), context["household"], context["categories"]
+        )
+    if not contact_id and (email or first_name or last_name):
+        try:
+            matches = _registration_desk().find_contacts(email, first_name, last_name)
+            context["contacts"] = matches
+            context["truncated"] = matches.truncated
+            context["searched"] = True
+        except RegistrationError as exc:
+            context["error"] = str(exc)
+        except Exception:
+            logger.exception("Membership search failed")
+            context["error"] = "Could not load this customer from Dynamics"
+    return render_template("membership.html", **context)
+
+
+@app.route("/membership", methods=["POST"])
+@login_required
+def membership_purchase():
+    contact_id = (request.form.get("contact_id") or "").strip()
+    category_id = (request.form.get("category_id") or "").strip()
+    year_raw = (request.form.get("year") or "").strip()
+    campaign_id = (request.form.get("campaign_id") or "").strip()
+    email, first_name, last_name = _contact_search_from(request.form)
+    spouse_id = (request.form.get("spouse_id") or "").strip()
+    child_ids = [item for item in request.form.getlist("child_id") if item]
+    skip = request.form.get("skip_payment") == "on"
+    try:
+        year = int(year_raw)
+    except ValueError:
+        year = None
+    event_year = None
+    if campaign_id:
+        try:
+            event_year = _registration_desk().convention_year(campaign_id)
+        except RegistrationError:
+            event_year = None
+    if year not in _offered_membership_years(event_year):
+        flash("That membership year is not open yet. Next year opens in October.", "error")
+        return redirect(url_for("membership_page", contact_id=contact_id, campaign_id=campaign_id))
+    desk = _registration_desk()
+    plan_contacts = [item for item in request.form.getlist("plan_contact") if item]
+    plan_categories = request.form.getlist("plan_category")
+    if category_id and not plan_contacts:
+        plan_contacts = [contact_id]
+        plan_categories = [category_id]
+    if not contact_id or not plan_contacts or len(plan_contacts) != len(plan_categories):
+        flash("Choose who to buy for and a membership level", "error")
+        return redirect(url_for("membership_page", contact_id=contact_id, year=year, campaign_id=campaign_id))
+    catalog = {item["id"]: item for item in load_categories(desk.crm)}
+    plans = []
+    total = 0
+    for anchor_id, chosen_id in zip(plan_contacts, plan_categories):
+        category = catalog.get(chosen_id)
+        if not category:
+            flash("Choose a membership level for each person", "error")
+            return redirect(url_for("membership_page", contact_id=contact_id, year=year, campaign_id=campaign_id))
+        plans.append({"contact_id": anchor_id, "category_id": chosen_id})
+        total += category.get("cost") or 0
+    if request.form.get("confirm_cover") != "1":
+        flash("Confirm who each membership applies to before saving.", "error")
+        return redirect(url_for(
+            "membership_page", contact_id=contact_id, year=year, campaign_id=campaign_id, email=email
+        ))
+    try:
+        quote = _membership_quote(total)
+        pending = {
+            "action": "membership",
+            "contact_id": contact_id,
+            "category_id": plans[0]["category_id"],
+            "plans": plans,
+            "year": year,
+            "spouse_id": spouse_id,
+            "child_ids": child_ids,
+            "campaign_id": campaign_id,
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "event_id": campaign_id,
+        }
+        payment = _collect_registration_payment(desk, contact_id, quote, skip, pending)
+        if isinstance(payment, HostedCheckout):
+            return _hosted_payment_page(payment)
+        transaction_id = payment
+        names = []
+        for plan in plans:
+            bought = desk.purchase_membership(
+                plan["contact_id"],
+                plan["category_id"],
+                year,
+                spouse_id=spouse_id,
+                confirmed_child_ids=set(child_ids),
+                transaction_id=transaction_id,
+                profile_id=quote.profile_id or "",
+            )
+            names.extend(bought["covered"])
+        bought = {"covered": names}
+    except (RegistrationError, MissingMerchant, PaymentDeclined) as exc:
+        flash(str(getattr(exc, "message", exc)), "error")
+    except Exception:
+        logger.exception("Membership purchase failed")
+        flash("Could not save the membership", "error")
+    else:
+        flash(f"Membership saved for {', '.join(bought['covered'])}.", "success")
+        if campaign_id:
+            return _registration_page(campaign_id, email or (self_person or {}).get("email", ""), first_name, last_name)
+    return redirect(url_for(
+        "membership_page",
+        contact_id=contact_id,
+        year=year,
+        campaign_id=campaign_id,
+        email=email,
+    ))
 
 
 @app.route("/registration/add", methods=["POST"])

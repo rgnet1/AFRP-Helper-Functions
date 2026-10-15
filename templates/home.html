@@ -180,6 +180,14 @@
         </a>
         {% endif %}
 
+        {% if 'membership' in allowed_features %}
+        <a href="/membership" class="tile">
+            <div class="tile-icon" aria-hidden="true">🪪</div>
+            <div class="tile-title">Membership</div>
+            <div class="tile-subtitle">Buy a yearly membership for a household</div>
+        </a>
+        {% endif %}
+
         {% if 'registration' in allowed_features %}
         <a href="/registration" class="tile">
             <div class="tile-icon" aria-hidden="true">📅</div>

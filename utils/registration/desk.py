@@ -20,6 +20,17 @@ from utils.auth.campaign_access import (
     CampaignAccessDenied,
     user_campaign_is_restricted,
 )
+from utils.registration.membership import (
+    MEMBERSHIP_NAV,
+    TYPE_CODES,
+    age_failure,
+    choose_spouse,
+    cover_list,
+    event_requirements,
+    load_categories,
+    load_household,
+    person_is_covered,
+)
 from utils.registration.payments import (
     ChargeQuote,
     PaymentDeclined,
@@ -608,21 +619,26 @@ class RegistrationDesk:
     def _require_new_signup_rules(self, contact_id: str, parent_id: str, event_id: str, guests: List[dict]) -> None:
         """Membership for a first sign-up, and the main event before any sub-event."""
         on_parent = self._on_parent(guests, parent_id)
-        on_convention = any(
-            guest.get("active") and guest.get("status_code") == STATUS_PAID
-            for guest in guests
-        )
-        if not on_convention:
-            year = self.convention_year(parent_id)
-            if not self.has_paid_membership(contact_id, year):
-                raise RegistrationError(
-                    f"This person needs a paid AFRP membership for {year} "
-                    "before they can join this convention."
-                )
         if (event_id or "").strip().lower() != (parent_id or "").strip().lower() and not on_parent:
             raise RegistrationError(
                 "Sign this person up for the main event before a sub-event."
             )
+        rules = event_requirements(self.crm, event_id)
+        household = load_household(self.crm, contact_id)
+        self_person = next(
+            (person for person in household if person.get("id") == contact_id),
+            {"id": contact_id, "age": None},
+        )
+        if rules["membership_required"]:
+            year = self.convention_year(parent_id)
+            if not person_is_covered(self.crm, contact_id, year):
+                raise RegistrationError(
+                    f"This person needs a paid AFRP membership for {year} "
+                    "before they can join this event."
+                )
+        age_message = age_failure(rules, self_person)
+        if age_message:
+            raise RegistrationError(age_message)
 
     def add_guest(
         self,
@@ -1190,6 +1206,111 @@ class RegistrationDesk:
             communicator_url,
         )
         return HostedCheckout(token=token, quote=quote)
+
+    def purchase_membership(
+        self,
+        contact_id: str,
+        category_id: str,
+        year: int,
+        spouse_id: str = "",
+        confirmed_child_ids: Optional[set] = None,
+        transaction_id: Optional[str] = None,
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """Create one paid membership and associate the household it covers."""
+        categories = {item["id"]: item for item in load_categories(self.crm)}
+        category = categories.get(category_id)
+        if not category:
+            raise RegistrationError("Choose a membership level")
+        household = load_household(self.crm, contact_id)
+        self_person = next((person for person in household if person.get("id") == contact_id), None)
+        if not self_person:
+            raise RegistrationError("That person could not be loaded")
+        role = self_person.get("relationship") or ""
+        spouse, _spouse_error = choose_spouse(household)
+        if spouse and role in ("Self", "Spouse") and category["name"] != "Family":
+            raise RegistrationError(
+                "This household has a spouse, so Self and Spouse must be a Family membership. "
+                "Individual is not available."
+            )
+        covered, error = cover_list(
+            category["name"],
+            self_person,
+            household,
+            confirmed_child_ids=confirmed_child_ids,
+            spouse_id=spouse_id,
+        )
+        if error or not covered:
+            raise RegistrationError(error or "Nobody can be covered by this membership")
+        type_code = TYPE_CODES.get(category["name"])
+        body = {
+            "msnfp_name": f"Membership {year}",
+            "aha_year": int(year),
+            "msnfp_startdate": f"{int(year)}-01-01",
+            "msnfp_enddate": f"{int(year)}-12-31",
+            "statuscode": MEMBERSHIP_PAID,
+            "statecode": STATE_ACTIVE,
+            "aha_cost": float(category["cost"] or 0),
+            "aha_contactsassociated": ", ".join(
+                person.get("name") or person["id"] for person in covered
+            ),
+            "aha_numberofcontactsassociated": len(covered),
+            "aha_MembershipCategory@odata.bind": (
+                f"/msnfp_membershipcategories({category_id})"
+            ),
+        }
+        if type_code is not None:
+            body["crca7_membershiptype"] = type_code
+        if profile_id:
+            body["aha_AuthorizenetProfile@odata.bind"] = (
+                f"/aha_authorizenetprofiles({profile_id})"
+            )
+        if transaction_id:
+            body["aha_msnfp_Transaction@odata.bind"] = (
+                f"/msnfp_transactions({transaction_id})"
+            )
+        created = self._send("POST", "msnfp_memberships", body)
+        membership_id = created.get("msnfp_membershipid") or ""
+        if not membership_id:
+            raise RegistrationError("Dynamics did not return the new membership")
+        for person in covered:
+            if not person.get("id"):
+                continue
+            self._send(
+                "POST",
+                f"msnfp_memberships({membership_id})/{MEMBERSHIP_NAV}/$ref",
+                {"@odata.id": f"{self.crm.crm_url}/api/data/v9.2/contacts({person['id']})"},
+            )
+        return {
+            "id": membership_id,
+            "name": created.get("msnfp_name") or body["msnfp_name"],
+            "covered": [person.get("name") or person["id"] for person in covered],
+        }
+
+    def record_membership_receipt(
+        self,
+        contact_id: str,
+        profile_id: str,
+        amount,
+        transaction_id: str,
+        campaign_id: str = "",
+    ) -> Optional[str]:
+        body = {
+            "msnfp_name": f"Membership {transaction_id}",
+            "msnfp_amount": float(amount),
+            "aha_totalamount": float(amount),
+            "aha_authorizetransactionid": transaction_id,
+            "aha_Contact@odata.bind": f"/contacts({contact_id})",
+            "msnfp_receiptoncontactid@odata.bind": f"/contacts({contact_id})",
+        }
+        if campaign_id:
+            body["msnfp_OriginatingCampaignId@odata.bind"] = f"/campaigns({campaign_id})"
+        if profile_id:
+            body["aha_AuthorizenetProfile@odata.bind"] = (
+                f"/aha_authorizenetprofiles({profile_id})"
+            )
+        created = self._send("POST", "msnfp_transactions", body)
+        return created.get("msnfp_transactionid")
 
     def record_transaction(
         self,
