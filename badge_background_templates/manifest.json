@@ -24,8 +24,8 @@
     {
       "id": "uploads_1783667652_Palestinian_keffiyeh_2",
       "name": "Palestinian Keffiyeh 2",
-      "builtin": false,
-      "file": "5392/uploads/1783667652_Palestinian_keffiyeh_2.png",
+      "builtin": true,
+      "file": "5392/palestinian_keffiyeh_2.png",
       "thumbnail": "5392/thumbnails/1783667652_Palestinian_keffiyeh_2.png"
     }
   ]
