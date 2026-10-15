@@ -249,6 +249,67 @@
             line-height: 1.5;
         }
 
+        .mapping-type.primary {
+            background: #f4faf4;
+            border: 1px solid #c8e6c9;
+        }
+
+        .exact-match-disclosure {
+            background: #f8f9fa;
+            border: 1px dashed #ced4da;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .exact-match-disclosure summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 14px 18px;
+            color: #555;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .exact-match-disclosure summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .exact-match-disclosure summary .exact-match-hint {
+            font-weight: 500;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .exact-match-disclosure summary .exact-match-count:empty {
+            display: none;
+        }
+
+        .exact-match-disclosure summary .exact-match-count {
+            font-weight: 600;
+            font-size: 12px;
+            color: #4b904b;
+            background: #e8f5e9;
+            border-radius: 999px;
+            padding: 2px 8px;
+        }
+
+        .exact-match-disclosure summary .chevron {
+            margin-left: auto;
+            color: #888;
+            transition: transform 0.2s;
+        }
+
+        .exact-match-disclosure[open] summary .chevron {
+            transform: rotate(180deg);
+        }
+
+        .exact-match-body {
+            padding: 0 18px 18px;
+        }
+
         .mapping-row {
             display: grid;
             grid-template-columns: 1fr 1fr 40px;
@@ -433,9 +494,9 @@
                 <div class="info-banner">
                     <h3><i class="fas fa-info-circle"></i> What is Preprocessing?</h3>
                     <p>
-                        Preprocessing templates allow you to transform and clean your data automatically. 
-                        Use <strong>Value Mappings</strong> for exact text replacements (e.g., "Steak" → "S") 
-                        and <strong>Contains Mappings</strong> to remove text that appears anywhere in a field (e.g., "- Reserved" → "").
+                        Preprocessing templates allow you to transform and clean your data automatically.
+                        Use <strong>Contains Mappings</strong> to replace or remove text that appears anywhere in a field (e.g., "- Reserved" → "").
+                        Full-string replacements stay available under <strong>Exact match</strong> (e.g., "Steak" → "S").
                     </p>
                 </div>
 
@@ -452,27 +513,7 @@
                 <div class="mappings-section">
                     <h3><i class="fas fa-exchange-alt"></i> Data Transformations</h3>
 
-                    <div class="mapping-type">
-                        <h4><i class="fas fa-equals"></i> Value Mappings (Exact Match)</h4>
-                        <p>
-                            Replace exact text values. For example, shorten meal preferences or simplify event names.
-                            Both fields support free text.
-                        </p>
-                        <div id="valueMappings"></div>
-                        <button class="add-mapping-btn" onclick="addValueMapping()">
-                            <i class="fas fa-plus"></i> Add Value Mapping
-                        </button>
-                        <div class="example-box">
-                            <h5><i class="fas fa-lightbulb"></i> Examples:</h5>
-                            <ul>
-                                <li>"Steak" → "S" (Shorten meal preference)</li>
-                                <li>"No Club Affiliation" → " " (Remove text)</li>
-                                <li>"Mid-Year Meeting 2026" → "Lexington 2026" (Simplify name)</li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="mapping-type">
+                    <div class="mapping-type primary">
                         <h4><i class="fas fa-search"></i> Contains Mappings (Substring Match)</h4>
                         <p>
                             Remove text that appears anywhere in a field. Useful for cleaning up notes, prefixes, or suffixes.
@@ -491,6 +532,37 @@
                             </ul>
                         </div>
                     </div>
+
+                    <details class="exact-match-disclosure" id="exactMatchDisclosure">
+                        <summary>
+                            <i class="fas fa-equals"></i>
+                            Exact match (full string replacement)
+                            <span class="exact-match-hint">optional</span>
+                            <span class="exact-match-count" id="exactMatchCount"></span>
+                            <i class="fas fa-chevron-down chevron"></i>
+                        </summary>
+                        <div class="exact-match-body">
+                            <div class="mapping-type" style="margin-bottom: 0;">
+                                <h4><i class="fas fa-equals"></i> Value Mappings (Exact Match)</h4>
+                                <p>
+                                    Replace exact text values. For example, shorten meal preferences or simplify event names.
+                                    Both fields support free text.
+                                </p>
+                                <div id="valueMappings"></div>
+                                <button class="add-mapping-btn" onclick="addValueMapping()">
+                                    <i class="fas fa-plus"></i> Add Value Mapping
+                                </button>
+                                <div class="example-box">
+                                    <h5><i class="fas fa-lightbulb"></i> Examples:</h5>
+                                    <ul>
+                                        <li>"Steak" → "S" (Shorten meal preference)</li>
+                                        <li>"No Club Affiliation" → " " (Remove text)</li>
+                                        <li>"Mid-Year Meeting 2026" → "Lexington 2026" (Simplify name)</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
                 </div>
 
                 {% include 'partials/meal_preference_config.html' %}
@@ -596,6 +668,7 @@
                 if (Object.keys(containsMappings).length === 0) {
                     addContainsMapping();
                 }
+                syncExactMatchDisclosure();
 
                 MealPreferenceConfig.setSavedConfig(
                     template.meal_preference_mappings || {},
@@ -620,6 +693,7 @@
             document.getElementById('containsMappings').innerHTML = '';
             addValueMapping();
             addContainsMapping();
+            syncExactMatchDisclosure();
             MealPreferenceConfig.reset();
             await MealPreferenceConfig.init();
             document.getElementById('duplicateBtn').style.display = 'none'; // Hide duplicate button
@@ -652,6 +726,17 @@
                 </button>
             `;
             container.appendChild(row);
+        }
+
+        function syncExactMatchDisclosure() {
+            const details = document.getElementById('exactMatchDisclosure');
+            if (!details) return;
+            const count = Object.keys(getMappings('valueMappings')).length;
+            const countEl = document.getElementById('exactMatchCount');
+            if (countEl) {
+                countEl.textContent = count ? (count + ' saved') : '';
+            }
+            details.open = count > 0;
         }
 
         function getMappings(containerId) {

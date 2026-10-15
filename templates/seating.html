@@ -169,6 +169,7 @@
         .seat-email { font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); }
         .seat-flag { margin-left: auto; font-family: Arial, sans-serif; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #8a7340; }
         .mover { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(226, 232, 226, 0.95); }
+        #guest-lookup[hidden] { display: none; }
         label { display: block; font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
         input, select { width: 100%; padding: 8px; border: 1px solid #c9d4c9; border-radius: 8px; background: rgba(255, 255, 255, 0.8); }
         .hint { margin: 6px 0 0; }
@@ -279,9 +280,11 @@
         <div class="mover">
             <p id="picked" class="meta"></p>
             <div id="banquet-switch" hidden></div>
-            <label for="guest-search" id="guest-label">Person on this event</label>
-            <input id="guest-search" placeholder="Name or email" autocomplete="off" disabled>
-            <div id="guest-results"></div>
+            <div id="guest-lookup">
+                <label for="guest-search" id="guest-label">Person on this event</label>
+                <input id="guest-search" placeholder="Name or email" autocomplete="off" disabled>
+                <div id="guest-results"></div>
+            </div>
             <label for="seat-select">New table</label>
             <select id="seat-select" disabled>
                 <option value="">Choose a table…</option>
@@ -702,6 +705,7 @@ function renderTable() {
 }
 function renderMover() {
     var person = state.selected;
+    document.getElementById("guest-lookup").hidden = !!person;
     document.getElementById("guest-label").textContent = state.openTableId ? "Someone else on this event" : "Person on this event";
     var picked = document.getElementById("picked");
     picked.innerHTML = "";

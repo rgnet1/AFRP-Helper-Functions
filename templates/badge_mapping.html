@@ -979,7 +979,8 @@
                                 <div id="badgePreviewSvg" class="badge-preview-layer badge-preview-svg"></div>
                             </div>
                             <div>
-                                <div class="preview-toggles-label">Show sample fields in preview</div>
+                                <div class="preview-toggles-label">Fields on the badge</div>
+                                <p class="help-text" style="margin:0 0 8px;">Check a field to print it. Uncheck it to leave it off. The picture above uses sample data.</p>
                                 <div class="preview-field-toggles" id="previewFieldToggles">
                                     <span style="color:#999;font-size:13px;">Loading field toggles...</span>
                                 </div>
@@ -1350,7 +1351,8 @@
         };
 
         const IMAGE_PLACEHOLDERS = new Set(['{{CLUB_LOGO}}', '{{AFRP_LOGO}}', '{{QR_CODE}}']);
-        const NAME_PART_PLACEHOLDERS = ['{{FIRST_NAME}}', '{{MIDDLE_NAME}}', '{{MAIDEN_NAME}}', '{{LAST_NAME}}'];
+        const NAME_PART_PLACEHOLDERS = ['{{MIDDLE_NAME}}', '{{MAIDEN_NAME}}'];
+        const ALWAYS_ON_NAME_PARTS = new Set(['{{FIRST_NAME}}', '{{LAST_NAME}}']);
         const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
         // Sample Excel columns (these should match your actual output columns)
@@ -1569,6 +1571,9 @@
                 );
             }
             extractedPlaceholders = extractPlaceholdersFromSvgContent(svgContent);
+            if (!extractedPlaceholders.includes('{{MEMBER_ID}}')) {
+                extractedPlaceholders.push('{{MEMBER_ID}}');
+            }
             svgSubEventPlaceholders = new Set(
                 extractedPlaceholders.filter(p => isSubEventPlaceholder(p))
             );
@@ -1591,7 +1596,8 @@
         }
 
         function getPreviewTogglePlaceholders() {
-            const placeholders = [...getPreviewPlaceholders()];
+            const placeholders = getPreviewPlaceholders().filter(ph => !ALWAYS_ON_NAME_PARTS.has(ph));
+            if (!placeholders.includes('{{MEMBER_ID}}')) placeholders.push('{{MEMBER_ID}}');
             if (placeholders.includes('{{DISPLAY_NAME}}')) {
                 NAME_PART_PLACEHOLDERS.forEach(ph => {
                     if (!placeholders.includes(ph)) placeholders.push(ph);
@@ -1628,6 +1634,9 @@
                 '{{MEAL_PREFERENCE}}': 'Meal Preference',
                 '{{QR_CODE}}': 'QR Code'
             };
+            if (ph === '{{MEMBER_ID}}') {
+                return sampleExcelColumns.find(col => /member\s*id/i.test(col)) || exact[ph];
+            }
             if (exact[ph]) return exact[ph];
             if (ph === '{{TABLE_NUMBER}}') {
                 const tables = sampleExcelColumns.filter(col => / ~ Table$/.test(col));
@@ -3175,6 +3184,12 @@
             const layoutDoc = parser.parseFromString(svgContent, 'image/svg+xml');
             applyLayoutToDocument(layoutDoc);
             let processed = new XMLSerializer().serializeToString(layoutDoc.documentElement);
+            if (isFieldVisible('{{MEMBER_ID}}') && processed.indexOf('{{MEMBER_ID}}') === -1) {
+                processed = processed.replace(
+                    /<\/svg>\s*$/i,
+                    '<text x="334" y="203" text-anchor="middle" font-family="Arial" font-size="12" fill="#666666">{{MEMBER_ID}}</text></svg>'
+                );
+            }
 
             const values = getEffectivePreviewValues();
 
@@ -3479,9 +3494,10 @@
                     savedValue = defaultColumnForPlaceholder(placeholder) || savedValue;
                 }
                 console.log(`Rendering ${placeholder}, savedValue:`, savedValue);
+                const fieldLabel = PLACEHOLDER_LABELS[placeholder] || placeholder;
                 html += `
                     <div class="placeholder-item">
-                        <span class="placeholder-name">${placeholder}</span>
+                        <span class="placeholder-name">${fieldLabel}</span>
                         <select class="mapping-select" data-placeholder="${placeholder}">
                             <option value="">-- Select Column --</option>
                             ${sampleExcelColumns.map(col => `

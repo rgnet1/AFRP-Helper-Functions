@@ -364,6 +364,56 @@
             gap: 20px;
         }
 
+        .filter-disclosure {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .filter-disclosure summary {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #333;
+            list-style: none;
+        }
+
+        .filter-disclosure summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .filter-disclosure summary:hover {
+            background: #e9ecef;
+        }
+
+        .filter-disclosure summary .filter-disclosure-hint {
+            font-weight: 500;
+            font-size: 0.85rem;
+            color: #777;
+        }
+
+        .filter-disclosure summary .chevron {
+            margin-left: auto;
+            color: #888;
+            transition: transform 0.2s;
+        }
+
+        .filter-disclosure[open] summary .chevron {
+            transform: rotate(180deg);
+        }
+
+        .filter-disclosure-body {
+            padding: 16px;
+            display: grid;
+            gap: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
         .expandable-section {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
@@ -662,48 +712,58 @@
                     <p class="form-help">Select a preprocessing template to transform your data, or create a new one in the Designer.</p>
                 </div>
 
-                <div class="form-group">
-                    <label for="subEventSelect">Sub-Event (Optional)</label>
-                    <select id="subEventSelect">
-                        <option value="">Select a campaign first...</option>
-                    </select>
-                    <p class="form-help">Automatically populated with sub-events for the selected campaign.</p>
-                </div>
+                <details class="filter-disclosure" id="filterDisclosure">
+                    <summary>
+                        <i class="fas fa-filter"></i>
+                        Show filters
+                        <span class="filter-disclosure-hint">sub-event, household, contact IDs, registration date</span>
+                        <i class="fas fa-chevron-down chevron"></i>
+                    </summary>
+                    <div class="filter-disclosure-body">
+                        <div class="form-group">
+                            <label for="subEventSelect">Sub-Event (Optional)</label>
+                            <select id="subEventSelect">
+                                <option value="">Select a campaign first...</option>
+                            </select>
+                            <p class="form-help">Automatically populated with sub-events for the selected campaign.</p>
+                        </div>
 
-                <div class="form-group">
-                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; margin: 0;">
-                            <input type="checkbox" id="groupByHousehold" style="width: auto; margin: 0;">
-                            Group badges by family household (NOT recommended)
-                        </label>
-                        <button type="button" class="learn-more-btn" id="householdLearnMoreBtn">
-                            <i class="fas fa-info-circle"></i> Disclaimer
-                        </button>
-                    </div>
-                    <p class="form-help">Keeps household members together in the PDF. Head of household prints first within each group. Uses a local cache; CRM is queried only for new contacts.</p>
-                </div>
+                        <div class="form-group">
+                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; margin: 0;">
+                                    <input type="checkbox" id="groupByHousehold" style="width: auto; margin: 0;">
+                                    Group badges by family household (NOT recommended)
+                                </label>
+                                <button type="button" class="learn-more-btn" id="householdLearnMoreBtn">
+                                    <i class="fas fa-info-circle"></i> Disclaimer
+                                </button>
+                            </div>
+                            <p class="form-help">Keeps household members together in the PDF. Head of household prints first within each group. Uses a local cache; CRM is queried only for new contacts.</p>
+                        </div>
 
-                <div class="expandable-section">
-                    <div class="expandable-header" data-target="contactIds">
-                        <span><i class="fas fa-filter"></i> Contact IDs Filter</span>
-                        <i class="fas fa-chevron-down"></i>
-                    </div>
-                    <div class="expandable-content" id="contactIds">
-                        <textarea id="inclusionList" placeholder="Enter IDs (one per line)&#10;e.g., ID-00094 or GUID"></textarea>
-                        <p class="form-help">Enter one ID per line. Supports both Member ID format (ID-####) and Contact ID (GUID). Only matching contacts will be included.</p>
-                    </div>
-                </div>
+                        <div class="expandable-section">
+                            <div class="expandable-header" data-target="contactIds">
+                                <span><i class="fas fa-filter"></i> Contact IDs Filter</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="expandable-content" id="contactIds">
+                                <textarea id="inclusionList" placeholder="Enter IDs (one per line)&#10;e.g., ID-00094 or GUID"></textarea>
+                                <p class="form-help">Enter one ID per line. Supports both Member ID format (ID-####) and Contact ID (GUID). Only matching contacts will be included.</p>
+                            </div>
+                        </div>
 
-                <div class="expandable-section">
-                    <div class="expandable-header" data-target="dateFilter">
-                        <span><i class="fas fa-calendar"></i> Registration Date Filter</span>
-                        <i class="fas fa-chevron-down"></i>
+                        <div class="expandable-section">
+                            <div class="expandable-header" data-target="dateFilter">
+                                <span><i class="fas fa-calendar"></i> Registration Date Filter</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="expandable-content" id="dateFilter">
+                                <input type="text" id="createdOnFilter" placeholder="e.g., 6/11/2025 or 6/11/2025 2:56:51 PM">
+                                <p class="form-help">Include contacts who registered on or after this date. Combines with Contact IDs using OR logic.</p>
+                            </div>
+                        </div>
                     </div>
-                    <div class="expandable-content" id="dateFilter">
-                        <input type="text" id="createdOnFilter" placeholder="e.g., 6/11/2025 or 6/11/2025 2:56:51 PM">
-                        <p class="form-help">Include contacts who registered on or after this date. Combines with Contact IDs using OR logic.</p>
-                    </div>
-                </div>
+                </details>
             </div>
 
             <div class="process-section">
@@ -739,13 +799,9 @@
 
             <div class="process-section" style="display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;">
                 <a href="/badge-mapping" id="badgeMappingLink" class="btn" style="background: #4b904b; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
-                    <i class="fas fa-palette"></i> Badge Mapping
+                    <i class="fas fa-palette"></i> Badge Designer
                 </a>
-                
-                <button class="btn" style="background: #17a2b8; color: white;" id="generateBadgesBtn" disabled>
-                    <i class="fas fa-id-card"></i> Generate Badges from Processed Data
-                </button>
-                
+
                 <button class="btn btn-primary" id="processAndGenerateBtn" disabled>
                     <i class="fas fa-rocket"></i> Pull, Process & Generate Badges
                 </button>
@@ -1027,7 +1083,6 @@
                     window.location.href = `/badge-mapping?${params.toString()}`;
                 }
             });
-            document.getElementById('generateBadgesBtn').addEventListener('click', generateBadges);
             document.getElementById('processAndGenerateBtn').addEventListener('click', processAndGenerateBadges);
 
             // ============================================
@@ -1408,8 +1463,6 @@
         // Badge Generation Functions
         // ============================================================================
 
-        let lastProcessedExcelPath = null; // Store path to last processed Excel file
-
         async function loadBadgeTemplates() {
             console.log('loadBadgeTemplates() called');
             try {
@@ -1442,57 +1495,7 @@
         function updateBadgeButtons() {
             const templateSelected = document.getElementById('badgeTemplateSelect').value !== '';
             const campaignSelected = document.getElementById('campaignSelect').value !== '';
-            
-            // Enable "Generate Badges from Processed Data" only if we have a template and data was processed
-            document.getElementById('generateBadgesBtn').disabled = !(templateSelected && lastProcessedExcelPath);
-            
-            // Enable "Process & Generate" if template and campaign are selected
             document.getElementById('processAndGenerateBtn').disabled = !(templateSelected && campaignSelected);
-        }
-
-        async function generateBadges() {
-            if (!lastProcessedExcelPath) {
-                showToast('Please process data first before generating badges', 'error');
-                return;
-            }
-
-            const templateId = document.getElementById('badgeTemplateSelect').value;
-            if (!templateId) {
-                showToast('Please select a badge template', 'error');
-                return;
-            }
-
-            showLoading();
-            updateProgress(0, 'Starting badge generation...', 'loading');
-
-            try {
-                const response = await fetch('/api/badges/generate-async', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        excel_file: lastProcessedExcelPath,
-                        template_id: parseInt(templateId),
-                        preprocessingTemplateId: document.getElementById('preprocessingSelect').value || null,
-                    })
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Badge generation failed');
-                }
-
-                const { job_id } = await response.json();
-                updateProgress(0, 'Generating badges...', 'generating');
-                await pollBadgeJob(job_id, { downloadName: 'badges.pdf' });
-
-                setTimeout(() => {
-                    hideLoading();
-                    showToast('Badges generated successfully!', 'success');
-                }, 1000);
-            } catch (error) {
-                hideLoading();
-                showToast('Badge generation failed: ' + error.message, 'error');
-            }
         }
 
         async function processAndGenerateBadges() {

@@ -6,7 +6,7 @@ FEATURES = {
     "qr": {
         "label": "QR Code Generator",
         "home_tile": True,
-        "path_prefixes": ["/qr"],
+        "path_prefixes": ["/qr", "/api/qr"],
     },
     "event": {
         "label": "Generate Private Event URL",
@@ -21,13 +21,13 @@ FEATURES = {
     "registration": {
         "label": "Event Registration",
         "home_tile": True,
-        "path_prefixes": ["/registration"],
+        "path_prefixes": ["/registration", "/api/registration"],
     },
     "password_reset": {
         "label": "Portal Password",
         "home_tile": True,
         "assignable": False,
-        "path_prefixes": ["/password-reset"],
+        "path_prefixes": ["/password-reset", "/api/password-reset"],
     },
     "seating": {
         "label": "Seating",
@@ -38,7 +38,7 @@ FEATURES = {
     "membership": {
         "label": "Membership",
         "home_tile": True,
-        "path_prefixes": ["/membership"],
+        "path_prefixes": ["/membership", "/api/membership"],
     },
     "badges": {
         "label": "Badge Generator",

@@ -370,29 +370,18 @@ class User(db.Model, UserMixin):
         return [row.group for row in (self.group_memberships or []) if row.group is not None]
 
     def has_feature(self, feature_id: str) -> bool:
+        from utils.auth.permissions import COORDINATOR_FEATURES
         if self.is_admin or any(group.role == self.ROLE_ADMIN for group in self.access_groups()):
             return True
         groups = self.access_groups()
         if groups:
             for group in groups:
-                if group.role == self.ROLE_EVENT_COORDINATOR and feature_id in (
-                    'badges',
-                    'registration',
-                    'password_reset',
-                    'seating',
-                    'membership',
-                ):
+                if group.role == self.ROLE_EVENT_COORDINATOR and feature_id in COORDINATOR_FEATURES:
                     return True
                 if group.role == self.ROLE_USER and group.get_feature_permissions().get(feature_id):
                     return True
             return False
-        if self.is_event_coordinator() and feature_id in (
-            'badges',
-            'registration',
-            'password_reset',
-            'seating',
-            'membership',
-        ):
+        if self.is_event_coordinator() and feature_id in COORDINATOR_FEATURES:
             return True
         return bool(self.get_feature_permissions().get(feature_id, False))
 
@@ -448,7 +437,7 @@ class User(db.Model, UserMixin):
 
     def apply_role(self, role: str, assigned_campaign_id=None, assigned_campaign_name=None):
         """Set role, sync is_admin, and apply default permissions for coordinators."""
-        from utils.auth.permissions import FEATURES
+        from utils.auth.permissions import COORDINATOR_FEATURES, FEATURES
 
         role = (role or self.ROLE_USER).strip()
         if role not in self.VALID_ROLES:
@@ -459,7 +448,7 @@ class User(db.Model, UserMixin):
 
         if role == self.ROLE_EVENT_COORDINATOR:
             self.set_feature_permissions(
-                {fid: fid in ('badges', 'registration', 'password_reset', 'seating', 'membership') for fid in FEATURES}
+                {fid: fid in COORDINATOR_FEATURES for fid in FEATURES}
             )
             self.assigned_campaign_id = (assigned_campaign_id or '').strip() or None
             self.assigned_campaign_name = (assigned_campaign_name or '').strip() or None

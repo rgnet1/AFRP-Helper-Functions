@@ -97,6 +97,21 @@ class BadgeFieldVisibilityTests(unittest.TestCase):
         self.assertIn("club.png", rendered)
         self.assertNotIn("{{", rendered)
 
+    def test_member_id_is_added_when_the_template_omitted_it(self):
+        svg = BADGE_SVG.replace("<text>{{MEMBER_ID}}</text>\n", "")
+        rendered = render_badge_content(
+            svg, SAMPLE_ROW, FULL_MAPPINGS, {"{{MEMBER_ID}}": True}
+        )
+        self.assertIn("ID-01234", rendered)
+
+    def test_member_id_stays_off_when_unchecked_and_missing(self):
+        svg = BADGE_SVG.replace("<text>{{MEMBER_ID}}</text>\n", "")
+        mappings = {k: v for k, v in FULL_MAPPINGS.items() if k != "{{MEMBER_ID}}"}
+        rendered = render_badge_content(
+            svg, SAMPLE_ROW, mappings, {"{{MEMBER_ID}}": False}
+        )
+        self.assertNotIn("ID-01234", rendered)
+
     def test_text_field_removed_when_unmapped(self):
         mappings = dict(FULL_MAPPINGS)
         del mappings["{{MEMBER_ID}}"]
@@ -157,17 +172,18 @@ class BadgeFieldVisibilityTests(unittest.TestCase):
         self.assertNotIn("Khoury", rendered)
         self.assertNotIn(DISPLAY_NAME_PLACEHOLDER, rendered)
 
-    def test_display_name_omits_disabled_name_parts(self):
+    def test_display_name_always_includes_first_and_last(self):
         visibility = {
             DISPLAY_NAME_PLACEHOLDER: True,
             "{{FIRST_NAME}}": False,
+            "{{LAST_NAME}}": False,
             "{{MAIDEN_NAME}}": False,
         }
         name = _build_display_name(SAMPLE_ROW, FULL_MAPPINGS, field_visibility=visibility)
-        self.assertNotIn("Sarah", name)
+        self.assertIn("Sarah", name)
+        self.assertIn("Khoury", name)
         self.assertNotIn("Smith", name)
         self.assertIn("Marie", name)
-        self.assertIn("Khoury", name)
 
     def test_afrp_logo_stripped_when_disabled(self):
         visibility = {AFRP_LOGO_PLACEHOLDER: False}

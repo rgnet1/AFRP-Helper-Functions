@@ -41,15 +41,15 @@ Example: Samir is Self (57), Joyce is Spouse (53), Jenna is Daughter (28), Rami 
 Match the my.afrp.org membership purchase. It is two steps.
 
 1. Staff choose which people in the household to buy for. The person who opened the page starts checked. Someone already covered for the selected year stays unchecked.
-2. The page splits that selection into memberships and preselects the cheapest qualifying level. Staff can switch to another level that still qualifies. Each membership names who it applies to, and that note must be confirmed before save.
+2. The page splits that selection into memberships and preselects the recommended qualifying level. Staff can switch to another level that still qualifies. Each membership names who it applies to, and that note must be confirmed before save.
 
-Cheapest split:
+Recommended split:
 
-- One adult alone is **Individual**. At ages 18–25, **Student** is cheaper, so preselect Student.
-- If the selection includes the household Self or the Spouse, and a Spouse exists, the membership is **Family** and Individual is not a choice. That Family plan applies to the Self, the Spouse, and children under 18, even when only one of the adults was checked.
-- A selected child under 18 is covered by that **Family** plan, not by a membership of their own. Family still applies to the household Self and Spouse.
-- A Son or Daughter age 18 or older is a separate membership: Student at 18–25, otherwise Individual.
-- Al-Manara, Junior Al-Manara, and Patron stay available as more expensive household levels. They are not the preselected choice when Family qualifies.
+- One adult alone is **Individual**. At ages 18–25, **Student** is the recommended level, so preselect Student.
+- If the selection includes the household Self or the Spouse, and a Spouse exists, **Family** is the recommended default. Higher household tiers that the household Self qualifies for by age stay selectable: Junior Al-Manara Lion when Self is under 30, Al-Manara Lion when Self is 30 or older, and Patron at any age. Family always remains a choice. Individual is not offered for that household plan, and Student is not a substitute for it. The plan applies to the Self, the Spouse, and children under 18, even when only one of the adults was checked. Age gates use the household Self, not the adult child who opened the page.
+- A selected child under 18 rides on that household plan (Family by default), not a membership of their own. The same higher tiers stay selectable. The plan still applies to the household Self and Spouse.
+- A Son or Daughter age 18 or older is a separate membership: Student at 18–25, otherwise Individual. Do not put those adults on Family.
+- Al-Manara, Junior Al-Manara, and Patron stay available when the household Self passes the age bracket. They are not the preselected choice when Family qualifies.
 
 Before the purchase is saved, the page must name that exact list. Staff confirm it. Do not describe Family as covering "this purchase" when the buyer is an adult child.
 
@@ -81,7 +81,7 @@ On `campaigns`, for the main event and each sub-event:
 
 Check the flag on the campaign being joined, including a later sub-event. Being signed up for the meeting already does not skip the check.
 
-Charge with the hosted Authorize.net page. Never charge `aha_authorizecustomerid`. The merchant account is the org default `aha_authorizenetprofiles` row (`aha_isdefault`). The receipt is `msnfp_transactions`, bound on the membership as `aha_msnfp_Transaction`.
+Event coordinators can open Membership and purchase for a household, the same as registration and seating. A new coordinator group includes that feature. Charge with the hosted Authorize.net page. Never charge `aha_authorizecustomerid`. The merchant account is the org default `aha_authorizenetprofiles` row (`aha_isdefault`). The receipt is `msnfp_transactions`, bound on the membership as `aha_msnfp_Transaction`.
 
 ## Writes
 

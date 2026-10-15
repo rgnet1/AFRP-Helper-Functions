@@ -252,11 +252,14 @@ def recommend_purchases(
     spouse_id: str = "",
     today: Optional[date] = None,
 ) -> list[dict]:
-    """Cheapest memberships for the people selected in the household.
+    """Memberships for the people selected in the household.
 
-    Self alone is Individual, or Student at 18–25. Self and Spouse together are
-    Family, and children under 18 ride on that Family plan. Any other selected
-    adult gets their own Student or Individual membership.
+    One adult alone is Individual, or Student at 18–25. When the selection
+    includes household Self or Spouse and a spouse exists, or a child under 18
+    is selected, they share a household plan. Family is the recommended default.
+    Higher household levels the household Self qualifies for stay available.
+    Individual is not offered on that plan. Any other selected adult gets their
+    own Student or Individual membership.
     """
     selected = {str(item) for item in selected_ids if item}
     people = [person for person in household if str(person.get("id")) in selected]
@@ -279,27 +282,26 @@ def recommend_purchases(
     covered_ids = set()
     if use_family:
         options = household_choices(household, categories, spouse_id, today)
-        if force_family:
-            options = [item for item in options if (item[0].get("name") or "") == "Family"]
         member_options = [
             item for item in options
             if membership_satisfies_requirement(item[0].get("name") or "")
         ]
         pool = member_options or options
         if pool:
-            category, covered = pool[0]
+            chosen = next(
+                (item for item in pool if (item[0].get("name") or "") == "Family"),
+                pool[0],
+            )
+            category, covered = chosen
+            option_rows = [item[0] for item in pool]
             plans.append({
                 "recommended": category.get("name") or "",
                 "category_id": category.get("id"),
                 "cost": category.get("cost") or 0,
                 "people": covered,
-                "options": [item[0] for item in pool],
-                "locked": force_family,
-                "hint": (
-                    "A spouse is in this household, so this must be Family."
-                    if force_family
-                    else "Cheapest household membership they qualify for."
-                ),
+                "options": option_rows,
+                "locked": len(option_rows) <= 1,
+                "hint": "Recommended household membership they qualify for.",
             })
             covered_ids = {str(person.get("id")) for person in covered}
     for person in people:
@@ -320,11 +322,11 @@ def recommend_purchases(
         category = options[0]
         age = person_age(person, today)
         if category.get("name") == "Student":
-            hint = "Cheapest at ages 18–25."
+            hint = "Recommended at ages 18–25."
         else:
-            hint = "Cheapest for one adult."
+            hint = "Recommended for one adult."
         if age is not None and 18 <= age <= 25 and category.get("name") != "Student":
-            hint = "Cheapest membership this person qualifies for."
+            hint = "Recommended membership this person qualifies for."
         plans.append({
             "recommended": category.get("name") or "",
             "category_id": category.get("id"),

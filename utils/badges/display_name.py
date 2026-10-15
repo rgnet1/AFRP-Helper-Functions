@@ -142,11 +142,7 @@ def build_display_name(
         if _part_enabled("{{TITLE}}", field_visibility)
         else ""
     )
-    first = (
-        value_getter("{{FIRST_NAME}}", "First Name")
-        if _part_enabled("{{FIRST_NAME}}", field_visibility)
-        else ""
-    )
+    first = value_getter("{{FIRST_NAME}}", "First Name")
     middle = (
         value_getter("{{MIDDLE_NAME}}", "Middle Name")
         if _part_enabled("{{MIDDLE_NAME}}", field_visibility)
@@ -157,11 +153,7 @@ def build_display_name(
         if _part_enabled("{{MAIDEN_NAME}}", field_visibility)
         else ""
     )
-    last = (
-        value_getter("{{LAST_NAME}}", "Last Name")
-        if _part_enabled("{{LAST_NAME}}", field_visibility)
-        else ""
-    )
+    last = value_getter("{{LAST_NAME}}", "Last Name")
     gender = str(row.get("Gender", "") or "").strip()
 
     first, middle, maiden, last = dedupe_display_name_parts(

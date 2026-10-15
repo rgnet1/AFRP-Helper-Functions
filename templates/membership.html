@@ -53,7 +53,7 @@
             <input type="hidden" name="campaign_id" value="{{ campaign_id or '' }}">
             <div>
                 <label class="field" for="lookup-year">Membership year</label>
-                <select id="lookup-year" name="year" onchange="this.form.submit()">
+                <select id="lookup-year" name="year">
                     {% for option in year_choices %}
                     <option value="{{ option }}" {% if option|string == year|string %}selected{% endif %}>{{ option }}</option>
                     {% endfor %}
@@ -84,7 +84,7 @@
             <input type="hidden" name="email" value="{{ email or self_person.email }}">
             <div>
                 <label class="field" for="coverage-year">Membership year</label>
-                <select id="coverage-year" name="year" onchange="this.form.submit()">
+                <select id="coverage-year" name="year">
                     {% for option in year_choices %}
                     <option value="{{ option }}" {% if option|string == year|string %}selected{% endif %}>{{ option }}</option>
                     {% endfor %}
@@ -113,7 +113,7 @@
 
     {% if plans %}
     <div class="card">
-        <h2>Step 2. Cheapest membership they qualify for</h2>
+        <h2>Step 2. Recommended membership they qualify for</h2>
         <form id="membership-purchase" method="POST" action="{{ url_for('membership_purchase') }}">
             <input type="hidden" name="contact_id" value="{{ self_person.id }}">
             <input type="hidden" name="year" value="{{ year }}">
@@ -124,7 +124,7 @@
             <div class="level">
                 <input type="hidden" name="plan_contact" value="{{ plan.people[0].id }}">
                 <label class="field" for="plan-{{ loop.index }}">{{ plan.hint }}</label>
-                {% if plan.locked %}
+                {% if plan.locked and plan.options|length <= 1 %}
                 <input type="hidden" name="plan_category" value="{{ plan.category_id }}" data-cost="{{ plan.cost or 0 }}" data-label="{{ plan.recommended }}">
                 <p>{{ plan.recommended }}</p>
                 {% else %}
@@ -203,6 +203,19 @@
     });
     document.querySelectorAll("a.pick").forEach(function (link) {
         link.addEventListener("click", showLoading);
+    });
+    // form.submit() does not fire submit, so a year select must show the overlay itself.
+    document.querySelectorAll("select[name='year']").forEach(function (select) {
+        select.addEventListener("change", function () {
+            var form = select.form;
+            if (!form) return;
+            showLoading();
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    form.submit();
+                });
+            });
+        });
     });
 })();
 </script>

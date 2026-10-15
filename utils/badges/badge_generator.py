@@ -63,6 +63,7 @@ AFRP_LOGO_PLACEHOLDER = "{{AFRP_LOGO}}"
 QR_CODE_PLACEHOLDER = "{{QR_CODE}}"
 DISPLAY_NAME_PLACEHOLDER = "{{DISPLAY_NAME}}"
 TABLE_NUMBER_PLACEHOLDER = "{{TABLE_NUMBER}}"
+MEMBER_ID_PLACEHOLDER = "{{MEMBER_ID}}"
 _TABLE_COLUMN_SUFFIX = " ~ Table"
 FIELD_VISIBILITY_KEY = "_field_visibility"
 MAX_STAGED_LOGO_EDGE = 512
@@ -753,6 +754,18 @@ def _apply_column_mappings(
     meal_preference_sources: dict | None = None,
     field_visibility: dict | None = None,
 ) -> str:
+    member_id_requested = (
+        field_visibility.get(MEMBER_ID_PLACEHOLDER) is not False
+        if field_visibility and MEMBER_ID_PLACEHOLDER in field_visibility
+        else MEMBER_ID_PLACEHOLDER in column_mappings
+    )
+    if member_id_requested and MEMBER_ID_PLACEHOLDER not in svg_content:
+        svg_content = svg_content.replace(
+            "</svg>",
+            '<text x="334" y="203" text-anchor="middle" font-family="Arial" '
+            'font-size="12" fill="#666666">{{MEMBER_ID}}</text></svg>',
+            1,
+        )
     if DISPLAY_NAME_PLACEHOLDER in svg_content:
         if _is_field_enabled(
             DISPLAY_NAME_PLACEHOLDER, column_mappings, field_visibility

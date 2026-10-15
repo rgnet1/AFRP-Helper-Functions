@@ -113,16 +113,92 @@ class MembershipRuleTests(unittest.TestCase):
             {"id": "student", "name": "Student", "cost": 35},
             {"id": "individual", "name": "Individual", "cost": 85},
             {"id": "family", "name": "Family", "cost": 150},
+            {"id": "junior", "name": "Junior Al-Manara Lion", "cost": 250},
+            {"id": "lion", "name": "Al-Manara Lion", "cost": 500},
+            {"id": "patron", "name": "Patron", "cost": 1000},
         ]
         alone = recommend_purchases({"samir"}, household, categories)
         self.assertEqual(alone[0]["recommended"], "Family")
+        self.assertEqual(alone[0]["category_id"], "family")
         self.assertEqual({person["id"] for person in alone[0]["people"]}, {"samir", "joyce"})
-        self.assertEqual([option["name"] for option in alone[0]["options"]], ["Family"])
+        alone_names = [option["name"] for option in alone[0]["options"]]
+        self.assertEqual(alone_names[0], "Family")
+        self.assertEqual(
+            set(alone_names),
+            {"Family", "Al-Manara Lion", "Patron"},
+        )
+        self.assertNotIn("Individual", alone_names)
+        self.assertNotIn("Student", alone_names)
+        self.assertNotIn("Junior Al-Manara Lion", alone_names)
+        self.assertFalse(alone[0]["locked"])
         spouse_only = recommend_purchases({"joyce"}, household, categories)
         self.assertEqual(spouse_only[0]["recommended"], "Family")
-        self.assertTrue(spouse_only[0]["locked"])
+        self.assertEqual(spouse_only[0]["category_id"], "family")
+        self.assertFalse(spouse_only[0]["locked"])
+        self.assertNotIn(
+            "Individual",
+            [option["name"] for option in spouse_only[0]["options"]],
+        )
         student = recommend_purchases({"rami"}, household, categories)
         self.assertEqual(student[0]["recommended"], "Student")
+        self.assertEqual(
+            [option["name"] for option in student[0]["options"]],
+            ["Student", "Individual"],
+        )
+
+    def test_young_self_can_choose_junior_and_a_child_rides_along(self):
+        household = [
+            person("samir", "Self", 27),
+            person("joyce", "Spouse", 26),
+            person("kid", "Daughter", 8),
+            person("rami", "Son", 22),
+            person("jenna", "Daughter", 28),
+        ]
+        categories = [
+            {"id": "student", "name": "Student", "cost": 35},
+            {"id": "individual", "name": "Individual", "cost": 85},
+            {"id": "family", "name": "Family", "cost": 150},
+            {"id": "junior", "name": "Junior Al-Manara Lion", "cost": 250},
+            {"id": "lion", "name": "Al-Manara Lion", "cost": 500},
+            {"id": "patron", "name": "Patron", "cost": 1000},
+        ]
+        plans = recommend_purchases({"kid", "rami", "jenna"}, household, categories)
+        household_plan = next(plan for plan in plans if plan["recommended"] == "Family")
+        self.assertEqual(household_plan["category_id"], "family")
+        self.assertEqual(
+            {person["id"] for person in household_plan["people"]},
+            {"samir", "joyce", "kid"},
+        )
+        household_names = [option["name"] for option in household_plan["options"]]
+        self.assertEqual(
+            set(household_names),
+            {"Family", "Junior Al-Manara Lion", "Patron"},
+        )
+        self.assertNotIn("Al-Manara Lion", household_names)
+        self.assertNotIn("Individual", household_names)
+        self.assertNotIn("Student", household_names)
+        self.assertFalse(household_plan["locked"])
+        by_level = {
+            plan["recommended"]: {person["id"] for person in plan["people"]}
+            for plan in plans
+        }
+        self.assertEqual(by_level["Student"], {"rami"})
+        self.assertEqual(by_level["Individual"], {"jenna"})
+
+    def test_family_only_catalog_stays_a_single_choice(self):
+        household = [
+            person("samir", "Self", 57),
+            person("joyce", "Spouse", 53),
+        ]
+        categories = [
+            {"id": "individual", "name": "Individual", "cost": 85},
+            {"id": "family", "name": "Family", "cost": 150},
+        ]
+        plan = recommend_purchases({"samir"}, household, categories)[0]
+        self.assertEqual(plan["recommended"], "Family")
+        self.assertEqual([option["name"] for option in plan["options"]], ["Family"])
+        self.assertTrue(plan["locked"])
+        self.assertNotIn("cheap", plan["hint"].lower())
 
     def test_individual_is_only_the_purchaser(self):
         household = [person("self", "Self", 40), person("spouse", "Spouse", 38)]

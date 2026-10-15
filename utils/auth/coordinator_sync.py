@@ -5,7 +5,7 @@ import re
 import time
 
 from utils.auth.groups import set_user_groups, sync_user_access
-from utils.auth.permissions import FEATURES
+from utils.auth.permissions import COORDINATOR_FEATURES, FEATURES
 from utils.magazine.scheduler import AccessGroup, AccessGroupMember, User, db
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ def _sync_campaign(crm, campaign_id: str, campaign_name: str) -> None:
             assigned_campaign_name=campaign_name or campaign_id,
         )
         group.set_feature_permissions(
-            {fid: fid in ('badges', 'registration', 'password_reset', 'seating') for fid in FEATURES}
+            {fid: fid in COORDINATOR_FEATURES for fid in FEATURES}
         )
         db.session.add(group)
         db.session.flush()

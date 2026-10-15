@@ -24,6 +24,7 @@ from utils.registration.membership import (
     MEMBERSHIP_NAV,
     TYPE_CODES,
     age_failure,
+    category_rule,
     choose_spouse,
     cover_list,
     event_requirements,
@@ -1228,10 +1229,15 @@ class RegistrationDesk:
             raise RegistrationError("That person could not be loaded")
         role = self_person.get("relationship") or ""
         spouse, _spouse_error = choose_spouse(household)
-        if spouse and role in ("Self", "Spouse") and category["name"] != "Family":
+        household_plan = category_rule(category["name"])
+        if (
+            spouse
+            and role in ("Self", "Spouse")
+            and not (household_plan.get("spouse") or household_plan.get("children"))
+        ):
             raise RegistrationError(
-                "This household has a spouse, so Self and Spouse must be a Family membership. "
-                "Individual is not available."
+                "This household has a spouse, so Individual and Student are not available "
+                "for Self and Spouse. Choose Family or another household membership they qualify for."
             )
         covered, error = cover_list(
             category["name"],

@@ -1344,11 +1344,42 @@ def ensure_layout(crm, event_id: str, tables: List[dict]) -> dict:
     return store_layout(event_id, token, layout, content, _content_type)
 
 
-def events_with_tables(desk, user) -> List[dict]:
-    """Open main events, each with the sub-events that have tables.
+def _assigned_campaigns(desk, campaign_ids) -> List[dict]:
+    """Load assigned campaigns with no Open-status filter.
 
-    Main events come from the same open-campaign list the badge picker uses.
+    Coordinators keep seating for their event after it leaves the open list.
     """
+    ids = []
+    for item in campaign_ids or []:
+        text = (item or "").strip()
+        if text and text.lower() not in {existing.lower() for existing in ids}:
+            ids.append(text)
+    found = {}
+    for start in range(0, len(ids), 20):
+        chunk = ids[start:start + 20]
+        filt = " or ".join(f"campaignid eq {campaign_id}" for campaign_id in chunk)
+        rows = desk.crm._make_request(
+            "campaigns?$select=campaignid,name"
+            f"&$filter={requests.utils.quote(filt)}"
+        ).get("value") or []
+        for row in rows:
+            campaign_id = (row.get("campaignid") or "").strip()
+            if campaign_id:
+                found[campaign_id.lower()] = {
+                    "id": campaign_id,
+                    "name": row.get("name") or "Event",
+                }
+    return [found[campaign_id.lower()] for campaign_id in ids if campaign_id.lower() in found]
+
+
+def events_with_tables(desk, user) -> List[dict]:
+    """Events the user may open, each with the sub-events that have tables.
+
+    Admins see open campaigns. Event coordinators see only their assigned
+    event, including when that campaign is not Open.
+    """
+    from utils.auth.campaign_access import user_campaign_is_restricted
+
     rows = desk.crm._paginate(
         "aha_seatingtables?$select=_aha_event_value&$filter=statecode eq 0"
     )
@@ -1357,8 +1388,12 @@ def events_with_tables(desk, user) -> List[dict]:
         for row in rows
         if (row.get("_aha_event_value") or "").strip()
     }
+    if user_campaign_is_restricted(user):
+        parents = _assigned_campaigns(desk, user.allowed_campaign_ids())
+    else:
+        parents = desk.parent_events_for(user)
     grouped = []
-    for parent in desk.parent_events_for(user):
+    for parent in parents:
         parent_id = (parent.get("id") or "").strip()
         if not parent_id:
             continue

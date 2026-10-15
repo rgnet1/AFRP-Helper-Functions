@@ -1500,6 +1500,386 @@ def _seating_parent(desk, event_id: str) -> str:
     return parent
 
 
+def _api_body():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return None
+    return body
+
+
+def _api_fail(exc, status=400):
+    return jsonify({"error": str(getattr(exc, "message", exc))}), status
+
+
+@app.route("/api/registration/events", methods=["GET"])
+@login_required
+def api_registration_events():
+    desk = _registration_desk()
+    return jsonify({"events": desk.parent_events_for(current_user)})
+
+
+@app.route("/api/registration/contacts", methods=["GET"])
+@login_required
+def api_registration_contacts():
+    campaign_id = (request.args.get("campaign_id") or "").strip()
+    email, first_name, last_name = _contact_search_from(request.args)
+    if not (email or first_name or last_name):
+        return jsonify({"error": "Enter an email, first name, or last name"}), 400
+    try:
+        desk = _registration_desk()
+        events = desk.parent_events_for(current_user)
+        if not campaign_id and len(events) == 1:
+            campaign_id = events[0]["id"]
+        if not campaign_id:
+            return jsonify({"error": "Choose an event", "events": events}), 400
+        desk._require_parent(current_user, campaign_id)
+        found = desk.find_contacts(email, first_name, last_name)
+        sub_events = desk.sub_events(campaign_id)
+        event_names = {
+            campaign_id: next((event.get("name") for event in events if event.get("id") == campaign_id), "Main event")
+        }
+        for sub in sub_events:
+            if sub.get("id"):
+                event_names[sub["id"]] = sub.get("name") or "Event"
+        membership_year = None
+        try:
+            parent_rules = event_requirements(desk.crm, campaign_id)
+            if parent_rules["membership_required"]:
+                membership_year = desk.convention_year(campaign_id)
+        except Exception:
+            membership_year = None
+        contacts = []
+        for contact in found:
+            contact["guests"] = desk.guests_for_contact(contact["id"], campaign_id)
+            contact["needs_membership"] = bool(
+                membership_year and not person_is_covered(desk.crm, contact["id"], membership_year)
+            )
+            try:
+                contact["preferences"] = desk.preference_forms(contact["id"], campaign_id, event_names)
+            except Exception:
+                contact["preferences"] = []
+            contacts.append(contact)
+        return jsonify({
+            "campaign_id": campaign_id,
+            "membership_year": membership_year,
+            "sub_events": sub_events,
+            "truncated": found.truncated,
+            "contacts": contacts,
+        })
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API registration search failed")
+        return jsonify({"error": "Could not load this customer from Dynamics"}), 500
+
+
+@app.route("/api/registration/requirements", methods=["GET"])
+@login_required
+def api_registration_requirements():
+    return registration_event_requirements()
+
+
+@app.route("/api/registration/add", methods=["POST"])
+@login_required
+def api_registration_add():
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    campaign_id = (body.get("campaign_id") or "").strip()
+    event_id = (body.get("event_id") or "").strip()
+    contact_ids = body.get("contact_ids") or [body.get("contact_id") or ""]
+    contact_ids = [str(item).strip() for item in contact_ids if str(item).strip()]
+    answers = body.get("answers") or []
+    table_id = (body.get("table_id") or "").strip()
+    skip = bool(body.get("skip_payment"))
+    if not campaign_id or not event_id or not contact_ids:
+        return jsonify({"error": "campaign_id, event_id, and contact_id are required"}), 400
+    desk = _registration_desk()
+    try:
+        answers, table_id = _require_signup_details(desk, event_id, answers, table_id)
+        quote = desk.quote_for_add(campaign_id, event_id, len(contact_ids))
+        if not skip and quote.charges:
+            return jsonify({
+                "payment_required": True,
+                "amount": f"{quote.amount:.2f}",
+                "message": "This sign-up has a cost. Pass skip_payment to record it without charging.",
+            }), 402
+        for contact_id in contact_ids:
+            desk.add_guest(current_user, contact_id, campaign_id, event_id, None)
+        _save_signup_details(desk, contact_ids, event_id, answers, table_id)
+    except (CampaignAccessDenied, RegistrationError, MissingMerchant, PaymentDeclined) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API add registration failed")
+        return jsonify({"error": "Could not add the sign-up"}), 500
+    return jsonify({"added": contact_ids, "charged": False})
+
+
+@app.route("/api/registration/move", methods=["POST"])
+@login_required
+def api_registration_move():
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    campaign_id = (body.get("campaign_id") or "").strip()
+    guest_id = (body.get("guest_id") or "").strip()
+    event_id = (body.get("event_id") or "").strip()
+    answers = body.get("answers") or []
+    table_id = (body.get("table_id") or "").strip()
+    skip = bool(body.get("skip_payment"))
+    if not campaign_id or not guest_id or not event_id:
+        return jsonify({"error": "campaign_id, guest_id, and event_id are required"}), 400
+    desk = _registration_desk()
+    try:
+        answers, table_id = _require_signup_details(desk, event_id, answers, table_id)
+        guest = desk._guest(guest_id)
+        quote = desk.quote_for_move(campaign_id, guest.get("_crca7_event_value") or "", event_id)
+        if not skip and quote.charges:
+            return jsonify({
+                "payment_required": True,
+                "amount": f"{quote.amount:.2f}",
+                "message": "This change has a cost. Pass skip_payment to record it without charging.",
+            }), 402
+        desk.move_guest(current_user, guest_id, campaign_id, event_id)
+        contact_id = guest.get("_crca7_existingcontact_value") or ""
+        _save_signup_details(desk, [contact_id], event_id, answers, table_id)
+    except (CampaignAccessDenied, RegistrationError, MissingMerchant, PaymentDeclined) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API move registration failed")
+        return jsonify({"error": "Could not change the sign-up"}), 500
+    return jsonify({"guest_id": guest_id, "event_id": event_id, "charged": False})
+
+
+@app.route("/api/registration/remove", methods=["POST"])
+@login_required
+def api_registration_remove():
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    campaign_id = (body.get("campaign_id") or "").strip()
+    guest_ids = body.get("guest_ids") or [body.get("guest_id") or ""]
+    guest_ids = [str(item).strip() for item in guest_ids if str(item).strip()]
+    if not campaign_id or not guest_ids:
+        return jsonify({"error": "campaign_id and guest_id are required"}), 400
+    desk = _registration_desk()
+    try:
+        for guest_id in guest_ids:
+            desk.remove_guest(current_user, guest_id, campaign_id)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API remove registration failed")
+        return jsonify({"error": "Could not remove the sign-up"}), 500
+    return jsonify({"removed": guest_ids})
+
+
+@app.route("/api/registration/preferences", methods=["POST"])
+@login_required
+def api_registration_preferences():
+    if not (current_user.is_admin or current_user.is_event_coordinator()):
+        return jsonify({"error": "Only event coordinators and admins can change these answers."}), 403
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    campaign_id = (body.get("campaign_id") or "").strip()
+    event_id = (body.get("event_id") or "").strip()
+    contact_id = (body.get("contact_id") or "").strip()
+    answers = body.get("answers") or []
+    table_id = (body.get("table_id") or "").strip()
+    if not campaign_id or not event_id or not contact_id:
+        return jsonify({"error": "campaign_id, event_id, and contact_id are required"}), 400
+    desk = _registration_desk()
+    try:
+        desk._require_event(current_user, campaign_id, event_id)
+        desk.save_signup_details(contact_id, event_id, answers, table_id)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API preference save failed")
+        return jsonify({"error": "Could not save the questions."}), 500
+    return jsonify({"saved": True, "contact_id": contact_id, "event_id": event_id})
+
+
+@app.route("/api/password-reset/contacts", methods=["GET"])
+@login_required
+def api_password_contacts():
+    denied = _guard_password_reset()
+    if denied:
+        return denied
+    email, first_name, last_name = _contact_search_from(request.args)
+    if not (email or first_name or last_name):
+        return jsonify({"error": "Enter an email, first name, or last name"}), 400
+    try:
+        found = _registration_desk().find_contacts(email, first_name, last_name)
+    except RegistrationError as exc:
+        return _api_fail(exc)
+    except Exception:
+        logger.exception("API password search failed")
+        return jsonify({"error": "Could not load this customer from Dynamics"}), 500
+    return jsonify({"truncated": found.truncated, "contacts": list(found)})
+
+
+@app.route("/api/password-reset", methods=["POST"])
+@login_required
+def api_password_reset():
+    denied = _guard_password_reset()
+    if denied:
+        return denied
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    contact_id = (body.get("contact_id") or "").strip()
+    password = body.get("password") or ""
+    valid, error = validate_password(password)
+    if not valid:
+        return jsonify({"error": error}), 400
+    try:
+        _registration_desk().set_local_password(current_user, contact_id, password)
+    except (CampaignAccessDenied, RegistrationError) as exc:
+        return _api_fail(exc, 403 if isinstance(exc, CampaignAccessDenied) else 400)
+    except Exception:
+        logger.exception("API portal password reset failed for contact %s", contact_id)
+        return jsonify({"error": "Could not update the portal password"}), 500
+    return jsonify({"updated": True, "contact_id": contact_id})
+
+
+@app.route("/api/membership/years", methods=["GET"])
+@login_required
+def api_membership_years():
+    return jsonify({"years": _offered_membership_years()})
+
+
+@app.route("/api/membership/lookup", methods=["GET"])
+@login_required
+def api_membership_lookup():
+    email, first_name, last_name = _contact_search_from(request.args)
+    contact_id = (request.args.get("contact_id") or "").strip()
+    year = (request.args.get("year") or "").strip()
+    campaign_id = (request.args.get("campaign_id") or "").strip()
+    choices = _offered_membership_years()
+    selected_year = int(year) if year.isdigit() and int(year) in choices else choices[0]
+    context = _membership_context(contact_id, str(selected_year), campaign_id, email, first_name, last_name)
+    buyers = [item for item in request.args.getlist("buyer") if item]
+    plans = []
+    if buyers and context["household"]:
+        plans = recommend_purchases(set(buyers), context["household"], context["categories"])
+    contacts = []
+    truncated = False
+    if not contact_id and (email or first_name or last_name):
+        try:
+            found = _registration_desk().find_contacts(email, first_name, last_name)
+            contacts = list(found)
+            truncated = found.truncated
+        except RegistrationError as exc:
+            return _api_fail(exc)
+        except Exception:
+            logger.exception("API membership search failed")
+            return jsonify({"error": "Could not load this customer from Dynamics"}), 500
+    return jsonify({
+        "year": selected_year,
+        "years": choices,
+        "contact_id": contact_id,
+        "campaign_id": campaign_id,
+        "contacts": contacts,
+        "truncated": truncated,
+        "household": context["household"],
+        "categories": context["categories"],
+        "plans": plans,
+        "error": context["error"],
+    })
+
+
+@app.route("/api/membership/purchase", methods=["POST"])
+@login_required
+def api_membership_purchase():
+    body = _api_body()
+    if body is None:
+        return jsonify({"error": "Send a JSON object"}), 400
+    contact_id = (body.get("contact_id") or "").strip()
+    year_raw = body.get("year")
+    campaign_id = (body.get("campaign_id") or "").strip()
+    plans_in = body.get("plans") or []
+    skip = bool(body.get("skip_payment"))
+    spouse_id = (body.get("spouse_id") or "").strip()
+    child_ids = [item for item in (body.get("child_ids") or []) if item]
+    try:
+        year = int(year_raw)
+    except (TypeError, ValueError):
+        year = None
+    event_year = None
+    if campaign_id:
+        try:
+            event_year = _registration_desk().convention_year(campaign_id)
+        except RegistrationError:
+            event_year = None
+    if year not in _offered_membership_years(event_year):
+        return jsonify({"error": "That membership year is not open yet. Next year opens in October."}), 400
+    if body.get("confirm_cover") not in (True, 1, "1"):
+        return jsonify({"error": "Confirm who each membership applies to before saving."}), 400
+    desk = _registration_desk()
+    catalog = {item["id"]: item for item in load_categories(desk.crm)}
+    plans = []
+    total = 0
+    for plan in plans_in:
+        anchor_id = (plan.get("contact_id") or "").strip()
+        chosen_id = (plan.get("category_id") or "").strip()
+        category = catalog.get(chosen_id)
+        if not anchor_id or not category:
+            return jsonify({"error": "Each plan needs contact_id and category_id"}), 400
+        plans.append({"contact_id": anchor_id, "category_id": chosen_id})
+        total += category.get("cost") or 0
+    if not contact_id or not plans:
+        return jsonify({"error": "Choose who to buy for and a membership level"}), 400
+    if not skip and total:
+        return jsonify({
+            "payment_required": True,
+            "amount": f"{float(total):.2f}",
+            "message": "This purchase has a cost. Pass skip_payment to record it without charging.",
+        }), 402
+    try:
+        names = []
+        for plan in plans:
+            bought = desk.purchase_membership(
+                plan["contact_id"],
+                plan["category_id"],
+                year,
+                spouse_id=spouse_id,
+                confirmed_child_ids=set(child_ids),
+                transaction_id="",
+                profile_id="",
+            )
+            names.extend(bought["covered"])
+    except RegistrationError as exc:
+        return _api_fail(exc)
+    except Exception:
+        logger.exception("API membership purchase failed")
+        return jsonify({"error": "Could not save the membership"}), 500
+    return jsonify({"covered": names, "year": year, "charged": False})
+
+
+@app.route("/api/qr", methods=["POST"])
+@login_required
+def api_qr():
+    body = _api_body() or {}
+    data = (body.get("data") or request.form.get("data") or "").strip()
+    if not data:
+        return jsonify({"error": "data is required"}), 400
+    image = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
+    image.add_data(data)
+    image.make(fit=True)
+    img_qr = image.make_image(fill_color="black", back_color="white").convert("RGBA")
+    buf = BytesIO()
+    img_qr.save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png", as_attachment=True, download_name="qr.png")
+
+
 @app.route("/seating", methods=["GET"])
 @login_required
 def seating_page():
@@ -1701,7 +2081,7 @@ def create_access_group():
         group.assigned_campaign_id = campaign_id
         group.assigned_campaign_name = campaign_name or campaign_id
         group.set_feature_permissions(
-            {fid: fid in ('badges', 'registration', 'password_reset', 'seating', 'membership') for fid in FEATURES}
+            {fid: fid in COORDINATOR_FEATURES for fid in FEATURES}
         )
     elif role == User.ROLE_ADMIN:
         group.assigned_campaign_id = None
@@ -2114,7 +2494,10 @@ def _guard_password_reset():
     allowed, message = _password_reset_allowed(current_user)
     if allowed:
         return None
-    flash(message or "Portal password is closed.", "error")
+    message = message or "Portal password is closed."
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), 403
+    flash(message, "error")
     return redirect(url_for("home"))
 
 
@@ -2859,7 +3242,8 @@ def magazine():
 @login_required
 def event_page():
     if request.method == 'POST':
-        crm_url = request.form.get('crmUrl')
+        payload = request.get_json(silent=True) or {}
+        crm_url = request.form.get('crmUrl') or payload.get('crmUrl') or payload.get('crm_url')
         try:
             event_id = extract_event_id(crm_url)
             event_url = generate_event_registration_url(event_id)

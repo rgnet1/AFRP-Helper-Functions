@@ -222,16 +222,22 @@ class DeskAccessTests(unittest.TestCase):
     def test_coordinator_only_sees_events_they_can_open(self):
         from utils.registration.seating import events_with_tables
         desk, crm = self._desk()
+        crm.get_open_campaigns.return_value = []
         crm._paginate.return_value = [
             {"_aha_event_value": SUB},
             {"_aha_event_value": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"},
         ]
+        crm._make_request.return_value = {"value": [{
+            "campaignid": PARENT,
+            "name": "Convention",
+        }]}
         groups = events_with_tables(desk, _user(True, [PARENT]))
         self.assertEqual(groups, [{
             "id": PARENT,
             "name": "Convention",
             "children": [{"id": SUB, "name": "Banquet"}],
         }])
+        self.assertNotIn("statuscode", crm._make_request.call_args.args[0])
 
     def test_chart_layout_is_converted_once(self):
         import tempfile
