@@ -105,6 +105,72 @@ a.tile:hover,
     transform: scale(1.02);
 }
 
+.coord-preview {
+    margin: 0;
+}
+
+.coord-preview-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    color: #1c1c1e;
+    cursor: pointer;
+    user-select: none;
+}
+
+.coord-preview-label input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+}
+
+.coord-switch {
+    width: 51px;
+    height: 31px;
+    border-radius: 16px;
+    background: #e9e9eb;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+}
+
+.coord-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 27px;
+    height: 27px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+    transition: transform 0.2s ease;
+}
+
+.coord-preview-label input:checked + .coord-switch {
+    background: #34c759;
+}
+
+.coord-preview-label input:checked + .coord-switch::after {
+    transform: translateX(20px);
+}
+
+.coord-preview-label input:focus-visible + .coord-switch {
+    outline: 2px solid #007aff;
+    outline-offset: 2px;
+}
+
+.coord-preview-pill {
+    background: rgba(0, 122, 255, 0.12);
+    color: #007aff;
+    padding: 2px 8px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
 footer.app-footer {
     justify-content: flex-end;
     margin-top: auto;

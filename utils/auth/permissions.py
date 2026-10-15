@@ -54,6 +54,14 @@ FEATURES = {
     },
 }
 
+# What an event coordinator sees on the home page and may open.
+COORDINATOR_FEATURES = (
+    "registration",
+    "password_reset",
+    "seating",
+    "badges",
+)
+
 ALL_FEATURES_BACKFILL = json.dumps({fid: True for fid in FEATURES})
 
 PUBLIC_PATH_PREFIXES = ("/login", "/setup", "/logout", "/auth/google", "/auth/portal", "/api/auth")

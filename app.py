@@ -26,6 +26,7 @@ from utils.auth import (
     validate_password,
     validate_username,
     validate_email,
+    COORDINATOR_FEATURES,
     FEATURES,
     user_can_access_path,
     permissions_from_form,
@@ -614,6 +615,20 @@ def resolve_badge_svg_path(template=None) -> str:
 logger.info(f"Registered {len(preprocessing_implementations)} preprocessor(s): {list(preprocessing_implementations.keys())}")
 
 
+def coordinator_preview_on() -> bool:
+    """An admin is looking at the app the way an event coordinator does."""
+    return bool(
+        current_user.is_authenticated
+        and getattr(current_user, "is_admin", False)
+        and session.get("coordinator_preview")
+    )
+
+
+@app.context_processor
+def inject_coordinator_preview():
+    return {"coordinator_preview": coordinator_preview_on()}
+
+
 @app.before_request
 def enforce_feature_permissions():
     """Gate routes by per-user feature permissions (admins bypass)."""
@@ -622,6 +637,25 @@ def enforce_feature_permissions():
         return None
     if not current_user.is_authenticated:
         return None
+    if coordinator_preview_on():
+        if path in ("/", "/account/coordinator-preview"):
+            return None
+        if (
+            path_requires_admin(path)
+            or path == "/settings"
+            or path.startswith("/account/api-keys")
+        ):
+            if path.startswith("/api"):
+                return jsonify({"error": "Hidden in Event coordinator view"}), 403
+            flash("That page is hidden in Event coordinator view.", "error")
+            return redirect(url_for("home"))
+        feature_id = feature_for_path(path)
+        if feature_id in COORDINATOR_FEATURES:
+            return None
+        if path.startswith("/api"):
+            return jsonify({"error": "Hidden in Event coordinator view"}), 403
+        flash("That page is hidden in Event coordinator view.", "error")
+        return redirect(url_for("home"))
     if current_user.is_admin:
         return None
     if path_requires_admin(path):
@@ -2348,12 +2382,26 @@ def settings():
     return render_template("settings.html", **context)
 
 
+@app.route("/account/coordinator-preview", methods=["POST"])
+@login_required
+def toggle_coordinator_preview():
+    """Let an admin walk through the app as an event coordinator."""
+    if not current_user.is_admin:
+        flash("Only administrators can use Event coordinator view", "error")
+        return redirect(url_for("home"))
+    session["coordinator_preview"] = request.form.get("enabled") == "1"
+    return redirect(url_for("home"))
+
+
 @app.route('/', methods=['GET'])
 @login_required
 def home():
     # This route displays the home page with tiles
     _sync_coordinators_quietly()
-    features = list(current_user.allowed_features())
+    if coordinator_preview_on():
+        features = [fid for fid in COORDINATOR_FEATURES if fid in FEATURES]
+    else:
+        features = list(current_user.allowed_features())
     if "password_reset" in features:
         allowed, _message = _password_reset_allowed(current_user)
         if not allowed:

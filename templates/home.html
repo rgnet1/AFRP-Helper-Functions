@@ -128,14 +128,25 @@
     {% set page_title = "AFRP CRM Helper Functions" %}
     {% set header_actions %}
         <div class="user-menu">
+            {% if current_user.is_admin %}
+            <form class="coord-preview" method="post" action="{{ url_for('toggle_coordinator_preview') }}">
+                <label class="coord-preview-label">
+                    <input type="checkbox" name="enabled" value="1" {% if coordinator_preview %}checked{% endif %} onchange="this.form.submit()">
+                    <span class="coord-switch" aria-hidden="true"></span>
+                    <span>Event coordinator view</span>
+                </label>
+            </form>
+            {% endif %}
             <div class="user-info">
                 <i class="fas fa-user-circle"></i>
                 <span>{{ current_user.username }}</span>
-                {% if current_user.is_admin %}
+                {% if current_user.is_admin and not coordinator_preview %}
                 <span style="background-color: rgba(255, 255, 255, 0.2); padding: 2px 8px; border-radius: 3px; font-size: 12px;">ADMIN</span>
+                {% elif coordinator_preview %}
+                <span class="coord-preview-pill">Coordinator view</span>
                 {% endif %}
             </div>
-            {% if current_user.is_admin %}
+            {% if current_user.is_admin and not coordinator_preview %}
             <a href="{{ url_for('settings') }}">
                 <i class="fas fa-cog"></i> Settings
             </a>

@@ -5,6 +5,7 @@ import re
 from typing import Tuple
 
 from utils.auth.permissions import (  # noqa: F401
+    COORDINATOR_FEATURES,
     FEATURES,
     allowed_features_for_user,
     feature_for_path,
