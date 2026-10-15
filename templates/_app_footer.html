@@ -1,0 +1,5 @@
+{% if request.endpoint != 'home' %}
+<footer class="app-footer">
+    <a class="app-home" href="{{ url_for('home') }}">‹ Home</a>
+</footer>
+{% endif %}

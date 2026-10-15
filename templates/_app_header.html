@@ -1,0 +1,10 @@
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chrome.css') }}">
+<header class="app-header">
+    <h1>{{ page_title or "AFRP CRM Helper" }}</h1>
+    <div class="app-header-actions">
+        {% if header_actions is defined %}{{ header_actions }}{% endif %}
+        {% if request.endpoint != 'home' %}
+        <a class="app-home" href="{{ url_for('home') }}">‹ Home</a>
+        {% endif %}
+    </div>
+</header>

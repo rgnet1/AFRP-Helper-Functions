@@ -3,15 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Seating - AFRP CRM Helper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&display=swap">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
     <style>
         :root { --green: #3d7a3d; --ink: #1c241c; --muted: #5c6b5c; --line: #e2e8e2; --paper: #f4f7f4; }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: Georgia, Palatino, serif; background: var(--paper); color: var(--ink); }
+        body {
+            margin: 0;
+            font-family: Georgia, "Iowan Old Style", Palatino, serif;
+            color: var(--ink);
+            background: #f2f2f7;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+        }
         header { background: var(--green); color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
         header a { color: #fff; text-decoration: none; font-family: Arial, sans-serif; font-size: 14px; }
         h1 { margin: 0; font-size: 22px; font-weight: normal; }
-        .layout { display: grid; grid-template-columns: 260px 1fr 280px; gap: 16px; padding: 20px; align-items: start; }
-        @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } }
+        .layout { display: grid; grid-template-columns: 260px 1fr 340px; gap: 16px; padding: 20px; align-items: start; }
+        @media (max-width: 980px) { .layout { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
         .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
         button, input, select { font-family: Arial, sans-serif; font-size: 14px; }
         .event { display: block; width: 100%; text-align: left; background: #f4f7f4; border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; }
@@ -23,30 +33,231 @@
         .sub-event { background: #f7faf7; }
         .chart { background: #fbfbfb; border-radius: 12px; min-height: 180px; }
         .floor { width: 100%; height: auto; display: block; }
-        .table-dot { cursor: pointer; }
-        .table-dot circle { fill: #d7ead4; stroke: #3d7a3d; stroke-width: 0.35; }
-        .table-dot.full circle { fill: #f3d0d0; stroke: #8a3b3b; }
-        .table-dot.current circle, .table-dot.open circle { stroke: #1d4e89; stroke-width: 0.7; }
+        .table-dot { cursor: pointer; --kind: #5b8def; }
+        .kind-general { --kind: #5b8def; }
+        .kind-afrp { --kind: #2a9d8f; }
+        .kind-board { --kind: #7c5cbf; }
+        .kind-sponsor { --kind: #e0a106; }
+        .kind-local { --kind: #e07a3d; }
+        .kind-leadership { --kind: #3d4c9e; }
+        .kind-vip { --kind: #8e3d5b; }
+        .kind-head { --kind: #efe6c9; }
+        .kind-guest { --kind: #8e7cc3; }
+        .kind-emergency { --kind: #6e7c86; }
+        .kind-other { --kind: #c5c9c4; }
+        .table-dot circle, .table-dot.head rect { fill: var(--kind); stroke: #2f7d46; stroke-width: 0.55; }
+        .table-dot.full circle, .table-dot.full rect { stroke: #a33b3b; }
+        .table-dot.current circle, .table-dot.current rect,
+        .table-dot.open circle, .table-dot.open rect { stroke-width: 1.05; }
+        .table-dot.queued circle, .table-dot.queued rect { stroke-dasharray: 0.9 0.45; }
         .table-dot text { fill: #1c241c; font-family: Arial, sans-serif; pointer-events: none; }
+        .table-dot.kind-afrp text, .table-dot.kind-board text, .table-dot.kind-leadership text,
+        .table-dot.kind-vip text, .table-dot.kind-emergency text { fill: #fff; }
+        .open-badge { fill: #c0392b; stroke: #fff; pointer-events: none; }
+        .table-dot .open-badge-num { fill: #fff; font-family: Arial, sans-serif; font-weight: 700; pointer-events: none; }
+        .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 12px; }
+        .stats[hidden] { display: none; }
+        .stat { background: #f7faf7; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+        .stat b { display: block; font-family: Arial, sans-serif; font-size: 22px; font-weight: 700; line-height: 1.1; color: var(--ink); }
+        .stat span { display: block; margin-top: 4px; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.3; color: var(--muted); }
+        @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0 0 10px; }
+        .legend[hidden] { display: none; }
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; font-family: Arial, sans-serif; font-size: 13px; color: var(--ink); }
+        .legend-swatch { width: 14px; height: 14px; border-radius: 50%; background: var(--kind, #5b8def); box-shadow: inset 0 0 0 2px #2f7d46; }
         .dance-floor { fill: #d5dbe3; stroke: #b7c0cc; stroke-width: 0.35; }
-        .table-dot.head rect { fill: #efe6c9; stroke: #8a7340; stroke-width: 0.4; }
+        .stage-floor { fill: #d9dde3; stroke: #8b93a0; stroke-width: 0.4; }
         .landmark { fill: #5c6b5c; font-family: Arial, sans-serif; font-size: 2.4px; }
-        #expanded { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
-        #expanded ul { margin: 8px 0 0; padding-left: 18px; font-family: Arial, sans-serif; font-size: 14px; }
-        .tip { position: fixed; z-index: 5; background: #1c241c; color: #fff; padding: 8px 10px; border-radius: 8px; font-family: Arial, sans-serif; font-size: 13px; max-width: 240px; white-space: pre-line; pointer-events: none; display: none; }
+        .side {
+            position: sticky;
+            top: 12px;
+            max-height: calc(100vh - 96px);
+            overflow: auto;
+            border-radius: 28px;
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(24px) saturate(1.8);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            border: 0.5px solid rgba(255, 255, 255, 0.85);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+        .pending-badge {
+            display: inline-flex;
+            margin: 0 0 12px auto;
+            background: rgba(61, 122, 61, 0.14);
+            color: #245124;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .pending-badge[hidden] { display: none; }
+        .side-banner { display: flex; }
+        .table-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+        .table-name, .tip-name {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
+        }
+        .table-name { margin: 0; font-size: 22px; }
+        .table-count, .tip-count {
+            margin-left: auto;
+            flex: 0 0 auto;
+            font-family: Fraunces, Georgia, serif;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #2f632f;
+            white-space: nowrap;
+        }
+        .table-count { font-size: 15px; }
+        .tip {
+            position: fixed;
+            z-index: 30;
+            left: 0;
+            top: 0;
+            width: max-content;
+            min-width: 220px;
+            max-width: 280px;
+            pointer-events: none;
+            color: var(--ink);
+            background: rgba(255, 255, 255, 0.78);
+            backdrop-filter: blur(24px) saturate(1.8);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            border: 0.5px solid rgba(255, 255, 255, 0.9);
+            border-radius: 22px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(8px) scale(0.96);
+            transition: opacity var(--motion-duration, 180ms) var(--motion-ease, ease), transform var(--motion-duration, 180ms) var(--motion-ease, ease), visibility 0s linear var(--motion-duration, 180ms);
+        }
+        .tip.is-on {
+            opacity: 1;
+            visibility: visible;
+            transform: none;
+            transition: opacity var(--motion-duration, 180ms) var(--motion-ease, ease), transform var(--motion-duration, 180ms) var(--motion-ease, ease), visibility 0s;
+        }
+        .tip-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 14px 6px; }
+        .tip-name { font-size: 18px; }
+        .tip-count { font-size: 14px; }
+        .tip-people { margin: 0; padding: 4px 14px 12px 32px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif; font-size: 15px; line-height: 1.35; }
+        .tip-people li { padding: 1px 0; }
+        .tip-kind { margin: 0; padding: 0 14px 8px; font-family: Arial, sans-serif; font-size: 13px; font-weight: 700; color: var(--ink); }
+        .tip-empty, .table-empty { margin: 0; font-family: Georgia, Palatino, serif; font-size: 14px; color: var(--muted); }
+        .tip-empty { padding: 2px 14px 12px; }
+        .table-empty { padding: 6px 0 4px; }
+        .seat-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 240px; overflow: auto; }
+        .seat-row, .person {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: 0;
+            border-radius: 10px;
+            padding: 8px;
+            cursor: pointer;
+            color: inherit;
+        }
+        .seat-row:hover, .person:hover { background: rgba(61, 122, 61, 0.08); }
+        .seat-row.selected { background: rgba(61, 122, 61, 0.16); box-shadow: inset 0 0 0 1px rgba(61, 122, 61, 0.35); }
+        .seat-num { font-family: Fraunces, Georgia, serif; font-weight: 700; color: #3d7a3d; min-width: 1.25em; }
+        .seat-who { display: flex; flex-direction: column; min-width: 0; }
+        .seat-person { font-family: Georgia, Palatino, serif; font-size: 15px; }
+        .seat-email { font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); }
+        .seat-flag { margin-left: auto; font-family: Arial, sans-serif; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #8a7340; }
+        .mover { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(226, 232, 226, 0.95); }
         label { display: block; font-family: Arial, sans-serif; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
-        input, select { width: 100%; padding: 8px; border: 1px solid #c9d4c9; border-radius: 8px; }
-        .primary { background: var(--green); color: #fff; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; margin-top: 10px; }
-        .person { display: block; width: 100%; text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--line); padding: 8px 0; cursor: pointer; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #c9d4c9; border-radius: 8px; background: rgba(255, 255, 255, 0.8); }
+        .hint { margin: 6px 0 0; }
+        .primary { background: #007aff; color: #fff; border: 0; border-radius: 14px; padding: 12px 14px; cursor: pointer; margin-top: 12px; width: 100%; font-weight: 600; }
+        .primary:disabled { opacity: 0.55; cursor: default; }
+        .primary.is-busy, .primary.is-busy:disabled { opacity: 0.8; cursor: wait; }
+        .primary.is-done { background: #245124; }
+        .primary.is-error { animation: motion-shake var(--motion-duration, 180ms) var(--motion-ease, ease); }
+        .pending-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 16px 0 6px; }
+        .pending-head h3 { margin: 0; font-size: 15px; font-weight: normal; }
+        .pending-card {
+            background: rgba(255, 255, 255, 0.66);
+            backdrop-filter: blur(12px) saturate(1.2);
+            -webkit-backdrop-filter: blur(12px) saturate(1.2);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: 14px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            box-shadow: 0 10px 24px rgba(28, 36, 28, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+        }
+        .pending-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .pending-name { font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 16px; }
+        .remove-move { border: 0; background: transparent; color: #8a3b3b; cursor: pointer; font-family: Arial, sans-serif; font-size: 12px; padding: 0; }
+        .compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: end; margin-top: 8px; }
+        .compare-label { display: block; font-family: Arial, sans-serif; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+        .compare-value { display: block; font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 14px; line-height: 1.2; }
+        .compare-value.before { color: #5c6b5c; }
+        .compare-value.after { color: #2f632f; }
+        .compare-arrow { color: #8a7340; font-size: 18px; padding-bottom: 1px; }
         .error { color: #8a3b3b; font-family: Arial, sans-serif; font-size: 14px; }
         .meta { font-family: Arial, sans-serif; font-size: 13px; color: var(--muted); }
+        .moving-status {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 0 0 14px;
+            padding: 14px 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            line-height: 1.25;
+            color: #142014;
+            background: rgba(61, 122, 61, 0.16);
+            border: 1px solid rgba(61, 122, 61, 0.42);
+            border-radius: 12px;
+        }
+        .moving-name { font-size: 26px; }
+        .moving-detail {
+            font-family: Arial, sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            line-height: 1.35;
+            color: #142014;
+        }
+        .banquet-switch { margin: 0 0 12px; }
+        .banquet-switch[hidden] { display: none; }
+        .banquet-switch .banquet-label {
+            display: block;
+            margin: 0 0 8px;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+        .meal-head {
+            margin: 12px 0 4px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .meal-q { margin-top: 8px; }
+        .meal-q label { margin-top: 0; color: var(--ink); font-size: 13px; font-weight: 700; }
+        .meal-note {
+            margin: 4px 0 0;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.35;
+            color: var(--muted);
+            overflow-wrap: anywhere;
+        }
+        .compare-value { overflow-wrap: anywhere; }
     </style>
 </head>
 <body>
-<header>
-    <h1>Seating</h1>
-    <a href="{{ url_for('home') }}">Back home</a>
-</header>
+{% set page_title = "Seating" %}
+{% include "_app_header.html" %}
 <div class="layout">
     <section class="card">
         <h2 style="margin:0 0 10px;font-size:16px;font-weight:normal;">Events with a seating chart</h2>
@@ -54,33 +265,103 @@
     </section>
     <section class="card">
         <h2 id="event-title" style="margin:0 0 10px;font-size:18px;font-weight:normal;">Choose an event</h2>
+        <div id="stats" class="stats" hidden></div>
+        <div id="legend" class="legend" hidden></div>
         <div id="chart" class="chart" hidden></div>
-        <div id="expanded" hidden>
-            <h3 id="expanded-title" style="margin:0;font-size:16px;font-weight:normal;"></h3>
-            <p id="expanded-meta" class="meta"></p>
-            <ul id="expanded-people"></ul>
-        </div>
     </section>
-    <section class="card">
-        <h2 style="margin:0 0 8px;font-size:16px;font-weight:normal;">Change a seat</h2>
-        <label for="guest-search">Person on this event</label>
-        <input id="guest-search" placeholder="Name or email" disabled>
-        <div id="guest-results"></div>
-        <p id="picked" class="meta"></p>
-        <label for="seat-select">Table</label>
-        <select id="seat-select" disabled></select>
-        <button id="save-seat" class="primary" type="button" disabled>Save seat</button>
+    <section class="card side" id="side">
+        <div class="side-banner">
+            <span id="pending-badge" class="pending-badge" hidden>0 pending</span>
+        </div>
+        <div id="table-panel">
+            <p class="meta">Choose an event, then click a table.</p>
+        </div>
+        <div class="mover">
+            <p id="picked" class="meta"></p>
+            <div id="banquet-switch" hidden></div>
+            <label for="guest-search" id="guest-label">Person on this event</label>
+            <input id="guest-search" placeholder="Name or email" autocomplete="off" disabled>
+            <div id="guest-results"></div>
+            <label for="seat-select">New table</label>
+            <select id="seat-select" disabled>
+                <option value="">Choose a table…</option>
+            </select>
+            <p class="meta hint">Or click a table on the chart.</p>
+        </div>
+        <div id="pending-wrap"></div>
+        <button id="approve" class="primary" type="button" disabled>Approve and move</button>
         <p id="seat-error" class="error"></p>
+        <p id="seat-note" class="meta"></p>
     </section>
 </div>
-<div id="tip" class="tip"></div>
+<div id="tip" class="tip" aria-hidden="true"></div>
 <script>
-var state = { eventId: "", contactId: "", expandedId: "", board: null };
+var state = {
+    eventId: "",
+    eventName: "",
+    parentId: "",
+    parentName: "",
+    events: [],
+    selected: null,
+    openTableId: "",
+    board: null,
+    pending: [],
+    pendingAnimated: {},
+    questionsByEvent: {},
+    saving: false,
+    note: "",
+    seatError: "",
+    saveFlash: ""
+};
 var tip = document.getElementById("tip");
 var svgNS = "http://www.w3.org/2000/svg";
+var searchToken = 0;
+
+function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+}
+function countLabel(table) {
+    var seated = table.seated || 0;
+    if (table.chairs) return seated + " of " + table.chairs;
+    return seated + " seated";
+}
+function sortedPeople(table) {
+    return (table.people || []).slice().sort(function (a, b) {
+        return String(a.name || "").localeCompare(String(b.name || ""), undefined, {sensitivity: "base"});
+    });
+}
+function findTable(id) {
+    var tables = (state.board && state.board.tables) || [];
+    var key = (id || "").toLowerCase();
+    for (var i = 0; i < tables.length; i++) {
+        if ((tables[i].id || "").toLowerCase() === key) return tables[i];
+    }
+    return null;
+}
+function seatOf(contactId) {
+    var key = (contactId || "").toLowerCase();
+    var tables = (state.board && state.board.tables) || [];
+    for (var i = 0; i < tables.length; i++) {
+        var people = tables[i].people || [];
+        for (var j = 0; j < people.length; j++) {
+            if ((people[j].id || "").toLowerCase() === key) return {table: tables[i], person: people[j]};
+        }
+    }
+    return null;
+}
+function pendingFor(contactId) {
+    var key = (contactId || "").toLowerCase();
+    for (var i = 0; i < state.pending.length; i++) {
+        if (state.pending[i].contactId.toLowerCase() === key) return state.pending[i];
+    }
+    return null;
+}
 function seatText(table) {
     var count = table.chairs ? " · " + table.seated + " of " + table.chairs : "";
-    var extra = (table.vip ? " · VIP" : "") + (table.current ? " · current seat" : "") + (table.available ? "" : " · full");
+    var extra = (table.vip ? " · VIP" : "") + (table.available ? "" : " · full");
     return table.name + count + extra;
 }
 function tableNumber(table) {
@@ -89,9 +370,581 @@ function tableNumber(table) {
     var match = String(table.name || "").match(/\d+/);
     return match ? match[0] : "";
 }
-function tipText(table) {
-    var names = (table.people || []).map(function (person) { return person.name; });
-    return table.name + " · " + table.seated + " of " + table.chairs + (names.length ? "\n" + names.join(", ") : "\nEmpty");
+function hideTip() {
+    tip.classList.remove("is-on");
+}
+var KIND_ORDER = ["general", "afrp", "board", "sponsor", "local", "leadership", "vip", "head", "guest", "emergency", "other"];
+function typeLine(table) {
+    var label = table.kind_label || "General";
+    var detail = table.kind_detail || "";
+    if (detail && detail.toLowerCase() !== label.toLowerCase()) return label + " · " + detail;
+    return label;
+}
+function paintStats(board) {
+    var box = document.getElementById("stats");
+    var tables = (board && board.tables) || [];
+    if (!board || !board.live || !tables.length) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+    }
+    var full = 0;
+    var guests = 0;
+    var chairs = 0;
+    var generalOpen = 0;
+    tables.forEach(function (table) {
+        var taken = table.seated || 0;
+        guests += taken;
+        if (table.chairs) {
+            chairs += table.chairs;
+            if (taken >= table.chairs) full += 1;
+        }
+        if ((table.kind || "general") === "general" && table.open_seats > 0) generalOpen += table.open_seats;
+    });
+    var percent = chairs ? Math.round(100 * guests / chairs) : null;
+    var figures = [
+        [String(full), "Full tables"],
+        [String(guests), "Guests"],
+        [percent == null ? "—" : percent + "%", "Full"],
+        [String(generalOpen), "General seats open"]
+    ];
+    box.innerHTML = "";
+    figures.forEach(function (figure) {
+        var card = el("div", "stat");
+        card.appendChild(el("b", "", figure[0]));
+        card.appendChild(el("span", "", figure[1]));
+        box.appendChild(card);
+    });
+    box.hidden = false;
+}
+function paintLegend(tables) {
+    var box = document.getElementById("legend");
+    var seen = {};
+    var items = [];
+    (tables || []).forEach(function (table) {
+        var key = table.kind || "general";
+        var label = table.kind_label || "General";
+        var id = key === "other" ? "other:" + label : key;
+        if (seen[id]) return;
+        seen[id] = true;
+        items.push({key: key, label: label});
+    });
+    items.sort(function (a, b) {
+        var ai = KIND_ORDER.indexOf(a.key);
+        var bi = KIND_ORDER.indexOf(b.key);
+        if (ai < 0) ai = KIND_ORDER.length;
+        if (bi < 0) bi = KIND_ORDER.length;
+        return ai - bi || a.label.localeCompare(b.label);
+    });
+    box.innerHTML = "";
+    box.hidden = !items.length;
+    items.forEach(function (item) {
+        var row = el("span", "legend-item");
+        row.appendChild(el("span", "legend-swatch kind-" + item.key));
+        row.appendChild(document.createTextNode(item.label));
+        box.appendChild(row);
+    });
+}
+function renderTip(table) {
+    tip.innerHTML = "";
+    var head = el("div", "tip-head");
+    head.appendChild(el("div", "tip-name", table.name || "Table"));
+    head.appendChild(el("div", "tip-count", countLabel(table)));
+    tip.appendChild(head);
+    tip.appendChild(el("p", "tip-kind", typeLine(table)));
+    var people = sortedPeople(table);
+    if (!people.length) {
+        tip.appendChild(el("p", "tip-empty", "Empty"));
+        return;
+    }
+    var list = el("ol", "tip-people");
+    people.forEach(function (person) {
+        list.appendChild(el("li", "", person.name || "Guest"));
+    });
+    tip.appendChild(list);
+}
+function placeTip(event) {
+    tip.classList.add("is-on");
+    var margin = 12;
+    var offset = 16;
+    var width = tip.offsetWidth;
+    var height = tip.offsetHeight;
+    var x = event.clientX + offset;
+    var y = event.clientY + offset;
+    if (x + width > window.innerWidth - margin) x = event.clientX - width - offset;
+    if (y + height > window.innerHeight - margin) y = event.clientY - height - offset;
+    x = Math.max(margin, Math.min(x, window.innerWidth - width - margin));
+    y = Math.max(margin, Math.min(y, window.innerHeight - height - margin));
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+}
+function pendingLabel(count) {
+    return count === 1 ? "1 pending" : count + " pending";
+}
+function idsMatch(left, right) {
+    return (left || "").toLowerCase() === (right || "").toLowerCase();
+}
+function sameBanquet(move) {
+    var fromEvent = move.fromEventId || state.eventId || "";
+    var toEvent = move.toEventId || state.eventId || "";
+    return idsMatch(fromEvent, toEvent);
+}
+function isCross(move) {
+    return !!(move.fromEventId && move.toEventId && !idsMatch(move.fromEventId, move.toEventId));
+}
+function placeLabel(eventName, tableName, includeEvent) {
+    if (includeEvent && eventName && tableName) return eventName + " · " + tableName;
+    return tableName || "No seat";
+}
+function questionKey(move) {
+    return [
+        (move && move.toEventId) || "",
+        (move && move.contactId) || "",
+        (move && move.fromEventId) || ""
+    ].join("|").toLowerCase();
+}
+function sameText(left, right) {
+    function norm(value) {
+        return String(value || "").toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+    }
+    return norm(left) === norm(right);
+}
+function parentOf(eventId) {
+    var events = state.events || [];
+    for (var i = 0; i < events.length; i++) {
+        var children = events[i].children || [];
+        for (var j = 0; j < children.length; j++) {
+            if (idsMatch(children[j].id, eventId)) return events[i];
+        }
+    }
+    return null;
+}
+function siblingEvents() {
+    var parent = parentOf(state.eventId);
+    if (!parent) return [];
+    return (parent.children || []).filter(function (child) {
+        return child.id && !idsMatch(child.id, state.eventId);
+    });
+}
+function reconcilePending() {
+    var onThisChart = function (eventId) {
+        return idsMatch(eventId || state.eventId, state.eventId);
+    };
+    if (state.selected && !state.selected.fromId && onThisChart(state.selected.fromEventId)) {
+        var selectedSeat = seatOf(state.selected.id);
+        if (selectedSeat) {
+            state.selected.fromId = selectedSeat.table.id;
+            state.selected.fromName = selectedSeat.table.name;
+        }
+    }
+    state.pending.forEach(function (move) {
+        if (move.fromId || !onThisChart(move.fromEventId)) return;
+        var seat = seatOf(move.contactId);
+        if (!seat) return;
+        move.fromId = seat.table.id;
+        move.fromName = seat.table.name;
+        if (!move.fromEventId) move.fromEventId = state.eventId;
+        if (!move.fromEventName) move.fromEventName = state.eventName;
+    });
+    state.pending = state.pending.filter(function (move) {
+        return !(sameBanquet(move) && move.fromId && move.toId && idsMatch(move.fromId, move.toId));
+    });
+}
+function queueMove(person, table) {
+    var fromId = person.fromId || "";
+    var fromEventId = person.fromEventId || state.eventId;
+    var toEventId = state.eventId;
+    state.saveFlash = "";
+    if (idsMatch(fromEventId, toEventId) && fromId && table.id && idsMatch(fromId, table.id)) {
+        state.pending = state.pending.filter(function (move) {
+            return move.contactId.toLowerCase() !== person.id.toLowerCase();
+        });
+        state.note = person.name + " is already at " + (table.name || "that table") + ".";
+        state.seatError = "";
+        return;
+    }
+    var move = {
+        contactId: person.id,
+        name: person.name || "Guest",
+        email: person.email || "",
+        fromId: fromId,
+        fromName: person.fromName || "",
+        fromEventId: fromEventId,
+        fromEventName: person.fromEventName || state.eventName || "",
+        toId: table.id,
+        toName: table.name || "Table",
+        toEventId: toEventId,
+        toEventName: state.eventName || "",
+        answers: {}
+    };
+    var next = [];
+    var replaced = false;
+    state.pending.forEach(function (item) {
+        if (item.contactId.toLowerCase() === person.id.toLowerCase()) {
+            next.push(move);
+            replaced = true;
+        } else {
+            next.push(item);
+        }
+    });
+    if (!replaced) next.push(move);
+    state.pending = next;
+    state.note = "";
+    state.seatError = "";
+    if (isCross(move)) ensureQuestions(move);
+}
+function selectPerson(person, fromTable) {
+    var fromId = "";
+    var fromName = "";
+    if (fromTable) {
+        fromId = fromTable.id;
+        fromName = fromTable.name || "";
+    } else {
+        var found = seatOf(person.id);
+        if (found) {
+            fromId = found.table.id;
+            fromName = found.table.name || "";
+        }
+    }
+    state.selected = {
+        id: person.id,
+        name: person.name || "Guest",
+        email: person.email || "",
+        fromId: fromId,
+        fromName: fromName,
+        fromEventId: state.eventId,
+        fromEventName: state.eventName || ""
+    };
+    state.note = "";
+    state.seatError = "";
+    state.saveFlash = "";
+    document.getElementById("guest-search").value = "";
+    document.getElementById("guest-results").innerHTML = "";
+    searchToken += 1;
+    paintSide();
+}
+function openTable(table) {
+    var person = state.selected;
+    state.openTableId = table.id;
+    if (person) {
+        queueMove(person, table);
+        state.selected = null;
+    }
+    hideTip();
+    paintSide();
+}
+function markTables() {
+    var fromId = "";
+    if (state.selected && idsMatch(state.selected.fromEventId || state.eventId, state.eventId)) {
+        fromId = (state.selected.fromId || "").toLowerCase();
+    }
+    var queued = {};
+    state.pending.forEach(function (move) {
+        if (move.toId && idsMatch(move.toEventId || state.eventId, state.eventId)) {
+            queued[move.toId.toLowerCase()] = true;
+        }
+    });
+    document.querySelectorAll(".table-dot").forEach(function (group) {
+        var id = group.getAttribute("data-id") || "";
+        group.classList.toggle("open", id === state.openTableId);
+        group.classList.toggle("current", !!(fromId && id.toLowerCase() === fromId));
+        group.classList.toggle("queued", !!queued[id.toLowerCase()]);
+    });
+}
+function renderTable() {
+    var panel = document.getElementById("table-panel");
+    var key = (state.eventId || "") + "|" + (state.openTableId || "");
+    var swap = panel.getAttribute("data-key") !== key;
+    panel.innerHTML = "";
+    var table = state.openTableId ? findTable(state.openTableId) : null;
+    if (!state.eventId) {
+        panel.appendChild(el("p", "meta", "Choose an event, then click a table."));
+    } else if (!state.openTableId) {
+        panel.appendChild(el("p", "meta", "Click a table to see who is seated."));
+    } else if (!table) {
+        panel.appendChild(el("p", "meta", "That table is no longer on this chart."));
+    } else {
+        var head = el("div", "table-head");
+        head.appendChild(el("h2", "table-name", table.name || "Table"));
+        head.appendChild(el("div", "table-count", countLabel(table)));
+        panel.appendChild(head);
+        if (table.vip) panel.appendChild(el("p", "meta", "VIP"));
+        var people = sortedPeople(table);
+        if (!people.length) {
+            panel.appendChild(el("p", "table-empty", "Empty"));
+        } else {
+            var list = el("div", "seat-list");
+            people.forEach(function (person, index) {
+                var button = el("button", "seat-row");
+                button.type = "button";
+                button.setAttribute("data-id", person.id || "");
+                if (state.selected && (person.id || "").toLowerCase() === state.selected.id.toLowerCase()) {
+                    button.classList.add("selected");
+                }
+                button.appendChild(el("span", "seat-num", String(index + 1)));
+                var who = el("span", "seat-who");
+                who.appendChild(el("span", "seat-person", person.name || "Guest"));
+                if (person.email) who.appendChild(el("span", "seat-email", person.email));
+                button.appendChild(who);
+                if (pendingFor(person.id)) button.appendChild(el("span", "seat-flag", "Pending"));
+                button.addEventListener("click", function () { selectPerson(person, table); });
+                list.appendChild(button);
+            });
+            panel.appendChild(list);
+        }
+    }
+    if (swap) {
+        panel.setAttribute("data-key", key);
+        panel.classList.remove("motion-panel");
+        void panel.offsetWidth;
+        panel.classList.add("motion-panel");
+    }
+}
+function renderMover() {
+    var person = state.selected;
+    document.getElementById("guest-label").textContent = state.openTableId ? "Someone else on this event" : "Person on this event";
+    var picked = document.getElementById("picked");
+    picked.innerHTML = "";
+    if (person) {
+        var away = person.fromEventName && !idsMatch(person.fromEventId, state.eventId);
+        var before = placeLabel(person.fromEventName, person.fromName || "No seat", away);
+        picked.className = "moving-status";
+        picked.appendChild(el("span", "moving-name", "Moving " + person.name));
+        picked.appendChild(el("span", "moving-detail", "Before: " + before + ". Click a table or choose one below."));
+    } else {
+        picked.className = "meta";
+        picked.textContent = state.pending.length ? "Select the next person, or approve the moves below." : "";
+    }
+    renderBanquets();
+}
+function renderBanquets() {
+    var box = document.getElementById("banquet-switch");
+    box.innerHTML = "";
+    var siblings = (state.selected || state.pending.length) ? siblingEvents() : [];
+    if (!siblings.length) {
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    var parent = parentOf(state.eventId);
+    box.appendChild(el("div", "banquet-label", state.selected ? "Move to another banquet" : "Another banquet"));
+    siblings.forEach(function (child) {
+        var button = el("button", "event sub-event banquet-choice", child.name || "Event");
+        button.type = "button";
+        button.disabled = state.saving;
+        button.addEventListener("click", function () {
+            switchBanquet(child.id, (parent.name || "Event") + " — " + (child.name || "Event"), parent, child.name || "");
+        });
+        box.appendChild(button);
+    });
+}
+function fillSeatSelect(tables) {
+    var select = document.getElementById("seat-select");
+    var person = state.selected;
+    var pending = person ? pendingFor(person.id) : null;
+    var currentId = person ? (person.fromId || "") : "";
+    var sameEvent = !person || !person.fromEventId || idsMatch(person.fromEventId, state.eventId);
+    select.innerHTML = "";
+    var placeholder = el("option", "", "Choose a table…");
+    placeholder.value = "";
+    select.appendChild(placeholder);
+    (tables || []).forEach(function (table) {
+        var option = el("option", "", seatText(table));
+        option.value = table.id;
+        var isCurrent = sameEvent && currentId && idsMatch(table.id, currentId);
+        option.disabled = !person || (!table.available && !isCurrent);
+        if (pending && idsMatch(pending.toEventId || state.eventId, state.eventId) && idsMatch(pending.toId, table.id)) option.selected = true;
+        select.appendChild(option);
+    });
+    select.disabled = !person || state.saving;
+}
+function ensureQuestions(move) {
+    if (!isCross(move) || !move.toEventId) return;
+    var key = questionKey(move);
+    if (state.questionsByEvent[key]) return;
+    state.questionsByEvent[key] = {loading: true, questions: []};
+    var url = "/api/seating/" + encodeURIComponent(move.toEventId) + "/questions?contact_id=" + encodeURIComponent(move.contactId || "") + "&from_event_id=" + encodeURIComponent(move.fromEventId || "");
+    fetch(url).then(function (response) { return response.json(); }).then(function (data) {
+        if (data && data.error) {
+            state.questionsByEvent[key] = {loading: false, error: data.error, questions: []};
+        } else {
+            state.questionsByEvent[key] = {loading: false, questions: (data && data.questions) || []};
+        }
+        paintSide();
+    }).catch(function () {
+        state.questionsByEvent[key] = {loading: false, error: "Could not load questions for this event", questions: []};
+        paintSide();
+    });
+}
+function questionsWaiting() {
+    for (var i = 0; i < state.pending.length; i++) {
+        var move = state.pending[i];
+        if (!isCross(move)) continue;
+        var pack = state.questionsByEvent[questionKey(move)];
+        if (!pack || pack.loading) return true;
+    }
+    return false;
+}
+function pendingSignature() {
+    return state.pending.map(function (move) {
+        var pack = state.questionsByEvent[questionKey(move)];
+        var qkey = "none";
+        if (pack && pack.loading) qkey = "loading";
+        else if (pack && pack.error) qkey = "error";
+        else if (pack && pack.questions) qkey = pack.questions.map(function (question) { return question.id; }).join(",");
+        return [move.contactId, move.fromEventId, move.fromId, move.toEventId, move.toId, qkey].join(">");
+    }).join("|");
+}
+function answerList(move) {
+    if (!isCross(move)) return [];
+    var pack = state.questionsByEvent[questionKey(move)];
+    var questions = (pack && pack.questions) || [];
+    return questions.map(function (question) {
+        var response = move.answers && move.answers[question.id];
+        if (response == null) response = question.answer || "";
+        return {question_id: question.id, response: response};
+    });
+}
+function appendMealQuestions(card, move) {
+    if (!isCross(move)) return;
+    var pack = state.questionsByEvent[questionKey(move)];
+    if (!pack || pack.loading) {
+        card.appendChild(el("p", "meta", "Loading meal preferences…"));
+        return;
+    }
+    if (pack.error) {
+        card.appendChild(el("p", "error", pack.error));
+        return;
+    }
+    if (!pack.questions.length) return;
+    card.appendChild(el("p", "meal-head", (move.toEventName || "This banquet") + " preferences"));
+    pack.questions.forEach(function (question) {
+        if (!move.answers) move.answers = {};
+        if (move.answers[question.id] == null) move.answers[question.id] = question.answer || "";
+        var field = el("div", "meal-q");
+        var label = el("label", "", question.question || "Preference");
+        var inputId = "meal-" + move.contactId + "-" + question.id;
+        label.htmlFor = inputId;
+        field.appendChild(label);
+        var control;
+        var chosen = "";
+        if (question.choices && question.choices.length) {
+            control = document.createElement("select");
+            var blank = el("option", "", "Choose…");
+            blank.value = "";
+            control.appendChild(blank);
+            question.choices.forEach(function (choice) {
+                var option = el("option", "", choice);
+                option.value = choice;
+                if (!chosen && sameText(choice, move.answers[question.id])) {
+                    option.selected = true;
+                    chosen = choice;
+                }
+                control.appendChild(option);
+            });
+            if (chosen) move.answers[question.id] = chosen;
+        } else if (question.multiline) {
+            control = document.createElement("textarea");
+            control.rows = 3;
+            control.value = move.answers[question.id];
+        } else {
+            control = document.createElement("input");
+            control.value = move.answers[question.id];
+        }
+        control.id = inputId;
+        control.autocomplete = "off";
+        var write = function () { move.answers[question.id] = control.value; };
+        control.addEventListener("input", write);
+        control.addEventListener("change", write);
+        field.appendChild(control);
+        if (!chosen && question.previous_answer) {
+            field.appendChild(el("p", "meal-note", "Previous answer: " + question.previous_answer));
+        }
+        card.appendChild(field);
+    });
+}
+function renderPending() {
+    var count = state.pending.length;
+    var badge = document.getElementById("pending-badge");
+    badge.hidden = count === 0;
+    badge.textContent = pendingLabel(count);
+    var wrap = document.getElementById("pending-wrap");
+    state.pending.forEach(ensureQuestions);
+    var signature = pendingSignature();
+    if (wrap.getAttribute("data-sig") !== signature) {
+        wrap.innerHTML = "";
+        wrap.setAttribute("data-sig", signature);
+        if (count) {
+            var head = el("div", "pending-head");
+            head.appendChild(el("h3", "", "Pending changes"));
+            wrap.appendChild(head);
+            wrap.appendChild(el("p", "meta", "Check these moves, then approve."));
+            var seen = state.pendingAnimated || {};
+            var nextSeen = {};
+            state.pending.forEach(function (move) {
+                var key = move.contactId + ">" + (move.toEventId || "") + ">" + move.toId;
+                nextSeen[key] = true;
+                var card = el("article", "pending-card");
+                if (!seen[key]) card.classList.add("motion-row");
+                var top = el("div", "pending-top");
+                top.appendChild(el("div", "pending-name", move.name || "Guest"));
+                var remove = el("button", "remove-move", "Remove");
+                remove.type = "button";
+                remove.addEventListener("click", function () {
+                    state.pending = state.pending.filter(function (item) {
+                        return item.contactId.toLowerCase() !== move.contactId.toLowerCase();
+                    });
+                    state.saveFlash = "";
+                    state.note = "";
+                    paintSide();
+                });
+                top.appendChild(remove);
+                card.appendChild(top);
+                var cross = isCross(move);
+                var compare = el("div", "compare");
+                var before = el("div");
+                before.appendChild(el("span", "compare-label", "Before"));
+                before.appendChild(el("span", "compare-value before", placeLabel(move.fromEventName, move.fromName || "No seat", cross)));
+                var after = el("div");
+                after.appendChild(el("span", "compare-label", "After"));
+                after.appendChild(el("span", "compare-value after", placeLabel(move.toEventName, move.toName || "Table", cross)));
+                compare.appendChild(before);
+                compare.appendChild(el("span", "compare-arrow", "→"));
+                compare.appendChild(after);
+                card.appendChild(compare);
+                appendMealQuestions(card, move);
+                wrap.appendChild(card);
+            });
+            state.pendingAnimated = nextSeen;
+        }
+    }
+    var waiting = questionsWaiting();
+    var button = document.getElementById("approve");
+    button.disabled = state.saving || !count || waiting;
+    button.classList.remove("is-busy", "is-done", "is-error");
+    if (state.saving) {
+        button.classList.add("is-busy");
+        button.textContent = "Moving…";
+    } else if (waiting) {
+        button.textContent = "Loading preferences…";
+    } else if (state.saveFlash === "done") {
+        button.classList.add("is-done");
+        button.textContent = "Moved";
+    } else {
+        button.textContent = "Approve and move";
+        if (state.saveFlash === "error") button.classList.add("is-error");
+    }
+    document.getElementById("seat-error").textContent = state.seatError || "";
+    var note = document.getElementById("seat-note");
+    note.textContent = state.note || "";
+    note.classList.toggle("motion-fade", !!state.note);
+}
+function paintSide() {
+    renderTable();
+    renderMover();
+    renderPending();
+    fillSeatSelect((state.board && state.board.tables) || []);
+    markTables();
 }
 function loadEvents() {
     fetch("/api/seating/events").then(function (r) { return r.json(); }).then(function (data) {
@@ -101,6 +954,7 @@ function loadEvents() {
             return;
         }
         var events = data.events || [];
+        state.events = events;
         if (!events.length) {
             box.textContent = "No events you can open have a seating chart.";
             return;
@@ -123,11 +977,20 @@ function loadEvents() {
                 var button = document.createElement("button");
                 button.type = "button";
                 button.className = "event sub-event";
+                button.setAttribute("data-event-id", child.id || "");
                 button.textContent = child.name;
                 button.addEventListener("click", function () {
-                    document.querySelectorAll(".sub-event").forEach(function (item) { item.classList.remove("current"); });
-                    button.classList.add("current");
-                    openEvent(child.id, parent.name + " — " + child.name);
+                    var title = parent.name + " — " + child.name;
+                    if (state.eventId && idsMatch(state.eventId, child.id)) {
+                        markCurrentEvent(child.id);
+                        return;
+                    }
+                    var sameParent = state.parentId && idsMatch(state.parentId, parent.id);
+                    if (sameParent && (state.pending.length || state.selected)) {
+                        switchBanquet(child.id, title, parent, child.name);
+                        return;
+                    }
+                    openEvent(child.id, title, parent, child.name);
                 });
                 subs.appendChild(button);
             });
@@ -143,32 +1006,48 @@ function loadEvents() {
 }
 function draw(board) {
     state.board = board;
+    reconcilePending();
     var chart = document.getElementById("chart");
     chart.hidden = false;
     chart.innerHTML = "";
+    hideTip();
     var layout = board.layout || {};
     var placed = layout.tables || [];
     var byId = {};
     (board.tables || []).forEach(function (table) { byId[table.id] = table; });
     if (!placed.length) {
-        var note = document.createElement("p");
-        note.className = "meta";
-        note.textContent = "This chart could not be drawn.";
-        chart.appendChild(note);
+        chart.appendChild(el("p", "meta", "This chart could not be drawn."));
+        paintLegend([]);
     } else {
         var aspect = layout.width ? (100 * layout.height / layout.width) : 100;
+        var floorBottom = aspect;
+        placed.forEach(function (spot) {
+            var bottom = spot.cy * aspect / 100;
+            bottom += spot.shape === "rect" ? (spot.h * aspect / 100) / 2 : Math.max(spot.r || 0, 1.2);
+            if (bottom > floorBottom) floorBottom = bottom;
+        });
         var svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 100 " + aspect);
+        svg.setAttribute("viewBox", "0 0 100 " + (floorBottom + aspect * 0.02));
         svg.setAttribute("class", "floor");
         (layout.landmarks || []).forEach(function (mark) {
-            if (mark.kind === "dance") {
+            if (mark.kind === "dance" || mark.kind === "stage") {
                 var floor = document.createElementNS(svgNS, "rect");
-                floor.setAttribute("class", "dance-floor");
+                floor.setAttribute("class", mark.kind === "stage" ? "stage-floor" : "dance-floor");
                 floor.setAttribute("x", mark.x);
                 floor.setAttribute("y", mark.y * aspect / 100);
                 floor.setAttribute("width", mark.w);
                 floor.setAttribute("height", mark.h * aspect / 100);
                 svg.appendChild(floor);
+                if (mark.kind === "stage") {
+                    var stageLabel = document.createElementNS(svgNS, "text");
+                    stageLabel.setAttribute("class", "landmark");
+                    stageLabel.setAttribute("x", mark.x + mark.w / 2);
+                    stageLabel.setAttribute("y", mark.y * aspect / 100 + (mark.h * aspect / 100) / 2);
+                    stageLabel.setAttribute("text-anchor", "middle");
+                    stageLabel.setAttribute("dominant-baseline", "central");
+                    stageLabel.textContent = "Stage";
+                    svg.appendChild(stageLabel);
+                }
                 return;
             }
             var text = document.createElementNS(svgNS, "text");
@@ -182,12 +1061,12 @@ function draw(board) {
             var table = byId[spot.id];
             if (!table) return;
             var group = document.createElementNS(svgNS, "g");
-            var classes = "table-dot";
+            var classes = "table-dot kind-" + (table.kind || "general");
             if (!table.available) classes += " full";
-            if (table.current) classes += " current";
-            if (table.id === state.expandedId) classes += " open";
-            if (spot.shape === "rect") classes += " head";
+            if (table.id === state.openTableId) classes += " open";
+            if (spot.shape === "rect" || table.kind === "head") classes += " head";
             group.setAttribute("class", classes);
+            group.setAttribute("data-id", table.id);
             var cy = spot.cy * aspect / 100;
             var shape;
             if (spot.shape === "rect") {
@@ -212,156 +1091,244 @@ function draw(board) {
             label.textContent = tableNumber(table);
             group.appendChild(shape);
             group.appendChild(label);
+            if (board.live && table.open_seats > 0) {
+                var radius = spot.shape === "rect"
+                    ? Math.max(Math.min(spot.w, (spot.h * aspect / 100)) * 0.22, 1.2)
+                    : Math.max(spot.r || 1.2, 1.2);
+                var badgeR = Math.max(radius * 0.55, 1.2);
+                if (table.open_seats > 9) badgeR *= 1.12;
+                var badgeX = spot.shape === "rect" ? spot.cx + spot.w / 2 - badgeR * 0.35 : spot.cx + radius * 0.62;
+                var badgeY = spot.shape === "rect" ? cy - (spot.h * aspect / 100) / 2 + badgeR * 0.35 : cy - radius * 0.62;
+                var badge = document.createElementNS(svgNS, "circle");
+                badge.setAttribute("class", "open-badge");
+                badge.setAttribute("cx", badgeX);
+                badge.setAttribute("cy", badgeY);
+                badge.setAttribute("r", badgeR);
+                badge.setAttribute("stroke-width", badgeR * 0.14);
+                var count = document.createElementNS(svgNS, "text");
+                count.setAttribute("class", "open-badge-num");
+                count.setAttribute("x", badgeX);
+                count.setAttribute("y", badgeY);
+                count.setAttribute("text-anchor", "middle");
+                count.setAttribute("dominant-baseline", "central");
+                count.setAttribute("font-size", badgeR * (table.open_seats > 9 ? 0.82 : 1.05));
+                count.textContent = String(table.open_seats);
+                group.appendChild(badge);
+                group.appendChild(count);
+            }
             group.addEventListener("mouseenter", function (event) {
-                tip.textContent = tipText(table);
-                tip.style.display = "block";
-                tip.style.left = (event.clientX + 12) + "px";
-                tip.style.top = (event.clientY + 12) + "px";
+                renderTip(table);
+                placeTip(event);
             });
-            group.addEventListener("mousemove", function (event) {
-                tip.style.left = (event.clientX + 12) + "px";
-                tip.style.top = (event.clientY + 12) + "px";
-            });
-            group.addEventListener("mouseleave", function () { tip.style.display = "none"; });
-            group.addEventListener("click", function () { expandTable(table); });
+            group.addEventListener("mousemove", function (event) { placeTip(event); });
+            group.addEventListener("mouseleave", hideTip);
+            group.addEventListener("click", function () { openTable(table); });
             svg.appendChild(group);
         });
         chart.appendChild(svg);
+        paintLegend(placed.map(function (spot) { return byId[spot.id]; }).filter(Boolean));
     }
-    renderExpanded(byId);
-    fillSeatSelect(board.tables || []);
-}
-function renderExpanded(byId) {
-    var panel = document.getElementById("expanded");
-    var table = byId[state.expandedId];
-    if (!table) {
-        panel.hidden = true;
-        return;
-    }
-    panel.hidden = false;
-    document.getElementById("expanded-title").textContent = table.name;
-    document.getElementById("expanded-meta").textContent = table.seated + " of " + table.chairs + " seated" + (table.vip ? " · VIP" : "") + (state.contactId ? "" : " · Look up a person to move them here.");
-    var list = document.getElementById("expanded-people");
-    list.innerHTML = "";
-    (table.people || []).forEach(function (person) {
-        var item = document.createElement("li");
-        item.textContent = person.name + (person.email ? " · " + person.email : "");
-        list.appendChild(item);
-    });
-    if (!(table.people || []).length) {
-        var empty = document.createElement("li");
-        empty.textContent = "Empty";
-        list.appendChild(empty);
-    }
-}
-function fillSeatSelect(tables) {
-    var select = document.getElementById("seat-select");
-    var chosen = state.expandedId || select.value;
-    select.innerHTML = '<option value="">Choose a table…</option>';
-    tables.forEach(function (table) {
-        var option = document.createElement("option");
-        option.value = table.id;
-        option.textContent = seatText(table);
-        option.disabled = !table.available && table.id !== chosen;
-        if (chosen && table.id === chosen) option.selected = true;
-        else if (!chosen && state.contactId && table.current) option.selected = true;
-        select.appendChild(option);
-    });
-    select.disabled = !state.contactId;
-    document.getElementById("save-seat").disabled = !state.contactId;
-}
-function expandTable(table) {
-    state.expandedId = table.id;
-    document.getElementById("seat-select").value = table.id;
-    if (state.board) draw(state.board);
+    paintStats(board);
+    paintSide();
 }
 function showLoading() {
     var chart = document.getElementById("chart");
     chart.hidden = false;
     chart.innerHTML = "";
-    var note = document.createElement("p");
-    note.className = "meta";
-    note.textContent = "Loading seating chart…";
-    chart.appendChild(note);
-    document.getElementById("expanded").hidden = true;
-    tip.style.display = "none";
+    chart.appendChild(el("p", "meta", "Loading seating chart…"));
+    document.getElementById("legend").hidden = true;
+    document.getElementById("stats").hidden = true;
+    hideTip();
 }
-function openEvent(eventId, name) {
+function markCurrentEvent(eventId) {
+    var key = (eventId || "").toLowerCase();
+    document.querySelectorAll(".sub-event").forEach(function (item) {
+        if (item.classList.contains("banquet-choice")) return;
+        var match = (item.getAttribute("data-event-id") || "").toLowerCase() === key;
+        item.classList.toggle("current", match);
+        if (!match) return;
+        var subs = item.parentElement;
+        if (subs) {
+            subs.hidden = false;
+            var hint = subs.previousElementSibling && subs.previousElementSibling.querySelector(".expand-hint");
+            if (hint) hint.textContent = "Click to collapse";
+        }
+    });
+}
+function beginChart(eventId, name, parent, eventName, keep) {
     state.eventId = eventId;
-    state.contactId = "";
-    state.expandedId = "";
+    state.eventName = eventName || "";
+    state.parentId = (parent && parent.id) || "";
+    state.parentName = (parent && parent.name) || "";
+    state.openTableId = "";
     state.board = null;
+    state.paintedId = 0;
+    state.inflight = false;
     state.loadId = (state.loadId || 0) + 1;
+    if (!keep) {
+        state.selected = null;
+        state.pending = [];
+        state.pendingAnimated = {};
+        state.saving = false;
+        state.note = "";
+        state.seatError = "";
+        state.saveFlash = "";
+        document.getElementById("guest-search").value = "";
+        document.getElementById("guest-results").innerHTML = "";
+        var wrap = document.getElementById("pending-wrap");
+        if (wrap) wrap.removeAttribute("data-sig");
+    }
     document.getElementById("event-title").textContent = name;
     document.getElementById("guest-search").disabled = false;
-    document.getElementById("picked").textContent = "";
-    document.getElementById("seat-select").innerHTML = '<option value="">Choose a table…</option>';
-    document.getElementById("seat-select").disabled = true;
-    document.getElementById("save-seat").disabled = true;
+    markCurrentEvent(eventId);
+    paintSide();
     showLoading();
-    refresh();
+    refresh(true);
 }
-function refresh() {
-    if (!state.eventId) return;
+function openEvent(eventId, name, parent, eventName) {
+    beginChart(eventId, name, parent, eventName, false);
+}
+function switchBanquet(eventId, name, parent, eventName) {
+    beginChart(eventId, name, parent, eventName, true);
+}
+function refresh(sketch) {
+    if (!state.eventId || state.inflight && !sketch) return;
     var loadId = state.loadId || 0;
     var url = "/api/seating/" + state.eventId;
-    if (state.contactId) url += "?contact_id=" + encodeURIComponent(state.contactId);
+    if (sketch) url += "?sketch=1";
+    if (!sketch) state.inflight = true;
     fetch(url).then(function (r) { return r.json(); }).then(function (board) {
         if (loadId !== (state.loadId || 0)) return;
+        if (!sketch && board && !board.error) state.paintedId = loadId;
+        if (sketch && state.paintedId === loadId) return;
         if (board.error) {
-            document.getElementById("seat-error").textContent = board.error;
+            state.seatError = board.error;
             showLoading();
-            document.querySelector("#chart .meta").textContent = board.error;
+            var meta = document.querySelector("#chart .meta");
+            if (meta) meta.textContent = board.error;
+            renderPending();
             return;
         }
         draw(board);
+    }).finally(function () {
+        if (!sketch) state.inflight = false;
+    });
+    if (sketch) refresh(false);
+}
+function approveMoves() {
+    if (state.saving || !state.pending.length || !state.eventId || questionsWaiting()) return;
+    state.saving = true;
+    state.seatError = "";
+    state.note = "";
+    state.saveFlash = "";
+    paintSide();
+    var moves = state.pending.map(function (move) {
+        return {
+            contact_id: move.contactId,
+            table_id: move.toId,
+            from_event_id: move.fromEventId || state.eventId,
+            to_event_id: move.toEventId || state.eventId,
+            answers: answerList(move)
+        };
+    });
+    fetch("/api/seating/" + state.eventId + "/assign-batch", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({moves: moves})
+    }).then(function (response) {
+        return response.json().then(function (data) {
+            return {ok: response.ok, data: data || {}};
+        });
+    }).then(function (result) {
+        var data = result.data || {};
+        var applied = data.applied || [];
+        if (applied.length) {
+            var done = {};
+            applied.forEach(function (id) { done[String(id).toLowerCase()] = true; });
+            state.pending = state.pending.filter(function (move) {
+                return !done[move.contactId.toLowerCase()];
+            });
+        }
+        state.saving = false;
+        if (!result.ok || data.error) {
+            state.seatError = data.error || "Could not change the seat";
+            state.saveFlash = "error";
+            if (data.tables) draw(data);
+            else {
+                paintSide();
+                refresh(false);
+            }
+            return;
+        }
+        state.pending = [];
+        state.pendingAnimated = {};
+        state.selected = null;
+        state.saveFlash = "done";
+        state.note = applied.length === 1 ? "Moved 1 person." : "Moved " + applied.length + " people.";
+        var pendingWrap = document.getElementById("pending-wrap");
+        if (pendingWrap) pendingWrap.removeAttribute("data-sig");
+        if (data.tables) draw(data);
+        else {
+            paintSide();
+            refresh(false);
+        }
+        setTimeout(function () {
+            if (state.saveFlash === "done") {
+                state.saveFlash = "";
+                renderPending();
+            }
+        }, 1400);
+    }).catch(function () {
+        state.saving = false;
+        state.seatError = "Could not change the seat";
+        state.saveFlash = "error";
+        paintSide();
     });
 }
+var guestSearchTimer = null;
 document.getElementById("guest-search").addEventListener("input", function () {
     var query = this.value.trim();
+    var token = ++searchToken;
+    clearTimeout(guestSearchTimer);
     if (!state.eventId || query.length < 2) {
         document.getElementById("guest-results").innerHTML = "";
         return;
     }
-    fetch("/api/seating/" + state.eventId + "/guests?q=" + encodeURIComponent(query))
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            var box = document.getElementById("guest-results");
-            box.innerHTML = "";
-            (data.guests || []).forEach(function (guest) {
-                var button = document.createElement("button");
-                button.type = "button";
-                button.className = "person";
-                button.textContent = guest.name + (guest.email ? " · " + guest.email : "");
-                button.addEventListener("click", function () {
-                    state.contactId = guest.id;
-                    document.getElementById("seat-select").value = "";
-                    document.getElementById("picked").textContent = "Changing " + guest.name;
-                    refresh();
+    guestSearchTimer = setTimeout(function () {
+        fetch("/api/seating/" + state.eventId + "/guests?q=" + encodeURIComponent(query))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (token !== searchToken) return;
+                var box = document.getElementById("guest-results");
+                box.innerHTML = "";
+                (data.guests || []).forEach(function (guest) {
+                    var button = el("button", "person");
+                    button.type = "button";
+                    button.textContent = guest.name + (guest.email ? " · " + guest.email : "");
+                    button.addEventListener("click", function () { selectPerson(guest, null); });
+                    box.appendChild(button);
                 });
-                box.appendChild(button);
             });
-        });
+    }, 300);
 });
-document.getElementById("save-seat").addEventListener("click", function () {
-    var tableId = document.getElementById("seat-select").value;
-    document.getElementById("seat-error").textContent = "";
-    fetch("/api/seating/" + state.eventId + "/assign", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({contact_id: state.contactId, table_id: tableId})
-    }).then(function (r) { return r.json().then(function (data) { return {ok: r.ok, data: data}; }); })
-      .then(function (result) {
-          if (!result.ok) {
-              document.getElementById("seat-error").textContent = result.data.error || "Could not change the seat";
-              if (result.data.tables) draw(result.data);
-              return;
-          }
-          draw(result.data);
-      });
+document.getElementById("seat-select").addEventListener("change", function () {
+    if (!state.selected) return;
+    var table = findTable(this.value);
+    if (!table) return;
+    queueMove(state.selected, table);
+    state.selected = null;
+    paintSide();
 });
+document.getElementById("approve").addEventListener("click", approveMoves);
 loadEvents();
-setInterval(refresh, 4000);
+setInterval(function () {
+    if (document.hidden) return;
+    refresh(false);
+}, 12000);
+document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.eventId) refresh(false);
+});
 </script>
+{% include "_app_footer.html" %}
 </body>
 </html>

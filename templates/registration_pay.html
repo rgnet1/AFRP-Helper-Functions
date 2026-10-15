@@ -12,7 +12,8 @@
     </style>
 </head>
 <body>
-<header><h1 style="margin:0;font-size:22px;font-weight:normal;">Pay the difference</h1></header>
+{% set page_title = "Pay the difference" %}
+{% include "_app_header.html" %}
 <div class="wrap">
     <p>The card form is Authorize.net. This page never sees the card number.</p>
     <iframe id="authnet" name="authnet" title="Authorize.net"></iframe>
@@ -82,5 +83,6 @@ window.addEventListener("message", function (event) {
 });
 document.getElementById("send").submit();
 </script>
+{% include "_app_footer.html" %}
 </body>
 </html>

@@ -501,6 +501,51 @@ def load_user(user_id):
     from utils.magazine.scheduler import User
     return User.query.get(int(user_id))
 
+
+def _presented_credential(req):
+    header = req.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        return header[7:].strip()
+    return (req.headers.get("X-API-Key") or "").strip()
+
+
+@login_manager.request_loader
+def load_user_from_bearer(req):
+    """Accept an API key or a short-lived bearer token instead of a browser cookie."""
+    credential = _presented_credential(req)
+    if not credential:
+        return None
+    from utils.auth.api_access import hash_api_key, read_token
+    from utils.magazine.scheduler import ApiKey, User
+    if credential.startswith("afrp_"):
+        row = ApiKey.query.filter_by(key_hash=hash_api_key(credential)).first()
+        if not row or row.revoked_at:
+            return None
+        user = User.query.get(row.user_id)
+        if not user or not user.is_active:
+            return None
+        stale = row.last_used_at is None or row.last_used_at < datetime.utcnow() - timedelta(minutes=5)
+        if stale:
+            row.last_used_at = datetime.utcnow()
+            db.session.commit()
+        return user
+    user_id = read_token(credential, app.config.get("SECRET_KEY") or "")
+    if not user_id:
+        return None
+    user = User.query.get(user_id)
+    if user and user.is_active:
+        return user
+    return None
+
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    if request.path.startswith("/api"):
+        return jsonify({
+            "error": "Sign in with POST /api/auth/token and send Authorization: Bearer <token>.",
+        }), 401
+    return redirect(url_for("login", next=request.path))
+
 # Create database tables
 with app.app_context():
     db.create_all()
@@ -585,6 +630,8 @@ def enforce_feature_permissions():
         flash("Access denied — Admin only", "error")
         return redirect(url_for("home"))
     if path == "/":
+        return None
+    if path in ("/api", "/api/me", "/settings") or path.startswith("/account/api-keys"):
         return None
     feature_id = feature_for_path(path)
     if feature_id is None:
@@ -682,6 +729,161 @@ def setup():
             flash(f'Error creating account: {str(e)}', 'error')
     
     return render_template('setup.html')
+
+def _new_api_key(user, name):
+    from utils.auth.api_access import generate_api_key
+    from utils.magazine.scheduler import ApiKey
+    raw, digest, prefix = generate_api_key()
+    label = (name or "").strip()[:80] or "CLI"
+    row = ApiKey(user_id=user.id, name=label, prefix=prefix, key_hash=digest)
+    db.session.add(row)
+    db.session.commit()
+    return row, raw
+
+
+def _active_api_keys(user):
+    from utils.magazine.scheduler import ApiKey
+    return (
+        ApiKey.query.filter_by(user_id=user.id, revoked_at=None)
+        .order_by(ApiKey.created_at.desc())
+        .all()
+    )
+
+
+def _revoke_api_key(user, key_id):
+    from utils.magazine.scheduler import ApiKey
+    row = ApiKey.query.filter_by(id=key_id, user_id=user.id, revoked_at=None).first()
+    if row is None:
+        return False
+    row.revoked_at = datetime.utcnow()
+    db.session.commit()
+    return True
+
+
+def _api_key_json(row, raw=None):
+    payload = {
+        "id": row.id,
+        "name": row.name,
+        "prefix": row.prefix,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None,
+    }
+    if raw:
+        payload["key"] = raw
+    return payload
+
+
+@app.route("/openapi.yaml", methods=["GET"])
+def openapi_spec():
+    return send_from_directory(BASE_PATH, "openapi.yaml", mimetype="application/yaml")
+
+
+@app.route("/docs", methods=["GET"])
+def api_docs():
+    return render_template("api_docs.html")
+
+
+def _api_keys_admin_only():
+    if current_user.is_admin:
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Only administrators can manage API keys"}), 403
+    flash("Only administrators can manage API keys", "error")
+    return redirect(url_for("home"))
+
+
+@app.route("/api/auth/keys", methods=["GET", "POST"])
+@login_required
+def api_keys():
+    denied = _api_keys_admin_only()
+    if denied:
+        return denied
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        name = body.get("name") if body.get("name") is not None else request.form.get("name")
+        row, raw = _new_api_key(current_user, name)
+        return jsonify(_api_key_json(row, raw)), 201
+    return jsonify({"keys": [_api_key_json(row) for row in _active_api_keys(current_user)]})
+
+
+@app.route("/api/auth/keys/<int:key_id>", methods=["DELETE"])
+@login_required
+def api_key_revoke(key_id):
+    denied = _api_keys_admin_only()
+    if denied:
+        return denied
+    if not _revoke_api_key(current_user, key_id):
+        return jsonify({"error": "That key was not found"}), 404
+    return jsonify({"revoked": key_id})
+
+
+@app.route("/account/api-keys", methods=["POST"])
+@login_required
+def account_api_key_create():
+    denied = _api_keys_admin_only()
+    if denied:
+        return denied
+    row, raw = _new_api_key(current_user, request.form.get("name"))
+    session["new_api_key"] = raw
+    session["new_api_key_name"] = row.name
+    return redirect(url_for("settings"))
+
+
+@app.route("/account/api-keys/<int:key_id>/revoke", methods=["POST"])
+@login_required
+def account_api_key_revoke(key_id):
+    denied = _api_keys_admin_only()
+    if denied:
+        return denied
+    _revoke_api_key(current_user, key_id)
+    return redirect(url_for("settings"))
+
+
+@app.route("/api/auth/token", methods=["POST"])
+@limiter.limit(AUTH_RATE_LIMIT)
+def api_token():
+    """Username and password in JSON. Returns a bearer token for the other /api routes."""
+    from utils.auth.api_access import TOKEN_MAX_AGE, issue_token
+    from utils.magazine.scheduler import User
+    body = request.get_json(silent=True) or {}
+    username = (body.get("username") or request.form.get("username") or "").strip()
+    password = body.get("password") if body.get("password") is not None else request.form.get("password") or ""
+    user = User.query.filter_by(username=username).first() if username else None
+    if not user or not user.check_password(password) or not user.is_active:
+        return jsonify({"error": "Invalid username or password"}), 401
+    token = issue_token(user.id, app.config["SECRET_KEY"])
+    return jsonify({
+        "token_type": "Bearer",
+        "access_token": token,
+        "expires_in": TOKEN_MAX_AGE,
+    })
+
+
+@app.route("/api", methods=["GET"])
+@login_required
+def api_index():
+    from utils.auth.api_access import commands_for
+    return jsonify({
+        "auth": "Authorization: Bearer <access_token>",
+        "token_url": "/api/auth/token",
+        "openapi_url": "/openapi.yaml",
+        "docs_url": "/docs",
+        "commands": commands_for(current_user),
+    })
+
+
+@app.route("/api/me", methods=["GET"])
+@login_required
+def api_me():
+    return jsonify({
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_admin": bool(current_user.is_admin),
+        "role": current_user.role,
+        "features": list(current_user.allowed_features()),
+    })
+
 
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit(AUTH_RATE_LIMIT)
@@ -944,17 +1146,7 @@ def list_users():
     if not current_user.is_admin:
         flash('Access denied - Admin only', 'error')
         return redirect(url_for('home'))
-    
-    _sync_coordinators_quietly()
-    users = User.query.order_by(User.created_at.desc()).all()
-    groups = AccessGroup.query.order_by(AccessGroup.name).all()
-    return render_template(
-        'users.html',
-        users=users,
-        groups=groups,
-        features=FEATURES,
-        days_before=_days_before_event(),
-    )
+    return redirect(url_for("settings") + "#users")
 
 @app.route('/users/create', methods=['GET', 'POST'])
 @login_required
@@ -1242,11 +1434,20 @@ def registration_event_requirements():
         return jsonify({"error": "Could not load questions for this event"}), 500
 
 
+_SEATING_PARENTS = {}
+_SEATING_EVENTS = {}
+
+
 def _seating_parent(desk, event_id: str) -> str:
+    cached = _SEATING_PARENTS.get(event_id)
+    if cached:
+        return cached
     row = desk.crm._make_request(
         f"campaigns({event_id})?$select=_aha_parentcampaign_value"
     )
-    return (row.get("_aha_parentcampaign_value") or event_id).strip()
+    parent = (row.get("_aha_parentcampaign_value") or event_id).strip()
+    _SEATING_PARENTS[event_id] = parent
+    return parent
 
 
 @app.route("/seating", methods=["GET"])
@@ -1259,11 +1460,17 @@ def seating_page():
 @login_required
 def seating_events():
     from utils.registration import seating as seating_map
+    import time
+    key = (getattr(current_user, "id", None), bool(getattr(current_user, "is_admin", False)))
+    cached = _SEATING_EVENTS.get(key)
+    if cached and time.monotonic() - cached[0] < 120:
+        return jsonify({"events": cached[1]})
     try:
         events = seating_map.events_with_tables(_registration_desk(), current_user)
     except Exception:
         logger.exception("Could not list seating events")
         return jsonify({"error": "Could not load events with seating charts"}), 500
+    _SEATING_EVENTS[key] = (time.monotonic(), events)
     return jsonify({"events": events})
 
 
@@ -1275,7 +1482,10 @@ def seating_state(event_id):
     try:
         desk._require_event(current_user, _seating_parent(desk, event_id), event_id)
         return jsonify(seating_map.seating_board(
-            desk, event_id, (request.args.get("contact_id") or "").strip()
+            desk,
+            event_id,
+            (request.args.get("contact_id") or "").strip(),
+            sketch=request.args.get("sketch") == "1",
         ))
     except CampaignAccessDenied as exc:
         return jsonify({"error": exc.message}), 403
@@ -1322,6 +1532,92 @@ def seating_assign(event_id):
         return jsonify({"error": "Could not change the seat"}), 500
     from utils.registration import seating as seating_map
     return jsonify(seating_map.seating_board(desk, event_id, contact_id))
+
+
+def _authorize_seat_targets(desk, fallback_event_id: str, moves) -> None:
+    """Allow a move only when both banquets belong to the same parent campaign."""
+    parent = _seating_parent(desk, fallback_event_id)
+    desk._require_event(current_user, parent, fallback_event_id)
+    if not isinstance(moves, list):
+        return
+    for move in moves:
+        if not isinstance(move, dict):
+            continue
+        from_id = (move.get("from_event_id") or fallback_event_id).strip()
+        to_id = (move.get("to_event_id") or fallback_event_id).strip()
+        parents = {fallback_event_id.lower(): parent}
+        for other_id in (from_id, to_id):
+            key = other_id.lower()
+            if key in parents:
+                continue
+            other_parent = _seating_parent(desk, other_id)
+            desk._require_event(current_user, other_parent, other_id)
+            parents[key] = other_parent
+        if parents[from_id.lower()].lower() != parents[to_id.lower()].lower():
+            raise CampaignAccessDenied("Those banquets are not part of the same event")
+
+
+@app.route("/api/seating/<event_id>/questions", methods=["GET"])
+@login_required
+def seating_questions(event_id):
+    """Meal questions for the destination banquet.
+
+    from_event_id fills blank answers from that banquet when the question is
+    the same kind, even if the wording differs. Approve still saves by the
+    destination question id.
+    """
+    desk = _registration_desk()
+    contact_id = (request.args.get("contact_id") or "").strip()
+    from_event_id = (request.args.get("from_event_id") or "").strip()
+    try:
+        desk._require_event(current_user, _seating_parent(desk, event_id), event_id)
+        if from_event_id and from_event_id.lower() != event_id.strip().lower():
+            desk._require_event(
+                current_user, _seating_parent(desk, from_event_id), from_event_id
+            )
+        return jsonify({
+            "questions": desk.questions_for_move(event_id, contact_id, from_event_id)
+        })
+    except CampaignAccessDenied as exc:
+        return jsonify({"error": exc.message}), 403
+    except Exception:
+        logger.exception("Could not load seating questions for %s", event_id)
+        return jsonify({"error": "Could not load questions for this event"}), 500
+
+
+@app.route("/api/seating/<event_id>/assign-batch", methods=["POST"])
+@login_required
+def seating_assign_batch(event_id):
+    """Write a queue of seat moves. Stop at the first failure and keep the rest."""
+    if not (current_user.is_admin or current_user.is_event_coordinator()):
+        return jsonify({
+            "error": "Only event coordinators and admins can change seats",
+            "applied": [],
+        }), 403
+    body = request.get_json(silent=True) or {}
+    moves = body.get("moves") if isinstance(body, dict) else None
+    desk = _registration_desk()
+    try:
+        _authorize_seat_targets(desk, event_id, moves)
+    except CampaignAccessDenied as exc:
+        return jsonify({"error": exc.message, "applied": []}), 403
+    except Exception:
+        logger.exception("Could not check seating access for %s", event_id)
+        return jsonify({"error": "Could not change the seat", "applied": []}), 500
+    result = desk.apply_seat_moves(event_id, moves)
+    payload = {
+        "applied": result["applied"],
+        "failed_contact_id": result["failed_contact_id"],
+    }
+    if result["error"]:
+        payload["error"] = result["error"]
+    if result["applied"]:
+        try:
+            from utils.registration import seating as seating_map
+            payload.update(seating_map.seating_board(desk, event_id, ""))
+        except Exception:
+            logger.exception("Could not refresh seating after moves")
+    return jsonify(payload), (400 if result["error"] else 200)
 
 
 def _require_admin():
@@ -2026,6 +2322,30 @@ def registration_remove():
     else:
         flash(f"Marked {removed} sign-up{'s' if removed != 1 else ''} inactive.", "success")
     return _registration_page(campaign_id, email, first_name, last_name)
+
+
+@app.route("/settings", methods=["GET"])
+@login_required
+def settings():
+    """API keys and user management. Administrators only."""
+    if not current_user.is_admin:
+        flash("Only administrators can open settings", "error")
+        return redirect(url_for("home"))
+    context = {
+        "api_keys": _active_api_keys(current_user),
+        "new_api_key": session.pop("new_api_key", None),
+        "new_api_key_name": session.pop("new_api_key_name", None),
+        "users": [],
+        "groups": [],
+        "features": FEATURES,
+        "days_before": 0,
+    }
+    if current_user.is_admin:
+        _sync_coordinators_quietly()
+        context["users"] = User.query.order_by(User.created_at.desc()).all()
+        context["groups"] = AccessGroup.query.order_by(AccessGroup.name).all()
+        context["days_before"] = _days_before_event()
+    return render_template("settings.html", **context)
 
 
 @app.route('/', methods=['GET'])

@@ -122,10 +122,11 @@
         }
 
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-    <header>
-        <h1 class="header-title">AFRP CRM Helper Functions</h1>
+    {% set page_title = "AFRP CRM Helper Functions" %}
+    {% set header_actions %}
         <div class="user-menu">
             <div class="user-info">
                 <i class="fas fa-user-circle"></i>
@@ -135,15 +136,16 @@
                 {% endif %}
             </div>
             {% if current_user.is_admin %}
-            <a href="{{ url_for('list_users') }}">
-                <i class="fas fa-users-cog"></i> Users
+            <a href="{{ url_for('settings') }}">
+                <i class="fas fa-cog"></i> Settings
             </a>
             {% endif %}
             <a href="{{ url_for('logout') }}">
                 <i class="fas fa-sign-out-alt"></i> Logout
             </a>
         </div>
-    </header>
+    {% endset %}
+    {% include "_app_header.html" %}
     <div class="tiles-container">
         {% if allowed_features %}
         {% if 'qr' in allowed_features %}
@@ -205,5 +207,6 @@
         </div>
         {% endif %}
     </div>
+    {% include "_app_footer.html" %}
 </body>
 </html>

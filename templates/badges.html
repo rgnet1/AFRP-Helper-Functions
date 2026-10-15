@@ -577,21 +577,6 @@
             color: #dc3545;
         }
 
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: #4b904b;
-            text-decoration: none;
-            font-weight: 600;
-            margin-top: 20px;
-            transition: transform 0.2s ease;
-        }
-
-        .back-link:hover {
-            transform: translateX(-5px);
-        }
-
         /* Badge pill */
         .badge-pill {
             display: inline-block;
@@ -637,8 +622,11 @@
             background-color: #f5f5f5;
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
+    {% set page_title = "Badge Generator" %}
+    {% include "_app_header.html" %}
     <div class="container">
         <header>
             <h1><i class="fas fa-robot"></i> Badge Generator V2</h1>
@@ -768,9 +756,6 @@
             </div>
         </div>
 
-        <a href="/" class="back-link">
-            <i class="fas fa-arrow-left"></i> Back to Home
-        </a>
     </div>
 
     <!-- Household grouping disclaimer -->
@@ -973,22 +958,15 @@
         document.addEventListener('DOMContentLoaded', () => {
             console.log('DOMContentLoaded fired!');
             console.log('About to call loadCampaigns');
-            loadCampaigns();
-            console.log('About to call loadBadgeTemplates');
-            loadBadgeTemplates();
-            console.log('About to call loadPreprocessingTemplates');
-            loadPreprocessingTemplates();
-            console.log('About to call initializeEventListeners');
             initializeEventListeners();
-            
-            // Load cached preferences after all dropdowns are populated
-            setTimeout(() => {
+            Promise.all([
+                loadCampaigns(),
+                loadBadgeTemplates(),
+                loadPreprocessingTemplates()
+            ]).finally(function () {
                 const preferences = loadFromCache();
-                if (preferences) {
-                    restorePreferences(preferences);
-                    console.log('Restored user preferences from cache');
-                }
-            }, 1500);
+                if (preferences) restorePreferences(preferences);
+            });
             
             console.log('Initialization complete');
         });
@@ -1589,5 +1567,6 @@
             }
         }
     </script>
+    {% include "_app_footer.html" %}
 </body>
 </html>

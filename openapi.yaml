@@ -1,0 +1,1146 @@
+openapi: 3.0.3
+info:
+  title: AFRP CRM Helper API
+  version: "1.5.0"
+  description: |
+    JSON API for the AFRP CRM Helper. Browser pages use a session cookie.
+    A script or CLI sends either header:
+
+    - `Authorization: Bearer <token>`
+    - `X-API-Key: afrp_...`
+
+    Create a long-lived key while signed in (`POST /api/auth/keys` or the home page).
+    The raw key is returned once. `POST /api/auth/token` trades a username and
+    password for a token that lasts 12 hours.
+
+    `GET /api` lists only the commands the signed-in user may call.
+servers:
+  - url: /
+tags:
+  - name: Auth
+  - name: Seating
+  - name: Campaigns
+  - name: Badges
+  - name: Magazine
+  - name: Events
+paths:
+  /api/auth/token:
+    post:
+      tags: [Auth]
+      summary: Create a 12-hour access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordLogin"
+      responses:
+        "200":
+          description: Token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessToken"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/auth/keys:
+    get:
+      tags: [Auth]
+      summary: List your API keys
+      description: Prefixes only. The raw key is never returned again.
+      responses:
+        "200":
+          description: Active keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiKey"
+    post:
+      tags: [Auth]
+      summary: Create an API key
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: laptop
+      responses:
+        "201":
+          description: The key field is shown only in this response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ApiKey"
+                  - type: object
+                    required: [key]
+                    properties:
+                      key:
+                        type: string
+                        example: afrp_...
+  /api/auth/keys/{key_id}:
+    delete:
+      tags: [Auth]
+      summary: Revoke an API key
+      parameters:
+        - $ref: "#/components/parameters/KeyId"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/Error"
+  /api:
+    get:
+      tags: [Auth]
+      summary: List commands you can call
+      responses:
+        "200":
+          description: Filtered command list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth:
+                    type: string
+                  token_url:
+                    type: string
+                  openapi_url:
+                    type: string
+                  commands:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Command"
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+  /api/seating/events:
+    get:
+      tags: [Seating]
+      summary: Events with seating charts
+      responses:
+        "200":
+          description: Main events and sub-events that have tables
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SeatingEvent"
+  /api/seating/{event_id}:
+    get:
+      tags: [Seating]
+      summary: Seating board
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+        - name: contact_id
+          in: query
+          schema:
+            type: string
+          description: Marks that person's current table.
+        - name: sketch
+          in: query
+          schema:
+            type: string
+            enum: ["1"]
+          description: Skip the reservation list so the floor plan returns faster.
+      responses:
+        "200":
+          description: Layout plus live tables
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatingBoard"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/seating/{event_id}/guests:
+    get:
+      tags: [Seating]
+      summary: Search guests on a sub-event
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching people
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  guests:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Guest"
+  /api/seating/{event_id}/questions:
+    get:
+      tags: [Seating]
+      summary: Meal questions for a banquet
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+        - name: contact_id
+          in: query
+          schema:
+            type: string
+        - name: from_event_id
+          in: query
+          schema:
+            type: string
+          description: Prefill answers from this banquet when the question is the same kind.
+      responses:
+        "200":
+          description: Questions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  questions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Question"
+  /api/seating/{event_id}/assign:
+    post:
+      tags: [Seating]
+      summary: Move one person on this banquet
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact_id, table_id]
+              properties:
+                contact_id:
+                  type: string
+                table_id:
+                  type: string
+      responses:
+        "200":
+          description: Updated board
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatingBoard"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/seating/{event_id}/assign-batch:
+    post:
+      tags: [Seating]
+      summary: Move several people, including across banquets of one convention
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [moves]
+              properties:
+                moves:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/SeatMove"
+      responses:
+        "200":
+          description: All moves applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatMoveResult"
+        "400":
+          description: Stopped at the first failure. Earlier moves stay applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeatMoveResult"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/campaigns/open:
+    get:
+      tags: [Campaigns]
+      summary: Open conventions
+      responses:
+        "200":
+          description: Campaigns the user may open
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaigns:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  access:
+                    type: object
+                    additionalProperties: true
+  /api/campaigns/{campaign_id}/sub-events:
+    get:
+      tags: [Campaigns]
+      summary: Sub-events of a convention
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Sub-events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sub_events:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+  /api/badges/meal-options:
+    get:
+      tags: [Badges]
+      summary: Meal questions detected for badge printing
+      parameters:
+        - name: campaign_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Meal options
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/badge-templates:
+    get:
+      tags: [Badges]
+      summary: List badge templates
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BadgeTemplate"
+    post:
+      tags: [Badges]
+      summary: Create a badge template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadgeTemplateWrite"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadgeTemplate"
+        "400":
+          $ref: "#/components/responses/Error"
+  /api/badge-templates/{template_id}:
+    get:
+      tags: [Badges]
+      summary: Get a badge template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadgeTemplate"
+    put:
+      tags: [Badges]
+      summary: Update a badge template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadgeTemplateWrite"
+      responses:
+        "200":
+          description: Updated
+    delete:
+      tags: [Badges]
+      summary: Delete a badge template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Deleted
+  /api/badge-templates/{template_id}/duplicate:
+    post:
+      tags: [Badges]
+      summary: Duplicate a badge template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Copy
+  /api/preprocessing-templates:
+    get:
+      tags: [Badges]
+      summary: List preprocessing templates
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+    post:
+      tags: [Badges]
+      summary: Create a preprocessing template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Created
+  /api/preprocessing-templates/{template_id}:
+    get:
+      tags: [Badges]
+      summary: Get a preprocessing template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Template
+    put:
+      tags: [Badges]
+      summary: Update a preprocessing template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Updated
+    delete:
+      tags: [Badges]
+      summary: Delete a preprocessing template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Deleted
+  /api/preprocessing-templates/{template_id}/duplicate:
+    post:
+      tags: [Badges]
+      summary: Duplicate a preprocessing template
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "200":
+          description: Copy
+  /api/avery-templates:
+    get:
+      tags: [Badges]
+      summary: Avery label sizes
+      responses:
+        "200":
+          description: Sizes
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/badge-backgrounds:
+    get:
+      tags: [Badges]
+      summary: Badge background images
+      responses:
+        "200":
+          description: Backgrounds
+  /api/badge-backgrounds/upload:
+    post:
+      tags: [Badges]
+      summary: Upload a badge background
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Uploaded
+  /api/badge-backgrounds/{background_id}:
+    delete:
+      tags: [Badges]
+      summary: Delete a badge background
+      parameters:
+        - name: background_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+  /api/badge-logos/upload:
+    post:
+      tags: [Badges]
+      summary: Upload a club logo
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Uploaded
+  /api/badges/pull-and-process:
+    post:
+      tags: [Badges]
+      summary: Pull CRM guests and preprocess them
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadgeJobRequest"
+      responses:
+        "200":
+          description: Processed file info
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/badges/generate:
+    post:
+      tags: [Badges]
+      summary: Generate a badge PDF from an already processed file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [excel_file, template_id]
+              properties:
+                excel_file:
+                  type: string
+                template_id:
+                  type: integer
+                preprocessingTemplateId:
+                  type: integer
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /api/badges/generate-async:
+    post:
+      tags: [Badges]
+      summary: Start badge generation and return a job id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_id]
+              properties:
+                template_id:
+                  type: integer
+                excel_file:
+                  type: string
+      responses:
+        "200":
+          description: Job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStarted"
+  /api/badges/pull-process-generate:
+    post:
+      tags: [Badges]
+      summary: Pull, process, and generate badges in this request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadgeJobRequest"
+      responses:
+        "200":
+          description: PDF file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /api/badges/pull-process-generate-async:
+    post:
+      tags: [Badges]
+      summary: Start pull, process, and generate in the background
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BadgeJobRequest"
+      responses:
+        "200":
+          description: Job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStarted"
+  /api/badges/jobs/{job_id}:
+    get:
+      tags: [Badges]
+      summary: Badge job status
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BadgeJob"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/badges/jobs/{job_id}/download:
+    get:
+      tags: [Badges]
+      summary: Download a finished badge PDF
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/schedules:
+    get:
+      tags: [Magazine]
+      summary: List magazine download schedules
+      responses:
+        "200":
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Schedule"
+    post:
+      tags: [Magazine]
+      summary: Create a magazine download schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleWrite"
+      responses:
+        "200":
+          description: Created
+        "400":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Magazine]
+      summary: Delete a magazine download schedule
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /event:
+    post:
+      tags: [Events]
+      summary: Build private event URLs from a CRM link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [crmUrl]
+              properties:
+                crmUrl:
+                  type: string
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                crmUrl:
+                  type: string
+      responses:
+        "200":
+          description: URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_url:
+                    type: string
+                  summary_url:
+                    type: string
+        "400":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key (`afrp_...`) or 12-hour access token.
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    EventId:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Dynamics campaign id of the sub-event.
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    TemplateId:
+      name: template_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    PasswordLogin:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    AccessToken:
+      type: object
+      properties:
+        token_type:
+          type: string
+          example: Bearer
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+          example: 43200
+    ApiKey:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+    Me:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+          nullable: true
+        is_admin:
+          type: boolean
+        role:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+    Command:
+      type: object
+      properties:
+        id:
+          type: string
+        method:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+    SeatingEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        children:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+    Guest:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+    Person:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        table_id:
+          type: string
+    SeatingTable:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        number:
+          type: integer
+          nullable: true
+        chairs:
+          type: integer
+        seated:
+          type: integer
+        open_seats:
+          type: integer
+          nullable: true
+        kind:
+          type: string
+          description: general, afrp, board, sponsor, local, leadership, vip, head, guest, emergency, or other
+        kind_label:
+          type: string
+        kind_detail:
+          type: string
+        available:
+          type: boolean
+        current:
+          type: boolean
+        people:
+          type: array
+          items:
+            $ref: "#/components/schemas/Person"
+    SeatingBoard:
+      type: object
+      properties:
+        live:
+          type: boolean
+          description: False for sketch=1, before guest counts are loaded.
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/SeatingTable"
+        layout:
+          type: object
+          properties:
+            width:
+              type: integer
+            height:
+              type: integer
+            tables:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            landmarks:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+    Question:
+      type: object
+      properties:
+        id:
+          type: string
+        question:
+          type: string
+        choices:
+          type: array
+          items:
+            type: string
+        multiline:
+          type: boolean
+        answer:
+          type: string
+    Answer:
+      type: object
+      required: [question_id, response]
+      properties:
+        question_id:
+          type: string
+        response:
+          type: string
+    SeatMove:
+      type: object
+      required: [contact_id, table_id]
+      properties:
+        contact_id:
+          type: string
+        table_id:
+          type: string
+        from_event_id:
+          type: string
+        to_event_id:
+          type: string
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Answer"
+    SeatMoveResult:
+      type: object
+      properties:
+        applied:
+          type: array
+          items:
+            type: string
+        failed_contact_id:
+          type: string
+          nullable: true
+        error:
+          type: string
+    BadgeTemplate:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+    BadgeTemplateWrite:
+      type: object
+      required: [name, column_mappings]
+      properties:
+        name:
+          type: string
+        column_mappings:
+          type: object
+          additionalProperties: true
+        club_logo_filename:
+          type: string
+        avery_template:
+          type: string
+          example: "5392"
+        background_id:
+          type: string
+        show_outlines:
+          type: boolean
+        element_layout:
+          type: object
+          additionalProperties: true
+        display_name_config:
+          type: object
+          additionalProperties: true
+    BadgeJobRequest:
+      type: object
+      required: [template_id, campaign_id]
+      properties:
+        template_id:
+          type: integer
+        campaign_id:
+          type: string
+        campaign_name:
+          type: string
+        event:
+          type: string
+        subEvent:
+          type: string
+        preprocessingTemplateId:
+          type: integer
+    JobStarted:
+      type: object
+      properties:
+        job_id:
+          type: string
+    BadgeJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+        phase:
+          type: string
+        message:
+          type: string
+        current:
+          type: integer
+        total:
+          type: integer
+        percent:
+          type: integer
+        error:
+          type: string
+          nullable: true
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: integer
+        frequency:
+          type: string
+        time:
+          type: string
+          example: "09:30 AM"
+        day_of_week:
+          type: string
+          nullable: true
+        day_of_month:
+          type: integer
+          nullable: true
+        active:
+          type: boolean
+    ScheduleWrite:
+      type: object
+      required: [frequency, time]
+      properties:
+        frequency:
+          type: string
+        time:
+          type: string
+          description: HH:MM AM/PM
+          example: "09:30 AM"
+        day_of_week:
+          type: string
+        day_of_month:
+          type: integer
+security:
+  - bearerAuth: []
+  - apiKeyHeader: []

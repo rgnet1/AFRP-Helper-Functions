@@ -269,20 +269,15 @@
             margin-bottom: 15px;
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-    <header>
-        <h1><i class="fas fa-users"></i> User Management</h1>
-        <div class="header-actions">
-            <span style="color: white;">Welcome, {{ current_user.username }}</span>
-            <a href="{{ url_for('home') }}" class="btn btn-secondary">
-                <i class="fas fa-home"></i> Home
-            </a>
-            <a href="{{ url_for('logout') }}" class="btn btn-secondary">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </a>
-        </div>
-    </header>
+    {% set page_title = "User Management" %}
+    {% set header_actions %}
+        <span>Welcome, {{ current_user.username }}</span>
+        <a href="{{ url_for('logout') }}" class="app-home">Logout</a>
+    {% endset %}
+    {% include "_app_header.html" %}
 
     <div class="container">
         <div class="user-info">
@@ -590,5 +585,6 @@
             });
         }
     </script>
+    {% include "_app_footer.html" %}
 </body>
 </html>

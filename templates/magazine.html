@@ -335,12 +335,14 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-    <header>
-        <div id="datetime" style="position: absolute; left: 20px; top: 50%; transform: translateY(-50%); font-size: 14px;"></div>
-        <h1>Magazine Downloader</h1>
-    </header>
+    {% set page_title = "Magazine Downloader" %}
+    {% set header_actions %}
+        <span id="datetime" style="font-size: 14px;"></span>
+    {% endset %}
+    {% include "_app_header.html" %}
 
     <div class="container">
         <div class="button-container">
@@ -733,5 +735,6 @@
             }
         }
     </script>
+    {% include "_app_footer.html" %}
 </body>
 </html>

@@ -1,0 +1,112 @@
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    color: #1c1c1e;
+    background: #f2f2f7;
+}
+
+header.app-header,
+footer.app-footer {
+    flex-shrink: 0;
+    background: rgba(249, 249, 249, 0.72);
+    color: #1c1c1e;
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    position: relative;
+    backdrop-filter: blur(24px) saturate(1.8);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8);
+}
+
+header.app-header {
+    border-bottom: 0.5px solid rgba(60, 60, 67, 0.18);
+}
+
+header.app-header h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    color: #1c1c1e;
+    line-height: 1.2;
+}
+
+.app-header-actions,
+header.app-header .user-menu {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 4px;
+    color: #1c1c1e;
+}
+
+header.app-header .user-info,
+header.app-header .user-menu span {
+    color: #1c1c1e;
+}
+
+header.app-header a.app-home,
+footer.app-footer a.app-home,
+header.app-header .user-menu a {
+    color: #007aff;
+    text-decoration: none;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-size: 17px;
+    font-weight: 400;
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    padding: 6px 8px;
+    white-space: nowrap;
+}
+
+header.app-header a.app-home:hover,
+footer.app-footer a.app-home:hover,
+header.app-header .user-menu a:hover {
+    background: rgba(0, 122, 255, 0.08);
+}
+
+header.app-header a.app-home:active,
+footer.app-footer a.app-home:active,
+a.tile:active,
+.tile:active {
+    transform: scale(0.97);
+}
+
+.card:not(.side),
+a.tile,
+.tile,
+.stat,
+.api-keys,
+.group-card,
+section.card.side {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    border: 0.5px solid rgba(255, 255, 255, 0.8);
+    border-radius: 22px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
+}
+
+a.tile,
+.tile {
+    border-radius: 28px;
+}
+
+a.tile:hover,
+.tile:hover {
+    transform: scale(1.02);
+}
+
+footer.app-footer {
+    justify-content: flex-end;
+    margin-top: auto;
+    border-top: 0.5px solid rgba(60, 60, 67, 0.18);
+}

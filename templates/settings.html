@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Settings - AFRP CRM Helper</title>
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/favicons/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicons/favicon-32x32.png') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
+    <style>
+        body { margin: 0; background: #eef2f3; color: #1c241c; }
+        .settings { width: min(1100px, calc(100% - 32px)); margin: 24px auto 0; }
+        .api-keys {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px 24px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.06);
+            font-family: Arial, sans-serif;
+            margin-bottom: 28px;
+        }
+        .api-keys h2 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
+        .api-keys p, .api-keys li { font-size: 14px; line-height: 1.4; }
+        .api-keys code { background: #f4f7f4; padding: 2px 6px; border-radius: 4px; }
+        .api-key-once { background: #f7f3e8; padding: 10px 12px; border-radius: 8px; overflow-wrap: anywhere; }
+        .api-key-create { display: flex; gap: 8px; margin: 12px 0; }
+        .api-key-create input { flex: 1; padding: 8px 10px; border: 1px solid #c9d4c9; border-radius: 8px; }
+        .api-key-create button, .api-keys li button {
+            background: #3d7a3d; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; cursor: pointer;
+        }
+        .api-keys ul { list-style: none; padding: 0; margin: 0; }
+        .api-keys li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid #e2e8e2; }
+        .api-keys li form { margin: 0; }
+        .api-keys li button { background: #8a3b3b; }
+    </style>
+</head>
+<body>
+    {% set page_title = "Settings" %}
+    {% include "_app_header.html" %}
+    <main class="settings">
+        {% if current_user.is_admin %}
+        <section class="api-keys" id="api-keys">
+            <h2>API keys</h2>
+            <p>Use a key as <code>Authorization: Bearer afrp_…</code> or <code>X-API-Key</code>. The full key is shown once. <a href="/docs">API docs</a> describe every route.</p>
+            {% if new_api_key %}
+            <p class="api-key-once"><strong>{{ new_api_key_name }}:</strong> <code>{{ new_api_key }}</code></p>
+            {% endif %}
+            <form method="POST" action="{{ url_for('account_api_key_create') }}" class="api-key-create">
+                <input type="text" name="name" placeholder="Name, such as laptop" maxlength="80">
+                <button type="submit">Create key</button>
+            </form>
+            {% if api_keys %}
+            <ul>
+                {% for key in api_keys %}
+                <li>
+                    <span>{{ key.name }} · {{ key.prefix }}…</span>
+                    <form method="POST" action="{{ url_for('account_api_key_revoke', key_id=key.id) }}">
+                        <button type="submit">Revoke</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p>No keys yet.</p>
+            {% endif %}
+        </section>
+        {% endif %}
+        {% if current_user.is_admin %}
+        {% include "_users_admin.html" %}
+        {% endif %}
+    </main>
+    {% include "_app_footer.html" %}
+</body>
+</html>

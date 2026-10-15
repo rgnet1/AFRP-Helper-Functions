@@ -404,6 +404,8 @@
     </style>
 </head>
 <body>
+    {% set page_title = "Preprocessing Template Designer" %}
+    {% include "_app_header.html" %}
     <div class="container">
         <div class="header">
             <h1><i class="fas fa-tools"></i> Preprocessing Template Designer</h1>
@@ -794,5 +796,6 @@
             }, 3000);
         }
     </script>
+    {% include "_app_footer.html" %}
 </body>
 </html>

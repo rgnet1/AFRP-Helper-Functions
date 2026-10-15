@@ -116,11 +116,11 @@
             document.getElementById('radius-value').innerText = 'Radius: ' + value + '%';
         }
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-    <header>
-        <h1>QR Code Generator</h1>
-    </header>
+    {% set page_title = "QR Code Generator" %}
+    {% include "_app_header.html" %}
     
     <div class="container">
         <form method="post" enctype="multipart/form-data">
@@ -147,5 +147,6 @@
 
         <a href="/" class="back-button">← Back to Home</a>
     </div>
+    {% include "_app_footer.html" %}
 </body>
 </html>

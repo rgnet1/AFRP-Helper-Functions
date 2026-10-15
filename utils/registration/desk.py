@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
+import re
 import secrets
+import unicodedata
 from datetime import date
+from difflib import SequenceMatcher
 from typing import Dict, List, Optional
 from urllib.parse import quote as url_quote
 
@@ -93,6 +97,269 @@ def _choice_labels(raw) -> list:
     else:
         parts = [text]
     return [part.strip() for part in parts if part and part.strip()]
+
+
+# Meal and allergy questions stay paired when the banquet renames them
+# ("meal preference" / "dinner entree", "food allergies" / "dietary restrictions").
+# A score under this line is a different question, so its answer is not copied.
+_QUESTION_THRESHOLD = 0.62
+_CHOICE_THRESHOLD = 0.7
+_MEAL_WORDS = frozenset({
+    "meal", "meals", "dinner", "dinners", "entree", "entrees", "dish", "dishes",
+    "menu", "menus", "cuisine", "lunch", "lunches", "supper", "breakfast", "brunch",
+})
+_ALLERGY_WORDS = frozenset({
+    "allergy", "allergies", "allergic", "allergen", "allergens", "dietary", "diet",
+    "diets", "restriction", "restrictions", "intolerance", "intolerances",
+    "intolerant", "sensitivity", "sensitivities",
+})
+_PREFERENCE_WORDS = frozenset({
+    "preference", "preferences", "choice", "choices", "option", "options",
+    "selection", "selections", "select", "choose",
+})
+_CHILD_WORDS = frozenset({"child", "children", "kid", "kids", "youth", "youths"})
+_SYNONYM_GROUPS = (
+    ("meal", _MEAL_WORDS),
+    ("allergy", _ALLERGY_WORDS),
+    ("preference", _PREFERENCE_WORDS),
+    ("child", _CHILD_WORDS),
+)
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "of", "to", "for", "in", "on", "at", "by",
+    "is", "are", "was", "were", "be", "been", "being", "am",
+    "do", "does", "did", "have", "has", "had", "having",
+    "you", "your", "yours", "we", "our", "ours", "us", "i", "my", "me",
+    "any", "some", "this", "that", "these", "those", "there",
+    "what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+    "please", "should", "would", "could", "will", "can", "may", "if",
+    "with", "about", "from", "into", "aware", "it", "its", "also",
+    "let", "know", "list", "describe", "explain", "provide", "enter",
+    "tell", "share", "specify", "include", "indicate", "additional",
+    "other", "others", "need", "needed", "needs",
+})
+
+
+def _normalize_words(text: str) -> str:
+    """Lowercase, drop punctuation, and collapse whitespace."""
+    folded = unicodedata.normalize("NFKD", text or "")
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    cleaned = re.sub(r"[^\w\s]", " ", folded.lower())
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _meaningful_tokens(text: str) -> list:
+    return [
+        token for token in _normalize_words(text).split()
+        if len(token) > 1 and token not in _STOP_WORDS
+    ]
+
+
+def _concepts(text: str) -> set:
+    found = set()
+    for token in _meaningful_tokens(text):
+        grouped = False
+        for name, group in _SYNONYM_GROUPS:
+            if token in group:
+                found.add(name)
+                grouped = True
+                break
+        if not grouped:
+            found.add(token)
+    return found
+
+
+def _question_kind(text: str) -> str:
+    tokens = set(_meaningful_tokens(text))
+    if tokens & _ALLERGY_WORDS:
+        return "allergy"
+    if tokens & _MEAL_WORDS:
+        return "meal"
+    return ""
+
+
+def _jaccard(left: set, right: set) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def _question_score(left: str, right: str) -> float:
+    """How likely these two prompts are the same kind of question."""
+    jaccard = _jaccard(_concepts(left), _concepts(right))
+    sequence = SequenceMatcher(None, _normalize_words(left), _normalize_words(right)).ratio()
+    left_kind = _question_kind(left)
+    right_kind = _question_kind(right)
+    if left_kind and right_kind and left_kind != right_kind:
+        base = min(jaccard, 0.35)
+    elif left_kind and right_kind:
+        base = 0.42 + (0.58 * jaccard)
+    elif left_kind or right_kind:
+        base = jaccard if jaccard >= 0.8 else min(jaccard, 0.35)
+    else:
+        base = max(jaccard, sequence)
+    return base + (0.001 * sequence)
+
+
+def _choice_score(answer: str, choice: str) -> float:
+    if _normalize_words(answer) == _normalize_words(choice):
+        return 1.0
+    left = _concepts(answer)
+    right = _concepts(choice)
+    overlap = len(left & right) if left and right else 0
+    sequence = SequenceMatcher(
+        None, _normalize_words(answer), _normalize_words(choice)
+    ).ratio()
+    if not overlap:
+        return sequence if sequence >= 0.9 else 0.0
+    jaccard = overlap / len(left | right)
+    containment = overlap / min(len(left), len(right))
+    return max(jaccard, 0.92 * containment, sequence)
+
+
+def _choice_for_answer(answer: str, choices: list):
+    """Return the offered choice to select, and a note when none is close."""
+    text = re.sub(r"\s+", " ", (answer or "")).strip()
+    if not text:
+        return "", ""
+    if not choices:
+        return text, ""
+    for choice in choices:
+        if _normalize_words(choice) == _normalize_words(text):
+            return choice, ""
+    best = ""
+    best_score = 0.0
+    for choice in choices:
+        score = _choice_score(text, choice)
+        if score > best_score or (score == best_score and best and len(choice) < len(best)):
+            best_score = score
+            best = choice
+    if best and best_score >= _CHOICE_THRESHOLD:
+        return best, ""
+    return "", text
+
+
+def _assign_question_pairs(scores: list, threshold: float) -> Dict[int, int]:
+    """One source per destination. The pairing is the one with the highest total."""
+    if not scores or not scores[0]:
+        return {}
+    dest_count = len(scores)
+    source_count = len(scores[0])
+    if min(dest_count, source_count) > 12:
+        return _greedy_question_pairs(scores, threshold)
+    if source_count <= dest_count:
+        return _mask_question_pairs(scores, threshold)
+    transposed = [
+        [scores[dest][source] for dest in range(dest_count)]
+        for source in range(source_count)
+    ]
+    flipped = _mask_question_pairs(transposed, threshold)
+    return {dest: source for source, dest in flipped.items()}
+
+
+def _mask_question_pairs(scores: list, threshold: float) -> Dict[int, int]:
+    dest_count = len(scores)
+    source_count = len(scores[0])
+    width = 1 << source_count
+    negative = -1e9
+    score_at = [[negative] * width for _ in range(dest_count + 1)]
+    picked = [[-2] * width for _ in range(dest_count + 1)]
+    score_at[0][0] = 0.0
+    for dest in range(dest_count):
+        row = scores[dest]
+        for mask in range(width):
+            current = score_at[dest][mask]
+            if current <= negative / 2:
+                continue
+            if current > score_at[dest + 1][mask]:
+                score_at[dest + 1][mask] = current
+                picked[dest + 1][mask] = -1
+            for source in range(source_count):
+                bit = 1 << source
+                if mask & bit:
+                    continue
+                weight = row[source]
+                if weight < threshold:
+                    continue
+                nxt = mask | bit
+                total = current + weight
+                if total > score_at[dest + 1][nxt]:
+                    score_at[dest + 1][nxt] = total
+                    picked[dest + 1][nxt] = source
+    best_mask = 0
+    best_score = score_at[dest_count][0]
+    for mask in range(1, width):
+        if score_at[dest_count][mask] > best_score:
+            best_score = score_at[dest_count][mask]
+            best_mask = mask
+    assignment: Dict[int, int] = {}
+    mask = best_mask
+    for dest in range(dest_count, 0, -1):
+        source = picked[dest][mask]
+        if source is None or source < -1:
+            break
+        if source >= 0:
+            assignment[dest - 1] = source
+            mask &= ~(1 << source)
+    return assignment
+
+
+def _greedy_question_pairs(scores: list, threshold: float) -> Dict[int, int]:
+    edges = []
+    for dest, row in enumerate(scores):
+        for source, weight in enumerate(row):
+            if weight >= threshold:
+                edges.append((weight, dest, source))
+    edges.sort(key=lambda item: (-item[0], item[1], item[2]))
+    used_dest = set()
+    used_source = set()
+    assignment: Dict[int, int] = {}
+    for _weight, dest, source in edges:
+        if dest in used_dest or source in used_source:
+            continue
+        used_dest.add(dest)
+        used_source.add(source)
+        assignment[dest] = source
+    return assignment
+
+
+def carry_question_answers(source_questions, destination_questions) -> list:
+    """Copy each saved source answer onto one blank destination question of the same kind.
+
+    The prompts do not have to use the same words. Each source answer is used
+    once, for the destination it fits best. Choice lists keep an offered
+    choice; when nothing offered is close, the answer stays blank and
+    previous_answer records what was saved before.
+    """
+    carried = []
+    for row in destination_questions or []:
+        copied = dict(row)
+        copied.pop("previous_answer", None)
+        carried.append(copied)
+    open_indexes = [
+        index for index, row in enumerate(carried)
+        if not (row.get("answer") or "").strip() and (row.get("question") or "").strip()
+    ]
+    sources = [
+        row for row in (source_questions or [])
+        if (row.get("answer") or "").strip() and (row.get("question") or "").strip()
+    ]
+    if not open_indexes or not sources:
+        return carried
+    scores = [
+        [
+            _question_score(carried[index].get("question") or "", source.get("question") or "")
+            for source in sources
+        ]
+        for index in open_indexes
+    ]
+    for dest_slot, source_slot in _assign_question_pairs(scores, _QUESTION_THRESHOLD).items():
+        dest = carried[open_indexes[dest_slot]]
+        source_answer = (sources[source_slot].get("answer") or "").strip()
+        matched, previous = _choice_for_answer(source_answer, dest.get("choices") or [])
+        dest["answer"] = matched
+        if previous:
+            dest["previous_answer"] = previous
+    return carried
 
 
 def _crm_date(value) -> Optional[date]:
@@ -412,12 +679,66 @@ class RegistrationDesk:
         questions.sort(key=lambda item: (item["order"], item["question"]))
         return {"questions": questions, "tables": self.live_tables(event_id, contact_id)}
 
-    def live_tables(self, event_id: str, contact_id: str = "") -> list:
+    def event_questions(self, event_id: str, contact_id: str = "") -> list:
+        """Questions for one sub-event. Saved answers match on question id, not wording."""
+        question_rows = self.crm._make_request(
+            "aha_eventformquestionses?$select=aha_eventformquestionsid,aha_newcolumn,"
+            "aha_choicelabels,aha_questiontype,aha_isrequiredquestion,aha_ismultilinetext,"
+            "aha_displayorder"
+            f"&$filter={url_quote(f'_aha_campaign_value eq {event_id}')}&$top=50"
+        ).get("value") or []
+        answers = {}
+        contact_id = (contact_id or "").strip()
+        if contact_id:
+            response_rows = self.crm._make_request(
+                "aha_eventformresponseses?$select=aha_guestresponse,_aha_formquestion_value"
+                "&$filter="
+                + url_quote(
+                    f"_aha_contact_value eq {contact_id} and _aha_campaign_value eq {event_id}"
+                )
+                + "&$top=50"
+            ).get("value") or []
+            for row in response_rows:
+                question_key = (row.get("_aha_formquestion_value") or "").lower()
+                if question_key:
+                    answers[question_key] = row.get("aha_guestresponse") or ""
+        formatted = "@OData.Community.Display.V1.FormattedValue"
+        questions = []
+        for row in question_rows:
+            text = (row.get("aha_newcolumn") or "").strip()
+            question_id = row.get("aha_eventformquestionsid")
+            if not text or not question_id:
+                continue
+            questions.append({
+                "id": question_id,
+                "question": text,
+                "choices": _choice_labels(row.get("aha_choicelabels")),
+                "required": bool(row.get("aha_isrequiredquestion")),
+                "multiline": bool(row.get("aha_ismultilinetext")),
+                "order": row.get("aha_displayorder") or 0,
+                "type": row.get(f"aha_questiontype{formatted}") or "",
+                "answer": answers.get(str(question_id).lower(), ""),
+            })
+        questions.sort(key=lambda item: (item["order"], item["question"]))
+        return questions
+
+    def questions_for_move(self, event_id: str, contact_id: str = "", from_event_id: str = "") -> list:
+        """Destination questions, with blank answers filled from the banquet being left."""
+        questions = self.event_questions(event_id, contact_id)
+        source_id = (from_event_id or "").strip()
+        if not source_id or source_id.lower() == (event_id or "").strip().lower():
+            return questions
+        source = self.event_questions(source_id, contact_id)
+        return carry_question_answers(source, questions)
+
+    def live_tables(self, event_id: str, contact_id: str = "", include_people: bool = False, with_reservations: bool = True) -> list:
         """Tables for one event with a live seat count, not the delayed rollup.
 
         Occupancy is the number of active reservations. A VIP or reserved table
         stays selectable for staff while it has an open chair. A full table is
-        not, except the contact's own current seat.
+        not, except the contact's own current seat. Names come from that same
+        reservation list when include_people is set, so the chart does not
+        ask Dynamics twice.
         """
         table_rows = self.crm._make_request(
             "aha_seatingtables?$select=aha_seatingtableid,aha_name,aha_numberofchairs,"
@@ -425,11 +746,26 @@ class RegistrationDesk:
             f"&$filter={url_quote(f'_aha_event_value eq {event_id} and statecode eq 0')}"
             "&$top=200"
         ).get("value") or []
-        reservations = self.crm._paginate(
-            "aha_tablereservations?$select=_aha_table_value,_aha_contact_value"
-            f"&$filter={url_quote(f'_aha_event_value eq {event_id} and statecode eq 0')}"
-        )
+        reservations = []
+        if with_reservations:
+            reservation_filter = url_quote(f"_aha_event_value eq {event_id} and statecode eq 0")
+            path = (
+                "aha_tablereservations?$select=_aha_table_value,_aha_contact_value"
+                f"&$filter={reservation_filter}"
+            )
+            if include_people:
+                path += "&$expand=aha_Contact($select=fullname,emailaddress1)"
+            try:
+                reservations = self.crm._paginate(path)
+            except Exception:
+                if not include_people:
+                    raise
+                reservations = self.crm._paginate(
+                    "aha_tablereservations?$select=_aha_table_value,_aha_contact_value"
+                    f"&$filter={reservation_filter}"
+                )
         seated = {}
+        people = {}
         current_table = ""
         contact_key = (contact_id or "").lower()
         for row in reservations:
@@ -439,6 +775,15 @@ class RegistrationDesk:
             seated[table_key] = seated.get(table_key, 0) + 1
             if contact_key and (row.get("_aha_contact_value") or "").lower() == contact_key:
                 current_table = table_key
+            if include_people:
+                contact = row.get("aha_Contact") or {}
+                people.setdefault(table_key, []).append({
+                    "id": row.get("_aha_contact_value") or "",
+                    "name": contact.get("fullname") or "Guest",
+                    "email": contact.get("emailaddress1") or "",
+                    "table_id": row.get("_aha_table_value") or "",
+                })
+        from utils.registration.seating import table_kind
         tables = []
         for row in table_rows:
             table_id = row.get("aha_seatingtableid")
@@ -448,16 +793,21 @@ class RegistrationDesk:
             taken = seated.get(table_id.lower(), 0)
             current = table_id.lower() == current_table
             open_seats = max(0, chairs - taken) if chairs else None
+            kind = table_kind(row.get("aha_name") or "")
             tables.append({
                 "id": table_id,
                 "name": row.get("aha_name") or "Table",
                 "number": row.get("crca7_tablenumberint"),
+                "kind": kind["kind"],
+                "kind_label": kind["kind_label"],
+                "kind_detail": kind["kind_detail"],
                 "chairs": chairs,
                 "seated": taken,
                 "open_seats": open_seats,
                 "vip": bool(row.get("aha_isreservedforvips")),
                 "current": current,
                 "available": current or open_seats is None or open_seats > 0,
+                "people": people.get(table_id.lower(), []) if include_people else [],
             })
         tables.sort(key=lambda item: (not item["current"], item["name"]))
         return tables
@@ -663,6 +1013,131 @@ class RegistrationDesk:
             raise RegistrationError(
                 f"{target['name']} was just taken. Choose another table."
             )
+
+    def _active_reservation(self, contact_id: str, event_id: str) -> Optional[dict]:
+        """The one active chair for this person on this sub-event, if they have one."""
+        filt = (
+            f"_aha_contact_value eq {contact_id} and _aha_event_value eq {event_id} "
+            "and statecode eq 0"
+        )
+        rows = self.crm._make_request(
+            "aha_tablereservations?$select=aha_tablereservationid,_aha_table_value"
+            f"&$filter={url_quote(filt)}&$top=1"
+        ).get("value") or []
+        if not rows or not rows[0].get("aha_tablereservationid"):
+            return None
+        return {
+            "id": rows[0].get("aha_tablereservationid") or "",
+            "table_id": rows[0].get("_aha_table_value") or "",
+        }
+
+    def _end_reservation(self, reservation_id: str) -> None:
+        """Take this chair out of the active seating list."""
+        if reservation_id:
+            self._send("DELETE", f"aha_tablereservations({reservation_id})", None)
+
+    def _restore_reservation(self, contact_id: str, event_id: str, table_id: str) -> None:
+        """Put a chair back when the destination claim did not stick."""
+        table_id = (table_id or "").strip()
+        if not table_id:
+            return
+        self._send(
+            "POST",
+            "aha_tablereservations",
+            {
+                "aha_name": "Seat",
+                "aha_Contact@odata.bind": f"/contacts({contact_id})",
+                "aha_Event@odata.bind": f"/campaigns({event_id})",
+                "aha_Table@odata.bind": f"/aha_seatingtables({table_id})",
+            },
+        )
+
+    def _transfer_seat(self, contact_id: str, from_event_id: str, to_event_id: str, table_id: str) -> None:
+        """Leave the source banquet, then claim a chair on the destination banquet.
+
+        The source chair is ended before the destination write, so the person
+        is never seated at both. If the destination claim fails, the source
+        chair is written back.
+        """
+        source = self._active_reservation(contact_id, from_event_id)
+        if source and source.get("id"):
+            self._end_reservation(source["id"])
+        try:
+            self._claim_table(contact_id, to_event_id, table_id)
+        except Exception:
+            if source and source.get("table_id"):
+                try:
+                    self._restore_reservation(contact_id, from_event_id, source["table_id"])
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Could not restore seat for %s on %s", contact_id, from_event_id
+                    )
+            raise
+
+    def apply_seat_moves(self, event_id: str, moves) -> dict:
+        """Move each person, stopping at the first failure.
+
+        A move on one sub-event uses _claim_table. A move between sub-events
+        ends the source chair and claims the destination, then stores that
+        banquet's answers by question id. The same person keeps the last
+        destination in the list. Moves that already succeeded stay written.
+        """
+        if not isinstance(moves, list) or not moves:
+            return {"applied": [], "error": "Choose a person and a table", "failed_contact_id": ""}
+        collapsed: List[dict] = []
+        seen: Dict[str, int] = {}
+        for move in moves:
+            if not isinstance(move, dict):
+                return {"applied": [], "error": "Choose a person and a table", "failed_contact_id": ""}
+            contact_id = (move.get("contact_id") or "").strip()
+            table_id = (move.get("table_id") or "").strip()
+            from_event_id = (move.get("from_event_id") or event_id or "").strip()
+            to_event_id = (move.get("to_event_id") or event_id or "").strip()
+            answers = move.get("answers") if isinstance(move.get("answers"), list) else []
+            entry = {
+                "contact_id": contact_id,
+                "table_id": table_id,
+                "from_event_id": from_event_id,
+                "to_event_id": to_event_id,
+                "answers": answers,
+            }
+            key = contact_id.lower()
+            if key and key in seen:
+                collapsed[seen[key]] = entry
+                continue
+            if key:
+                seen[key] = len(collapsed)
+            collapsed.append(entry)
+        applied: List[str] = []
+        for move in collapsed:
+            contact_id = move["contact_id"]
+            table_id = move["table_id"]
+            from_event_id = move["from_event_id"]
+            to_event_id = move["to_event_id"]
+            if not contact_id or not table_id:
+                return {
+                    "applied": applied,
+                    "error": "Choose a person and a table",
+                    "failed_contact_id": contact_id,
+                }
+            try:
+                if from_event_id.lower() == to_event_id.lower():
+                    self._claim_table(contact_id, to_event_id, table_id)
+                else:
+                    self._transfer_seat(contact_id, from_event_id, to_event_id, table_id)
+                    if move["answers"]:
+                        self.save_signup_details(contact_id, to_event_id, move["answers"], "")
+            except RegistrationError as exc:
+                return {"applied": applied, "error": str(exc), "failed_contact_id": contact_id}
+            except Exception:
+                logging.getLogger(__name__).exception("Seat move failed for %s", contact_id)
+                return {
+                    "applied": applied,
+                    "error": "Could not change the seat",
+                    "failed_contact_id": contact_id,
+                }
+            applied.append(contact_id)
+        return {"applied": applied, "error": "", "failed_contact_id": ""}
 
     def priced_events(self, parent_id: str) -> dict:
         """Cost and merchant account for the parent event and each sub-event."""

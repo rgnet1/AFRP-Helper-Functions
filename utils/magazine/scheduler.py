@@ -260,6 +260,20 @@ class PreprocessingTemplate(db.Model):
         }
 
 
+class ApiKey(db.Model):
+    """A hashed key a person can send instead of a browser login."""
+    __tablename__ = "api_key"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    prefix = db.Column(db.String(16), nullable=False)
+    key_hash = db.Column(db.String(64), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_used_at = db.Column(db.DateTime, nullable=True)
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+
 class User(db.Model, UserMixin):
     """User model for authentication with bcrypt password hashing."""
     __tablename__ = 'user'

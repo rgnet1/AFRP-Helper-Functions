@@ -224,11 +224,11 @@
             display: none;
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-    <header>
-        <h1>Event URL Generator</h1>
-    </header>
+    {% set page_title = "Event URL Generator" %}
+    {% include "_app_header.html" %}
     <div class="container">
         <form id="urlForm">
             <div class="form-group">
@@ -315,5 +315,6 @@
             });
         });
     </script>
+    {% include "_app_footer.html" %}
 </body>
 </html>

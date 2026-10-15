@@ -127,12 +127,11 @@
         .pref h3 { margin: 0 0 10px; font-size: 16px; font-weight: normal; }
         .pref .row { align-items: end; }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/motion.css') }}">
 </head>
 <body>
-<header>
-    <h1>Event registration</h1>
-    <a href="{{ url_for('home') }}">Back home</a>
-</header>
+{% set page_title = "Event registration" %}
+{% include "_app_header.html" %}
 <div class="wrap">
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
@@ -525,5 +524,6 @@ document.getElementById("lookup-form").addEventListener("submit", function (even
     button.querySelector(".label").textContent = "Searching";
 });
 </script>
+{% include "_app_footer.html" %}
 </body>
 </html>

@@ -13,7 +13,60 @@ import requests
 
 RICH_TEXT_FILE = re.compile(r"msdyn_richtextfiles\(([0-9a-fA-F-]{36})\)")
 TABLE_NUMBER = re.compile(r"\d+")
-LAYOUT_VERSION = 12
+LAYOUT_VERSION = 14
+_TABLE_NOTE = re.compile(r"will be removed after dinner", re.IGNORECASE)
+_TABLE_PLACES = {"sf", "houston", "lexington", "phoenix", "brezeit"}
+TABLE_KIND_LABELS = (
+    ("general", "General"),
+    ("afrp", "AFRP Reserved"),
+    ("board", "Board"),
+    ("sponsor", "Sponsor"),
+    ("local", "Local club"),
+    ("leadership", "Leadership"),
+    ("vip", "VIP"),
+    ("head", "Head"),
+    ("guest", "Guest"),
+    ("emergency", "Emergency"),
+)
+
+
+def table_kind(name: str) -> dict:
+    """Stable type from the words after the dash, not the CRM role field.
+
+    A city or club name wins over AFRP, so "AFRP/Phoenix Reserved" is a local
+    club table. "Will be removed after dinner" is a note, not a type.
+    """
+    raw = (name or "").strip()
+    suffix = " - ".join(part.strip() for part in raw.split(" - ")[1:]).strip()
+    cleaned = _TABLE_NOTE.sub(" ", suffix)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+    tokens = set(re.findall(r"[a-z0-9]+", cleaned.lower()))
+    if "head" in raw.lower():
+        kind = "head"
+    elif "emergency" in tokens:
+        kind = "emergency"
+    elif tokens & _TABLE_PLACES:
+        kind = "local"
+    elif "board" in tokens:
+        kind = "board"
+    elif "leadership" in tokens:
+        kind = "leadership"
+    elif tokens & {"sponsor", "sponsors"}:
+        kind = "sponsor"
+    elif "vip" in tokens:
+        kind = "vip"
+    elif "afrp" in tokens:
+        kind = "afrp"
+    elif tokens & {"guest", "guests"}:
+        kind = "guest"
+    elif cleaned:
+        kind = "other"
+    else:
+        kind = "general"
+    labels = dict(TABLE_KIND_LABELS)
+    label = cleaned if kind == "other" else labels[kind]
+    detail = suffix if suffix and suffix.lower() != label.lower() else ""
+    return {"kind": kind, "kind_label": label, "kind_detail": detail}
 
 
 def rich_text_file_id(html: str) -> str:
@@ -820,6 +873,133 @@ def _head_table(tables: List[dict]):
     return None
 
 
+def _block_text(image, block: dict) -> str:
+    """Words printed inside one grey rectangle, such as Head table or Stage."""
+    if not shutil.which("tesseract"):
+        return ""
+    crop = image.crop((
+        block["x"],
+        block["y"],
+        min(image.size[0], block["x"] + block["w"]),
+        min(image.size[1], block["y"] + block["h"]),
+    ))
+    crop = crop.resize((max(crop.size[0] * 2, 40), max(crop.size[1] * 2, 40)))
+    with tempfile.NamedTemporaryFile(suffix=".png") as handle:
+        crop.save(handle.name)
+        try:
+            result = subprocess.run(
+                ["tesseract", handle.name, "stdout", "--psm", "6"],
+                capture_output=True, text=True, timeout=8, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+    return (result.stdout or "").lower()
+
+
+def _words_for_block(block: dict, text: str, labels: List[dict]) -> str:
+    parts = [text or ""]
+    for label in labels:
+        cx = label["x"] + label["w"] / 2
+        cy = label["y"] + label["h"] / 2
+        if _point_in_block(cx, cy, block):
+            parts.append(label.get("text") or "")
+    return " ".join(parts).lower()
+
+
+def _classify_blocks(blocks: List[dict], texts: List[str], labels: List[dict]):
+    """A rectangle is the head table only when it says so. The others are the stage."""
+    head = None
+    stages = []
+    dances = []
+    for block, text in zip(blocks, texts):
+        words = _words_for_block(block, text, labels)
+        if "head" in words or re.search(r"\btable\b", words):
+            if head is None or block["w"] > head["w"]:
+                if head is not None:
+                    stages.append(head)
+                head = block
+            else:
+                stages.append(block)
+        elif "dance" in words:
+            dances.append(block)
+        else:
+            stages.append(block)
+    return head, stages, dances
+
+
+def _one_row_height(spots: List[dict], stage_h: float) -> int:
+    """Height of one table row. Short, so a head table is not another stage."""
+    numbered = [spot for spot in spots if spot.get("number")]
+    radii = sorted(spot["radius"] for spot in numbered if spot.get("radius"))
+    radius = radii[len(radii) // 2] if radii else 0
+    ys = sorted(spot["cy"] for spot in numbered)
+    floor_gap = max(18, radius * 0.8) if radius else 18
+    ceiling = radius * 5 if radius else 240
+    gaps = [b - a for a, b in zip(ys, ys[1:]) if floor_gap <= b - a <= ceiling]
+    if gaps:
+        height = sorted(gaps)[len(gaps) // 2] * 0.62
+    elif radius:
+        height = radius * 2.2
+    else:
+        height = 90
+    cap = stage_h * 0.45 if stage_h else height
+    return int(max(64, min(height, cap)))
+
+
+def _head_in_front(stages: List[dict], spots: List[dict], width: int, height: int):
+    """A head table the picture does not draw, one row in front of the stage.
+
+    Image y grows downward, so the front of the room is the bottom. The new
+    rectangle starts past the bottom edge of the front grey box. It may extend
+    below the picture; that is stored as a percentage over 100.
+    """
+    numbered = [spot for spot in spots if spot.get("number")]
+    front = sorted(numbered, key=lambda spot: spot["number"])[:8]
+    if stages:
+        # Front of the room is the bottom. On Grand Banquet that box is also
+        # the one beside tables 1–8, so the head row sits in front of it.
+        stage = max(stages, key=lambda block: block["y"] + block["h"])
+        cx = stage["x"] + stage["w"] / 2
+        rect_h = _one_row_height(spots, stage["h"])
+        rect_w = max(160, stage["w"] * 0.86)
+        gap = max(8, int(rect_h * 0.16))
+        top = stage["y"] + stage["h"] + gap
+    elif front:
+        cx = sum(spot["cx"] for spot in front) / len(front)
+        span = max(spot["cx"] for spot in front) - min(spot["cx"] for spot in front)
+        rect_w = max(160, span * 0.45)
+        rect_h = _one_row_height(spots, rect_w)
+        top = max(spot["cy"] for spot in front) + max(8, int(rect_h * 0.16))
+    else:
+        return None
+    if numbered:
+        lowest = max(spot["cy"] for spot in numbered)
+        if top <= lowest:
+            top = lowest + 1
+    rect_w = min(rect_w, width)
+    left = cx - rect_w / 2
+    if left < 0:
+        left = 0
+    if left + rect_w > width:
+        left = max(0, width - rect_w)
+    rect = {
+        "x": int(round(left)),
+        "y": int(round(top)),
+        "w": int(round(rect_w)),
+        "h": int(round(rect_h)),
+    }
+    for _ in range(8):
+        blocked = [
+            spot for spot in numbered
+            if rect["x"] <= spot["cx"] <= rect["x"] + rect["w"]
+            and rect["y"] <= spot["cy"] <= rect["y"] + rect["h"]
+        ]
+        if not blocked:
+            break
+        rect["y"] = int(max(spot["cy"] for spot in blocked) + 1)
+    return rect
+
+
 def _split_odd_even(run: List[dict]) -> List[list]:
     """Grand Banquet puts odds on one side of the floor and evens on the other."""
     if len(run) < 6:
@@ -1019,14 +1199,15 @@ def convert_chart(image_bytes: bytes, tables: List[dict]) -> dict:
     valid = {number for table in tables for number in _numbers_for(table)}
     spots = _fill_runs(spots, valid)
     blocks = _room_blocks(image)
+    with tempfile.NamedTemporaryFile(suffix=".png") as handle:
+        image.save(handle.name)
+        labels = _read_labels(handle.name)
+    texts = [_block_text(image, block) for block in blocks]
+    head_block, stages, dances = _classify_blocks(blocks, texts, labels)
     head = _head_table(tables)
-    head_block = None
-    if head and blocks:
-        wide = [block for block in blocks if block["w"] / max(block["h"], 1) >= 1.7]
-        if wide:
-            head_block = max(wide, key=lambda block: block["y"])
-    dance_blocks = [block for block in blocks if block is not head_block]
-    spots = _add_missing_edge_seats(spots, dance_blocks, width, height)
+    if head and head_block is None:
+        head_block = _head_in_front(stages or dances, spots, width, height)
+    spots = _add_missing_edge_seats(spots, stages + dances, width, height)
     found = []
     seen_numbers = set()
     for spot in spots:
@@ -1059,14 +1240,20 @@ def convert_chart(image_bytes: bytes, tables: List[dict]) -> dict:
         shared = same_table_radius(placed, width, height)
         for row in placed:
             row["r"] = shared
-    with tempfile.NamedTemporaryFile(suffix=".png") as handle:
-        image.save(handle.name)
-        labels = _read_labels(handle.name)
     landmarks = []
-    for block in dance_blocks:
+    for block in dances:
         landmarks.append({
             "kind": "dance",
             "label": "Dance floor",
+            "x": round(100 * block["x"] / width, 2),
+            "y": round(100 * block["y"] / height, 2),
+            "w": round(100 * block["w"] / width, 2),
+            "h": round(100 * block["h"] / height, 2),
+        })
+    for block in stages:
+        landmarks.append({
+            "kind": "stage",
+            "label": "Stage",
             "x": round(100 * block["x"] / width, 2),
             "y": round(100 * block["y"] / height, 2),
             "w": round(100 * block["w"] / width, 2),
@@ -1086,6 +1273,8 @@ def convert_chart(image_bytes: bytes, tables: List[dict]) -> dict:
     for label in labels:
         if "stage" not in (label.get("text") or "").lower():
             continue
+        if any(_point_in_block(label["x"], label["y"], block) for block in stages):
+            continue
         landmarks.append({
             "label": "Stage",
             "x": round(100 * label["x"] / width, 2),
@@ -1103,16 +1292,20 @@ def convert_chart(image_bytes: bytes, tables: List[dict]) -> dict:
     }
 
 
-def saved_layout(event_id: str, token: str) -> Optional[dict]:
+def _read_layout(event_id: str) -> Optional[dict]:
     path = os.path.join(layout_dir(), f"{event_id}.json")
     if not os.path.exists(path):
         return None
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
+            return json.load(handle)
     except (OSError, json.JSONDecodeError):
         return None
-    if data.get("version") != LAYOUT_VERSION or data.get("token") != token:
+
+
+def saved_layout(event_id: str, token: str) -> Optional[dict]:
+    data = _read_layout(event_id)
+    if not data or data.get("version") != LAYOUT_VERSION or data.get("token") != token:
         return None
     return data
 
@@ -1132,6 +1325,10 @@ def store_layout(event_id: str, token: str, layout: dict, image_bytes: bytes = b
 
 
 def ensure_layout(crm, event_id: str, tables: List[dict]) -> dict:
+    """Use the saved floor plan. The picture is read again only when that file is missing."""
+    existing = _read_layout(event_id)
+    if existing and existing.get("version") == LAYOUT_VERSION:
+        return existing
     source = chart_source(crm, event_id)
     if source["token"]:
         existing = saved_layout(event_id, source["token"])
@@ -1269,13 +1466,18 @@ def same_table_radius(placed: List[dict], width: int, height: int) -> float:
     return round(closest * 0.45, 2)
 
 
-def seating_board(desk, event_id: str, contact_id: str = "") -> dict:
-    tables = desk.live_tables(event_id, contact_id)
-    grouped = {}
-    for person in _occupants(desk.crm, event_id):
-        grouped.setdefault((person.get("table_id") or "").lower(), []).append(person)
-    for table in tables:
-        table["people"] = grouped.get(table["id"].lower(), [])
+def seating_board(desk, event_id: str, contact_id: str = "", sketch: bool = False) -> dict:
+    """The saved floor plan plus who is seated.
+
+    A sketch skips the reservation list so the circles can draw before the
+    names come back.
+    """
+    tables = desk.live_tables(
+        event_id,
+        contact_id,
+        include_people=not sketch,
+        with_reservations=not sketch,
+    )
     layout = ensure_layout(desk.crm, event_id, tables)
     placed = [dict(row) for row in (layout.get("tables") or [])]
     if placed and not placed[0].get("r"):
@@ -1292,6 +1494,7 @@ def seating_board(desk, event_id: str, contact_id: str = "") -> dict:
             "landmarks": layout.get("landmarks") or [],
         },
         "unmatched": [table for table in tables if table["id"].lower() not in matched],
+        "live": not sketch,
     }
 
 

@@ -56,7 +56,7 @@ FEATURES = {
 
 ALL_FEATURES_BACKFILL = json.dumps({fid: True for fid in FEATURES})
 
-PUBLIC_PATH_PREFIXES = ("/login", "/setup", "/logout", "/auth/google", "/auth/portal")
+PUBLIC_PATH_PREFIXES = ("/login", "/setup", "/logout", "/auth/google", "/auth/portal", "/api/auth")
 ADMIN_PATH_PREFIX = "/users"
 HOME_PATH = "/"
 
@@ -108,6 +108,8 @@ def feature_for_path(path: str) -> str | None:
 
 def path_is_public(path: str) -> bool:
     if path.startswith("/static"):
+        return True
+    if path in ("/docs", "/openapi.yaml", "/openapi.json"):
         return True
     return any(path == p or path.startswith(p + "/") or path.startswith(p)
                for p in PUBLIC_PATH_PREFIXES if p != "/logout") or path == "/logout"
