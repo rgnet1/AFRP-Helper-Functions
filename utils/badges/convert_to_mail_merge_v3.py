@@ -312,14 +312,14 @@ class EventRegistrationProcessorV3:
         )
 
         for col in table_pivot.columns:
-            # A chair is enough. The person may be signed up for the meeting
-            # and seated at the banquet without a separate banquet registration.
-            if col not in df.columns:
-                df[col] = ''
-            mapped = df['Contact ID'].map(table_pivot[col])
-            values = mapped.astype(str).str.strip()
-            seated = mapped.notna() & values.ne('') & values.str.lower().ne('nan')
-            df.loc[seated, col] = values.loc[seated]
+            event_name = str(col).replace(' ~ Table', '')
+            if event_name not in df.columns:
+                continue
+            registered = df[event_name].notna() & (df[event_name].astype(str).str.strip() != '')
+            if not registered.any():
+                continue
+            mapped = df.loc[registered, 'Contact ID'].map(table_pivot[col])
+            df.loc[registered, col] = mapped.fillna('').astype(str)
 
         logger.info("Table assignment summary:")
         for event in events_with_seating:

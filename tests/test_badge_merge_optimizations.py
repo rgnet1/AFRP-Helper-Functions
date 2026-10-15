@@ -74,22 +74,6 @@ def test_seating_merge_vectorized():
     assert result.loc[result["Contact ID"] == "c2", "Gala ~ Table"].iloc[0] == "15"
 
 
-def test_seat_prints_without_a_banquet_signup():
-    processor = EventRegistrationProcessorV3()
-    base = processor.process_registration_data(_sample_registration_paid())
-    seating = pd.DataFrame(
-        {
-            "Contact ID": ["c2"],
-            "Event": ["Phoenix Grand Banquet"],
-            "Table": ["Table 1"],
-            "Created On": ["2026-10-08"],
-        }
-    )
-    result = processor.add_seating_info(base, seating)
-    seated = result.loc[result["Contact ID"] == "c2", "Phoenix Grand Banquet ~ Table"].iloc[0]
-    assert seated == "Table 1"
-
-
 def test_date_filter_uses_cached_registration_created_on():
     from utils.badges.pre_processing_module import PreprocessingConfig
 
