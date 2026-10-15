@@ -2,12 +2,12 @@
 
 Command-line client for AFRP CRM Helper. It stores a base URL and API key, then calls the HTTP API.
 
-**Version:** 1.6.0
+**Version:** 1.6.1
 
 ## Install
 
 ```bash
-pipx install ./cli
+pipx install "git+https://github.com/rgnet1/AFRP-Helper-Functions.git@cli-v1.6.1#subdirectory=cli"
 ```
 
 ## Setup
@@ -46,7 +46,7 @@ A sign-up or membership that has a price returns `payment_required` unless you p
 
 `afrp update` looks for `cli-vX.Y.Z` tags on GitHub and reinstalls with pipx. `afrp update --check` only prints the versions. `afrp update -y` skips the prompt.
 
-The CLI must already be installed with pipx, and git needs SSH access to the repo (or set `GITHUB_TOKEN`).
+The CLI must already be installed with pipx. Updates install over HTTPS from the public GitHub repo.
 
 Routes without a dedicated command still work:
 

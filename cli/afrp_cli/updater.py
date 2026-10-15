@@ -10,7 +10,7 @@ import subprocess
 from dataclasses import dataclass
 
 CLI_PACKAGE_NAME = "afrp-helper-cli"
-DEFAULT_GIT_SSH = "git@github.com:rgnet1/AFRP-Helper-Functions.git"
+DEFAULT_GIT_URL = "https://github.com/rgnet1/AFRP-Helper-Functions.git"
 GITHUB_REPO = "rgnet1/AFRP-Helper-Functions"
 TAG_RE = re.compile(r"^cli-v(\d+\.\d+\.\d+)$")
 
@@ -33,8 +33,8 @@ def _parse_version(raw: str) -> tuple[int, int, int]:
     return int(parts[0]), int(parts[1]), int(parts[2])
 
 
-def git_ssh_url() -> str:
-    return os.environ.get("AFRP_CLI_GIT_URL", DEFAULT_GIT_SSH).strip() or DEFAULT_GIT_SSH
+def git_clone_url() -> str:
+    return os.environ.get("AFRP_CLI_GIT_URL", DEFAULT_GIT_URL).strip() or DEFAULT_GIT_URL
 
 
 def pipx_available() -> bool:
@@ -73,8 +73,8 @@ def fetch_latest_cli_tag() -> tuple[str, str]:
         tags = _tags_via_gh_cli()
     if not tags:
         raise RuntimeError(
-            "Could not list cli-v* tags. Check SSH access to the repo "
-            f"({git_ssh_url()}) or set GITHUB_TOKEN / install gh."
+            "Could not list cli-v* tags. Check access to "
+            f"{git_clone_url()} or set GITHUB_TOKEN / install gh."
         )
     best_tag, best_ver = max(tags, key=lambda item: _parse_version(item[1]))
     return best_tag, best_ver
@@ -101,7 +101,7 @@ def _tags_via_git_ls_remote() -> list[tuple[str, str]]:
         return []
     try:
         proc = subprocess.run(
-            ["git", "ls-remote", "--tags", git_ssh_url(), "refs/tags/cli-v*"],
+            ["git", "ls-remote", "--tags", git_clone_url(), "refs/tags/cli-v*"],
             check=False,
             capture_output=True,
             text=True,
@@ -174,7 +174,7 @@ def _tags_via_gh_cli() -> list[tuple[str, str]]:
 
 
 def install_spec_for_tag(tag: str) -> str:
-    return f"git+ssh://git@github.com/rgnet1/AFRP-Helper-Functions.git@{tag}#subdirectory=cli"
+    return f"git+https://github.com/rgnet1/AFRP-Helper-Functions.git@{tag}#subdirectory=cli"
 
 
 def run_pipx_install(tag: str) -> None:
