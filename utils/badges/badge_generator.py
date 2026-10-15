@@ -457,6 +457,38 @@ def _parse_svg_attr(attrs: str, name: str, default=None):
     return match.group(1) if match else default
 
 
+def _ensure_svg_fonts_registered() -> None:
+    """Register Arial faces in the process that draws the PDF.
+
+    svglib resolves Arial through fontconfig while a worker parses the SVG.
+    That registration does not survive pickling, so ReportLab raises
+    KeyError: 'Arial-Bold' in the parent and the name layer is skipped.
+    """
+    from reportlab.pdfbase.pdfmetrics import getFont
+    from svglib.fonts import FontMap
+
+    faces = (("Arial", "normal"), ("Arial", "bold"))
+    missing = []
+    for family, weight in faces:
+        internal = FontMap.build_internal_name(family, weight, "normal")
+        try:
+            getFont(internal)
+        except KeyError:
+            missing.append((family, weight, internal))
+    if not missing:
+        return
+    font_map = FontMap()
+    for family, weight, internal in missing:
+        font_map.find_font(family, weight, "normal")
+        try:
+            getFont(internal)
+        except KeyError:
+            logger.warning(
+                "Badge font %s is not registered; names may be omitted from the PDF",
+                internal,
+            )
+
+
 def _reportlab_font_name(font_family: str, font_weight: str) -> str:
     family = (font_family or "Arial").lower().strip()
     bold = str(font_weight or "").lower() in ("bold", "700", "800", "900", "bolder")
@@ -1348,6 +1380,7 @@ class BadgeGenerator:
                                 )
 
             badges_on_current_page = 0
+            _ensure_svg_fonts_registered()
 
             for index, row in self.df.iterrows():
                 # Calculate position on page (index label order must match legacy behavior)
@@ -1368,14 +1401,16 @@ class BadgeGenerator:
                             y / inch,
                         )
                         c.saveState()
-                        c.translate(x, y)
-                        self._draw_badge_background(c, badge_width, badge_height)
-                        self._draw_badge_logos(c, temp_dir)
-                        ox, oy = self._scale_drawing_to_badge(
-                            drawing, badge_width, badge_height
-                        )
-                        renderPDF.draw(drawing, c, ox, oy)
-                        c.restoreState()
+                        try:
+                            c.translate(x, y)
+                            self._draw_badge_background(c, badge_width, badge_height)
+                            self._draw_badge_logos(c, temp_dir)
+                            ox, oy = self._scale_drawing_to_badge(
+                                drawing, badge_width, badge_height
+                            )
+                            renderPDF.draw(drawing, c, ox, oy)
+                        finally:
+                            c.restoreState()
                     else:
                         logger.warning(
                             "No dynamic drawing for badge index=%s; skipping composite",
